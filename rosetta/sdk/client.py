@@ -25,8 +25,10 @@ import httpx
 
 from rosetta.sdk.discover import discover
 from rosetta.server.admin.health import StatusResponse
+from rosetta.server.admin.logs import LogOut
 from rosetta.server.admin.providers import ProviderCreate, ProviderOut
 from rosetta.server.admin.routes import RouteIn, RouteOut
+from rosetta.server.admin.stats import Period, StatsOut
 from rosetta.shared.formats import UPSTREAM_PATH, Format
 
 _DATA_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
@@ -141,6 +143,42 @@ class ProxyClient:
         if not isinstance(items, list):
             raise RuntimeError("PUT /admin/routes 返回非 list")
         return [RouteOut.model_validate(item) for item in items]  # pyright: ignore[reportUnknownVariableType]
+
+    async def list_logs(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        provider: str | None = None,
+    ) -> list[LogOut]:
+        self._require_server("list_logs")
+        params: dict[str, str | int] = {"limit": limit, "offset": offset}
+        if provider:
+            params["provider"] = provider
+        resp = await self.http.get(
+            f"{self.base_url}/admin/logs", params=params, timeout=_ADMIN_TIMEOUT
+        )
+        resp.raise_for_status()
+        items = resp.json()
+        if not isinstance(items, list):
+            raise RuntimeError("GET /admin/logs 返回非 list")
+        return [LogOut.model_validate(item) for item in items]  # pyright: ignore[reportUnknownVariableType]
+
+    async def stats(self, *, period: Period = "today") -> StatsOut:
+        self._require_server("stats")
+        resp = await self.http.get(
+            f"{self.base_url}/admin/stats",
+            params={"period": period},
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return StatsOut.model_validate(resp.json())
+
+    async def shutdown(self) -> None:
+        """请求 server 优雅关闭;response 返回后不等待实际退出。"""
+        self._require_server("shutdown")
+        resp = await self.http.post(f"{self.base_url}/admin/shutdown", timeout=_ADMIN_TIMEOUT)
+        resp.raise_for_status()
 
     # ---------- data plane ----------
 

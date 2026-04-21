@@ -26,7 +26,6 @@ import uvicorn
 
 from rosetta.server.app import create_app
 from rosetta.server.runtime.endpoint import delete_endpoint, read_endpoint, write_endpoint
-from rosetta.server.runtime.lockfile import acquire_spawn_lock, release_spawn_lock
 from rosetta.server.runtime.watcher import watch_parent
 
 _UVICORN_STARTUP_TIMEOUT_SEC = 10.0
@@ -67,7 +66,9 @@ def _read_bound_url(server: uvicorn.Server) -> str:
 
 
 async def _amain(args: argparse.Namespace) -> int:
-    # 检查是否已有活 server 在跑(防御双开;lock 只挡同时启动,挡不住"第二次再启")
+    # 并发保护:只靠 endpoint.json + pid 活检;spawn.lock 由客户端(CLI/SDK)持有,
+    # server 自身不抢(否则客户端持锁时子进程 server 会抢不到 → 假冒"another instance"
+    # 退出 0,把 CLI 的轮询卡到超时。阶段 4.2 调试定位)
     ep = read_endpoint()
     if ep is not None:
         if psutil.pid_exists(ep["pid"]):
@@ -80,16 +81,6 @@ async def _amain(args: argparse.Namespace) -> int:
         # 陈旧 endpoint.json(pid 已死) → 清掉继续
         delete_endpoint()
 
-    try:
-        lock_fd = acquire_spawn_lock()
-    except FileExistsError:
-        print(
-            "rosetta-server: another instance is starting, exiting cleanly.",
-            file=sys.stderr,
-        )
-        return 0
-
-    lock_held = True
     endpoint_written = False
     watcher_task: asyncio.Task[None] | None = None
 
@@ -103,6 +94,8 @@ async def _amain(args: argparse.Namespace) -> int:
         timeout_graceful_shutdown=_UVICORN_GRACEFUL_SHUTDOWN_SEC,
     )
     server = uvicorn.Server(config)
+    # 给 /admin/shutdown 端点访问;shutdown 端点靠 server.should_exit=True 优雅关
+    app.state.uvicorn_server = server
     serve_task = asyncio.create_task(server.serve())
 
     try:
@@ -112,10 +105,6 @@ async def _amain(args: argparse.Namespace) -> int:
         token = secrets.token_urlsafe(32)
         write_endpoint(url=url, token=token, pid=os.getpid())
         endpoint_written = True
-
-        # endpoint.json 已就位,放锁(此后并发起的 CLI/GUI 会读到有效 endpoint.json)
-        release_spawn_lock(lock_fd)
-        lock_held = False
 
         print(f"rosetta-server listening on {url}", file=sys.stderr)
 
@@ -131,8 +120,6 @@ async def _amain(args: argparse.Namespace) -> int:
                 await watcher_task
         if endpoint_written:
             delete_endpoint()
-        if lock_held:
-            release_spawn_lock(lock_fd)
 
 
 def main() -> None:
