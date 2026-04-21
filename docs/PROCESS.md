@@ -141,7 +141,9 @@
   - `uv run ruff format --check .`:✅
   - `uv run pyright rosetta/`:✅ `0 errors, 0 warnings, 0 informations`
   - `uv run pytest`:✅ `1 passed`
-- **重新验证(CI)**:(待 push 后补)
+- **重新验证(CI)**:commit `60a0e20` 触发 run 24701741897 → conclusion `success`
+  - `check (ubuntu-latest)`:9s ✅
+  - `check (windows-latest)`:30s ✅
 - **用户确认**:(待填)
 - **备注**:
   - 实装版本 pyright 1.1.408(2026-04 最新)。pyright 通过 `nodeenv==1.10.0` 拉 Node.js 运行时,新增间接依赖。
