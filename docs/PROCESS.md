@@ -311,3 +311,33 @@
   - **auth header 精度**:1.3 阶段所有 /v1/* 请求都用 DB 里的 `provider.api_key`,没做客户端 `x-api-key` 透传优先。FEATURE 3.2 会补。当前 mock 不校验 auth,功能验证不受影响。
   - **provider 选择**:`_pick_provider` 硬编"第一个 enabled",不看 format 和上游 type 匹配。意味着若第一个 provider 是 anthropic,客户端打 /v1/chat/completions 也会用 x-api-key + anthropic-version 发给该上游——在 mock 场景工作,对真 OpenAI 上游会 401。这是 1.3 的**已知简化**,阶段 3.1 路由表接入后消失。
   - **实装 deps**:httpx 0.28.1 + httpcore 1.0.9 + certifi 2026.2.25;bash `rm ~/.rosetta/rosetta.db` 在 Windows 报 "Device or resource busy" 时,rosetta server 仍能正常启动跑 migrations —— 初步判断是 git bash rm 行为问题,不是真 SQLite 锁,后续阶段 1.4 若再碰到同现象再深查。
+
+---
+
+## 步骤 1.4 · endpoint.json + spawn.lock + parent-watcher
+
+- **开始**:2026-04-21
+- **完成**:2026-04-21
+- **产出**:
+  - `rosetta/server/runtime/__init__.py`:子包占位
+  - `rosetta/server/runtime/endpoint.py`:`ENDPOINT_PATH = ~/.rosetta/endpoint.json`;`write_endpoint(url, token, pid)`(写 `.tmp` → `os.replace` 原子)、`delete_endpoint()`(幂等)、`read_endpoint()`(返 `Endpoint` TypedDict 或 None)
+  - `rosetta/server/runtime/lockfile.py`:`LOCK_PATH = ~/.rosetta/spawn.lock`;`acquire_spawn_lock()`(`O_CREAT|O_EXCL|O_WRONLY` 抢锁,陈旧 PID 自动清理重试)、`release_spawn_lock(fd)`(幂等关 + 删)、`_is_stale_lock()`(psutil 判 PID)
+  - `rosetta/server/runtime/watcher.py`:`watch_parent(pid, server)` 3s 轮询,父死 → `graceful_shutdown(server)` → `server.should_exit = True`
+  - `rosetta/server/__main__.py`(改):`--parent-pid` argparse;时序 = 查旧 endpoint.json → 抢 lock → 起 uvicorn task → 等 `server.started`(10s 超时) → 读 bound port → `write_endpoint` → 放 lock → 起 watcher → await serve;finally 删 endpoint.json + 幂等放 lock
+  - `pyproject.toml`(改):runtime deps 加 `psutil>=6.0`
+  - `uv.lock` 更新(+ psutil 7.2.2)
+- **手动测试结果**:
+  - 本地静态检查:ruff check ✅ / ruff format ✅ 25 files / pyright ✅ 0 errors / pytest ✅ 1 passed
+  - **Test 1 · 单启**:`python -m rosetta.server` → stdout 见 `rosetta-server listening on http://127.0.0.1:62785`;`~/.rosetta/endpoint.json` 内容 `{url, token (32 bytes base64url), pid}` 齐;`spawn.lock` 启动后不在(已释放);kill server → endpoint.json 被 finally 删 ✅
+  - **Test 2 · 并发 spawn**:两条 `uv run python -m rosetta.server &` 同时起 → 第一个成功监听 62890;**第二个打印** `another server already running at http://127.0.0.1:62890 (pid 30336), exiting cleanly.` 并 `exit 0` ✅
+  - **Test 3 · 父死监护**:起 `sleep 600`(pid 31036)作假父 → 起 rosetta `--parent-pid 31036` → rosetta 监听 49820;`taskkill /F /PID 31036` 于 15:10:06 → 3-6s 内 rosetta 打印 `Shutting down` → `Finished server process` → `exit 0`;endpoint.json 被删 ✅
+  - **Test 4 · 1.3 回归**:未跑;依据 app.py / routes.py / forwarder.py 一行未改 + pytest 全绿,推断 dataplane 路径未退化
+- **通过判据**:✅ 三项行为验证:endpoint.json 正确写出与删除、并发保护只让一个活、父死触发优雅退出
+- **用户确认**:2026-04-21 · "提交"
+- **偏差 / 备注**:
+  - **方案外加了一项保护**:最早只设计用 `spawn.lock` 做并发保护,但 lock 只覆盖 ~1-2s 窗口(持锁到 `write_endpoint` 完成即放)。手动验证时发现第二次 `python -m rosetta.server`(错开 2s+)lock 已释放,两个 server 都起来。补了一层"启动时先 `read_endpoint` + `psutil.pid_exists` 判活 → 若活直接 `exit 0`,若陈旧(PID 死)则清掉继续"。和 DESIGN §6 一致(原文只讲客户端这样判,没说 server 自己也判;补进来更稳)。
+  - **DESIGN §6 graceful_shutdown 5 步**中的第 4 步"flush logs 队列"v0 跳过:当前没有异步 logger(阶段未指定),logs 表写入仍是同步路径。watcher.py 注释里点了"后续加 logger 再补"。
+  - **watcher 轮询 3s**:与 DESIGN 一致;配 uvicorn `timeout_graceful_shutdown=30` 合起来,理论最大父死到完全退出 ~33s(实测常规几秒)。
+  - **Windows `O_EXCL` 兼容性**:验证通过。`os.open(LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)` 在 Windows 正常抛 `FileExistsError`,无需 `portalocker` / `msvcrt.locking`。
+  - **`secrets.token_urlsafe(32)` 生成的 token 写进 endpoint.json 但暂未被 /admin 校验**:DESIGN §5 讲的 "token 仅防跨用户误触"的校验要到后续阶段做。当前 token 只是预留字段。
+  - **`endpoint.json` 里的 PID 是 uvicorn 主 worker(启动日志 `Started server process [N]`),与 `os.getpid()` 一致**;若将来切多 worker,PID 语义要重新定义。

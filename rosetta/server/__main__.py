@@ -1,25 +1,147 @@
 """python -m rosetta.server 入口。
 
-默认绑 127.0.0.1:0 让 OS 分配 ephemeral 端口;uvicorn 启动日志里会打印实际端口,
-后续(阶段 1.4)写入 ~/.rosetta/endpoint.json 供 CLI / GUI 发现。
+时序:
+    1. 抢 spawn.lock(失败 → exit 0)
+    2. 起 uvicorn.Server task
+    3. 轮询 server.started(10s 超时)
+    4. 读 bound port,写 endpoint.json(`.tmp` → rename 原子)
+    5. 放 spawn.lock(这时客户端可见有效的 endpoint.json)
+    6. 起 watch_parent 协程(若传了 --parent-pid)
+    7. await server 退出
+    finally: 删 endpoint.json + 兜底放 lock
 """
 
 from __future__ import annotations
 
+import argparse
+import asyncio
+import contextlib
+import os
+import secrets
+import sys
+import time
+
+import psutil
 import uvicorn
 
 from rosetta.server.app import create_app
+from rosetta.server.runtime.endpoint import delete_endpoint, read_endpoint, write_endpoint
+from rosetta.server.runtime.lockfile import acquire_spawn_lock, release_spawn_lock
+from rosetta.server.runtime.watcher import watch_parent
+
+_UVICORN_STARTUP_TIMEOUT_SEC = 10.0
+_UVICORN_GRACEFUL_SHUTDOWN_SEC = 30
 
 
-def main() -> None:
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="rosetta-server", description="rosetta LLM 代理 server")
+    parser.add_argument(
+        "--parent-pid",
+        type=int,
+        default=None,
+        help="父进程 PID;父死后本 server 自动优雅退出",
+    )
+    return parser.parse_args()
+
+
+async def _wait_started(server: uvicorn.Server, serve_task: asyncio.Task[None]) -> None:
+    """等 uvicorn bind 完 socket,或启动失败/超时。"""
+    deadline = time.monotonic() + _UVICORN_STARTUP_TIMEOUT_SEC
+    while not server.started:
+        if serve_task.done():
+            # 启动时就挂了 → 让异常冒出来
+            await serve_task
+            raise RuntimeError("uvicorn 启动失败,serve() 提前返回")
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"uvicorn {_UVICORN_STARTUP_TIMEOUT_SEC}s 内没起来")
+        await asyncio.sleep(0.05)
+
+
+def _read_bound_url(server: uvicorn.Server) -> str:
+    """从 server.servers 读出已 bind 的 127.0.0.1 地址。"""
+    sockets = server.servers[0].sockets
+    sockaddr = sockets[0].getsockname()
+    host = str(sockaddr[0])
+    port = int(sockaddr[1])
+    return f"http://{host}:{port}"
+
+
+async def _amain(args: argparse.Namespace) -> int:
+    # 检查是否已有活 server 在跑(防御双开;lock 只挡同时启动,挡不住"第二次再启")
+    ep = read_endpoint()
+    if ep is not None:
+        if psutil.pid_exists(ep["pid"]):
+            print(
+                f"rosetta-server: another server already running at {ep['url']} "
+                f"(pid {ep['pid']}), exiting cleanly.",
+                file=sys.stderr,
+            )
+            return 0
+        # 陈旧 endpoint.json(pid 已死) → 清掉继续
+        delete_endpoint()
+
+    try:
+        lock_fd = acquire_spawn_lock()
+    except FileExistsError:
+        print(
+            "rosetta-server: another instance is starting, exiting cleanly.",
+            file=sys.stderr,
+        )
+        return 0
+
+    lock_held = True
+    endpoint_written = False
+    watcher_task: asyncio.Task[None] | None = None
+
     app = create_app()
-    uvicorn.run(
+    config = uvicorn.Config(
         app,
         host="127.0.0.1",
         port=0,
         log_level="info",
         access_log=False,
+        timeout_graceful_shutdown=_UVICORN_GRACEFUL_SHUTDOWN_SEC,
     )
+    server = uvicorn.Server(config)
+    serve_task = asyncio.create_task(server.serve())
+
+    try:
+        await _wait_started(server, serve_task)
+
+        url = _read_bound_url(server)
+        token = secrets.token_urlsafe(32)
+        write_endpoint(url=url, token=token, pid=os.getpid())
+        endpoint_written = True
+
+        # endpoint.json 已就位,放锁(此后并发起的 CLI/GUI 会读到有效 endpoint.json)
+        release_spawn_lock(lock_fd)
+        lock_held = False
+
+        print(f"rosetta-server listening on {url}", file=sys.stderr)
+
+        if args.parent_pid is not None:
+            watcher_task = asyncio.create_task(watch_parent(args.parent_pid, server))
+
+        await serve_task
+        return 0
+    finally:
+        if watcher_task is not None and not watcher_task.done():
+            watcher_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watcher_task
+        if endpoint_written:
+            delete_endpoint()
+        if lock_held:
+            release_spawn_lock(lock_fd)
+
+
+def main() -> None:
+    args = _parse_args()
+    try:
+        exit_code = asyncio.run(_amain(args))
+    except KeyboardInterrupt:
+        exit_code = 0
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":
