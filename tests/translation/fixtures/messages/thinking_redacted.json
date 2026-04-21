@@ -1,0 +1,28 @@
+{
+  "request": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 1024,
+    "thinking": {"type": "enabled", "budget_tokens": 2048},
+    "messages": [
+      {
+        "role": "user",
+        "content": [{"type": "text", "text": "帮我分析一下这个敏感话题"}]
+      }
+    ]
+  },
+  "response_nonstream": {
+    "id": "msg_01GHIJghij",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-sonnet-4-5",
+    "content": [
+      {
+        "type": "redacted_thinking",
+        "data": "EncryptedThinkingBlobBase64=="
+      },
+      {"type": "text", "text": "这是一个复杂的话题,我会尽量客观回答..."}
+    ],
+    "stop_reason": "end_turn",
+    "usage": {"input_tokens": 15, "output_tokens": 20}
+  }
+}

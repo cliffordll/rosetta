@@ -1,0 +1,34 @@
+{
+  "request": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 1024,
+    "thinking": {"type": "enabled", "budget_tokens": 2048},
+    "messages": [
+      {
+        "role": "user",
+        "content": [{"type": "text", "text": "24 和 36 的最大公约数是多少?"}]
+      }
+    ]
+  },
+  "response_nonstream": {
+    "id": "msg_01FGHIfghi",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-sonnet-4-5",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "24 = 2^3 * 3, 36 = 2^2 * 3^2。共同因子 2^2 * 3 = 12。",
+        "signature": "sig_abc123xyz"
+      },
+      {"type": "text", "text": "12"}
+    ],
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 18,
+      "output_tokens": 42,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+    }
+  }
+}

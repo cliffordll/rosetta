@@ -1,0 +1,23 @@
+{
+  "request": {
+    "model": "claude-haiku-4-5",
+    "max_tokens": 64,
+    "messages": [
+      {
+        "role": "user",
+        "content": [{"type": "text", "text": "say hi in 3 words"}]
+      }
+    ]
+  },
+  "response_nonstream": {
+    "id": "msg_01ABCDabcd",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-haiku-4-5",
+    "content": [
+      {"type": "text", "text": "Hi there, friend!"}
+    ],
+    "stop_reason": "end_turn",
+    "usage": {"input_tokens": 12, "output_tokens": 5}
+  }
+}

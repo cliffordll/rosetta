@@ -1,0 +1,43 @@
+{
+  "request": {
+    "model": "claude-haiku-4-5",
+    "max_tokens": 512,
+    "tools": [
+      {
+        "name": "get_weather",
+        "description": "查某城市的天气",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "city": {"type": "string", "description": "城市名"}
+          },
+          "required": ["city"]
+        }
+      }
+    ],
+    "tool_choice": {"type": "auto"},
+    "messages": [
+      {
+        "role": "user",
+        "content": [{"type": "text", "text": "北京今天天气怎么样?"}]
+      }
+    ]
+  },
+  "response_nonstream": {
+    "id": "msg_01DEFGdefg",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-haiku-4-5",
+    "content": [
+      {"type": "text", "text": "我帮你查一下。"},
+      {
+        "type": "tool_use",
+        "id": "toolu_01XYZ",
+        "name": "get_weather",
+        "input": {"city": "北京"}
+      }
+    ],
+    "stop_reason": "tool_use",
+    "usage": {"input_tokens": 95, "output_tokens": 32}
+  }
+}
