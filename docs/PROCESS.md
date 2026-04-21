@@ -51,4 +51,24 @@
   最新的步骤在最下面(append-only,按时间顺序)。
 -->
 
-_(尚未开始。第一条记录将是"步骤 0.1 · Python 工程骨架"。)_
+## 步骤 0.1 · Python 工程骨架
+
+- **开始**:2026-04-21
+- **完成**:2026-04-21
+- **产出**:
+  - `pyproject.toml`(`rosetta-proxy` distribution,hatchling 构建,`[project.scripts]` 注册 `rosetta` / `rosetta-server`)
+  - `.python-version`(钉 `3.12`)
+  - `rosetta/__init__.py`(带 `__version__ = "0.1.0"` 和包 docstring)
+  - `rosetta/{server,sdk,cli,shared}/__init__.py`(空占位)
+  - `uv.lock`(由 `uv sync` 生成)
+  - `.venv/`(由 `uv sync` 生成,.gitignore 已排除)
+- **手动测试结果**:
+  - 步骤 1 `uv sync`:✅ 下载 CPython 3.12.13、创建 `.venv/`、安装 `rosetta-proxy==0.1.0`,无报错
+  - 步骤 2 `import rosetta; print(rosetta.__file__)`:✅ 输出 `D:\opendemo\claudedemo\rosetta\rosetta\__init__.py`
+  - 步骤 3 `from rosetta import server, sdk, cli, shared; print('ok')`:✅ 输出 `ok`
+- **通过判据**:✅ 三条命令 exit 0,输出符合预期
+- **用户确认**:2026-04-21 · "提交本步骤代码,并开始下一步"
+- **偏差 / 备注**:
+  - 前置补记:uv 本机未预装,通过 `python -m pip install uv` 装了 0.11.7(走了用户选的选项 3)。`FEATURE.md` 步骤 0.1 默认 uv 就位,实际新机器需先装 uv。暂不改 FEATURE,后续若换机再考虑补一个"步骤 0.0 · 环境预检"。
+  - `uv sync` 警告 `Failed to hardlink files; falling back to full copy`:跨盘 / 跨文件系统的常见提示,不影响功能,可选加 `export UV_LINK_MODE=copy` 消警告。
+  - `[project.scripts]` 注册的 `rosetta` / `rosetta-server` 当前指向尚未创建的 `rosetta.cli.__main__:main` 和 `rosetta.server.__main__:main`。`uv sync` 不校验 entry point 存在性,shim 仍生成;直接运行 `rosetta` 会 ImportError,符合预期(这些模块在步骤 1.1 / 4.2 才落地)。
