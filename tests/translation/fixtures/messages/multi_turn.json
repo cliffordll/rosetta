@@ -1,0 +1,31 @@
+{
+  "request": {
+    "model": "claude-haiku-4-5",
+    "max_tokens": 256,
+    "messages": [
+      {
+        "role": "user",
+        "content": [{"type": "text", "text": "介绍下自己"}]
+      },
+      {
+        "role": "assistant",
+        "content": [{"type": "text", "text": "我是一个 AI 助手。"}]
+      },
+      {
+        "role": "user",
+        "content": [{"type": "text", "text": "再详细点"}]
+      }
+    ]
+  },
+  "response_nonstream": {
+    "id": "msg_01CDEFcdef",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-haiku-4-5",
+    "content": [
+      {"type": "text", "text": "我由 Anthropic 训练,可以回答问题、写代码、分析文本。"}
+    ],
+    "stop_reason": "end_turn",
+    "usage": {"input_tokens": 45, "output_tokens": 18}
+  }
+}

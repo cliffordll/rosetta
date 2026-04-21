@@ -1,0 +1,62 @@
+{
+  "request": {
+    "model": "claude-haiku-4-5",
+    "max_tokens": 512,
+    "tools": [
+      {
+        "name": "get_weather",
+        "input_schema": {
+          "type": "object",
+          "properties": {"city": {"type": "string"}},
+          "required": ["city"]
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [{"type": "text", "text": "北京天气?"}]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01ABC",
+            "name": "get_weather",
+            "input": {"city": "北京"}
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_01ABC",
+            "content": [
+              {"type": "text", "text": "晴, 22°C"}
+            ]
+          },
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_01ABC",
+            "content": "也可以是纯文本",
+            "is_error": false
+          }
+        ]
+      }
+    ]
+  },
+  "response_nonstream": {
+    "id": "msg_01EFGHefgh",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-haiku-4-5",
+    "content": [
+      {"type": "text", "text": "北京今天晴, 22°C。"}
+    ],
+    "stop_reason": "end_turn",
+    "usage": {"input_tokens": 120, "output_tokens": 10}
+  }
+}

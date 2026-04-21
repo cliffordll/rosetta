@@ -1,0 +1,39 @@
+{
+  "request": {
+    "model": "claude-haiku-4-5",
+    "max_tokens": 64,
+    "stream": true,
+    "messages": [
+      {
+        "role": "user",
+        "content": [{"type": "text", "text": "say hi"}]
+      }
+    ]
+  },
+  "response_stream": [
+    {
+      "type": "message_start",
+      "message": {
+        "id": "msg_01SIMPLE",
+        "type": "message",
+        "role": "assistant",
+        "content": [],
+        "model": "claude-haiku-4-5",
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {"input_tokens": 12, "output_tokens": 1}
+      }
+    },
+    {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+    {"type": "ping"},
+    {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Hi"}},
+    {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " there!"}},
+    {"type": "content_block_stop", "index": 0},
+    {
+      "type": "message_delta",
+      "delta": {"stop_reason": "end_turn", "stop_sequence": null},
+      "usage": {"output_tokens": 5}
+    },
+    {"type": "message_stop"}
+  ]
+}

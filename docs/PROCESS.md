@@ -342,3 +342,74 @@
   - **Windows `O_EXCL` 兼容性**:验证通过。`os.open(LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)` 在 Windows 正常抛 `FileExistsError`,无需 `portalocker` / `msvcrt.locking`。
   - **`secrets.token_urlsafe(32)` 生成的 token 写进 endpoint.json 但暂未被 /admin 校验**:DESIGN §5 讲的 "token 仅防跨用户误触"的校验要到后续阶段做。当前 token 只是预留字段。
   - **`endpoint.json` 里的 PID 是 uvicorn 主 worker(启动日志 `Started server process [N]`),与 `os.getpid()` 一致**;若将来切多 worker,PID 语义要重新定义。
+
+---
+
+## 步骤 2.1a · IR + Claude request + 非流 response(FEATURE 2.1 的前半)
+
+- **开始**:2026-04-21
+- **完成**:2026-04-21
+- **产出**:
+  - `rosetta/server/translation/__init__.py`(子包说明)
+  - `rosetta/server/translation/ir.py`:Pydantic IR 全集
+    - Content block discriminated union:`TextBlock` / `ThinkingBlock(含 signature)` / `RedactedThinkingBlock(data)` / `ToolUseBlock` / `ToolResultBlock`
+    - `Message` / `SystemPrompt` / `Tool` / `ToolChoice` 四子类型 / `ThinkingConfig`
+    - `RequestIR` / `ResponseIR` / `Usage` / `StopReason`
+    - Stream Event discriminated union:`MessageStart / BlockStart / TextDelta / ThinkingDelta / SignatureDelta / InputJsonDelta / BlockStop / MessageDelta / MessageStop / Ping / Error`(阶段 2.1b 流式 adapter 才开始用,但定义先落 ir.py 统一)
+    - 所有模型 `extra="forbid"`,未知字段硬抛
+  - `rosetta/server/translation/messages/__init__.py`
+  - `rosetta/server/translation/messages/request.py`:`messages_to_ir(dict)` / `ir_to_messages(ir)`(model_validate + model_dump(exclude_none),近 identity)
+  - `rosetta/server/translation/messages/response.py`:`messages_response_to_ir` / `ir_to_messages_response`(剥/补顶层 `type: "message"`)
+  - `tests/translation/__init__.py`
+  - `tests/translation/fixtures/messages/{simple_text,with_system,multi_turn,tool_use,tool_result,thinking_plain,thinking_redacted}.json`
+  - `tests/translation/test_messages_roundtrip.py`:每 fixture 两个 test(request + response),IR 等价 + 剥 null 后 JSON 字段级等价
+- **手动测试结果**:
+  - ruff check ✅ / ruff format ✅ 32 files / pyright strict ✅ 0 errors / pytest ✅ 15 passed(1 smoke + 7 request + 7 response)
+- **通过判据**:✅ 7 个 fixture 的 request 和 response 两个方向都 roundtrip 等价
+- **用户确认**:2026-04-21 · "先提交一版代码"(2.1a + 2.1b 合并 commit)
+- **偏差 / 备注**:
+  - **fixture 来源**:v0.1 按"合成先行"决策,fixture 按 Anthropic 官方 API 文档结构手写(未跑真 key)。真 key 回放留给后续,`test_messages_roundtrip_real.py` 未建占位(可等到拿到真 key 时再加 `skipif` 版本)。
+  - **IR bool 字段避开默认值坑**:`RequestIR.stream` 和 `ToolResultBlock.is_error` 若声明为 `bool = False`,`exclude_none` 不剥默认值,dump 出来会有幽灵字段(fixture 里没写)。改为 `bool | None = None`,语义 "None ≡ 字段缺失 ≡ Anthropic 默认行为",roundtrip 干净。
+  - **Stream Event 类型定义放 ir.py**:阶段 2.1a 不使用,但先集中放 `ir.py` 避免阶段 2.1b 再新增一个文件。FEATURE 2.4 的 `translation/stream.py` 仅放跨格式状态机逻辑,不放类型。
+  - **`type: "message"` 响应顶层字段**:Anthropic 响应固定带这个字段;IR 不把它当字段(`ResponseIR.role` 固定 assistant 已足够识别),adapter 在剥/补侧完成。
+  - **pydantic 版本**:实装 2.13.3 + pydantic-core 2.46.3(随 fastapi 间接依赖带进来,未在 pyproject.toml 显式声明)。
+  - **fixture tool_result.content 覆盖两种形态**:string 和 list[TextBlock] 同个 message 里各测一条,覆盖 IR 的 `str | list[TextBlock]` 联合。Image 嵌套按约定 v0.1 不做。
+  - **未跑 dataplane 回归**:2.1a 只改 translation/,对阶段 1.3 dataplane 路径无触碰;smoke(tests/test_smoke.py)仍绿,推断无退化。
+
+---
+
+## 步骤 2.1b · Claude 流式 adapter(FEATURE 2.1 的后半)
+
+- **开始**:2026-04-21
+- **完成**:2026-04-21
+- **产出**:
+  - `rosetta/server/translation/ir.py`(增量):新增 `UsageDelta`(`message_delta` 专用,所有字段 Optional);`MessageDeltaEvent.usage` 类型改为 `UsageDelta | None`
+  - `rosetta/server/translation/messages/response.py`(增量):
+    - `messages_stream_to_ir(events: Iterable[dict]) -> Iterator[StreamEvent]`
+    - `ir_to_messages_stream(events: Iterable[StreamEvent]) -> Iterator[dict]`
+    - 内部分发函数 `_anthropic_event_to_ir` / `_parse_block_delta` / `_ir_event_to_anthropic`
+    - `_BLOCK_ADAPTER`:用 `TypeAdapter(StreamBlockStartBlock)` 在 `content_block_start` 里选型 text/thinking/redacted_thinking/tool_use
+  - `tests/translation/fixtures/messages/{stream_simple_text,stream_with_tool_use,stream_with_thinking}.json`
+  - `tests/translation/test_messages_roundtrip.py`(扩展):
+    - 把 `FIXTURE_NAMES` 拆成 `NONSTREAM_FIXTURES` / `STREAM_FIXTURES` / `REQUEST_FIXTURES`
+    - 新增 `test_response_stream_roundtrip`:IR 事件序列等价 + 逐事件剥 null 后 JSON 等价 + 事件数一致
+- **手动测试结果**:
+  - ruff check ✅ / ruff format ✅ / pyright strict ✅ / pytest ✅ **21 passed**(1 smoke + 10 request + 7 non-stream response + 3 stream response)
+- **通过判据**:✅ 10 个 fixture 全绿,流式三场景覆盖 text / tool_use input_json 分片 / thinking + signature_delta
+- **用户确认**:2026-04-21 · "先提交一版代码"(2.1a + 2.1b 合并 commit)
+- **偏差 / 备注**:
+  - **adapter 只做 1:1 映射,不聚合**:`input_json_delta` 的 JSON 分片保持原样逐事件透传。跨格式翻译(例如把 OpenAI delta 重组成 Anthropic 形)需要的聚合到 2.4 的 `stream.py` 做。
+  - **SSE 线格式解耦**:adapter 吃 `Iterable[dict]`,不处理 `event:`/`data:` 帧拆分。forwarder 的 SSE 层(阶段 2.3+)负责帧边界。
+  - **`message_start` 信息裁剪**:Anthropic `message_start.message` 里 `type/role/content/stop_reason/stop_sequence` 是可预测值(分别恒为 `"message"` / `"assistant"` / `[]` / `null` / `null`),不进 IR;dump 时按常量补回。这让 IR 保持精简,代价是若将来 Anthropic 在 `message_start` 里提前下发非 null 的 stop_reason,adapter 会丢失信息——概率低,到时加字段即可。
+  - **pyright 坑**:`event.get("delta") or {}` 会被推成 `Unknown | dict`,传给 Pydantic 构造器触发 `reportUnknownArgumentType`。改走 `MessageDeltaEvent.model_validate({...})`,把类型校验让 Pydantic 承担,pyright strict 通过。
+  - **穷尽性兜底**:`_ir_event_to_anthropic` 最后一分支省略 `isinstance(ev, ErrorEvent)` 判断(pyright 提示 union narrow 后 always-true 多余),直接返回 ErrorEvent 的字典——union 穷尽由编译时 narrow 保证,不用 runtime 断言。
+  - **流式 fixture 的 request 体**:3 个 stream fixture 的 request 也跑 `test_request_roundtrip`(只多了 `stream: true` 字段),顺带覆盖请求侧 stream 布尔的 roundtrip。
+
+---
+
+## 步骤 2.1 整体收尾(对应 FEATURE 2.1 的"通过判据")
+
+- 10 个 fixture × 2 方向(request + response)合计 20 个测试点,加 1 smoke = pytest 21 passed
+- 翻译层 `messages/` adapter 完整覆盖 Anthropic 非流 + 流式,含 thinking / redacted_thinking / tool_use / tool_result 关键块
+- **未跑真实 API 回放**:按 2.1a 决策"合成先行",真 key 回放在拿到 key 时补占位测试;目前 fixture 的结构按 Anthropic 官方 docs 的 response examples 手写。
+- 按本仓库约定,2.1a + 2.1b 合并为一个 commit(FEATURE 步骤粒度);已停在未 commit 状态等用户 review。
