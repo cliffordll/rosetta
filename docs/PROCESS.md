@@ -223,3 +223,56 @@
   - `Provider.type` 声明 `Mapped[str]`(非 `Literal`),`ProviderCreate.type` 在 Pydantic 层用 `Literal[...]` 做值域校验。ORM 层保持通用 `str`,避免 SA Mapped 与 typing.Literal 的互操作坑。
   - `Provider.created_at` Python 默认值 `datetime.now(UTC)`;SQL 迁移里也有 `DEFAULT CURRENT_TIMESTAMP` 兜底(走 ORM 时 Python 默认优先,走原生 SQL 时 SQLite 默认兜底)。
   - 响应里 `created_at` 是 naive ISO 格式(没带时区后缀),Pydantic 对 `datetime.now(UTC)` 的默认序列化就是这样。若后续 GUI 需明示时区,在 `ProviderOut` 里加 `@field_serializer` 即可,v0 不做。
+
+---
+
+## 修订 · 1.2 · migrations 改走全 SQLAlchemy
+
+- **变更时间**:2026-04-21
+- **触发**:用户要求统一 DB 入口,不让 `aiosqlite` 出现在代码里
+- **影响范围**:`rosetta/server/db/session.py` 一个文件
+- **改动**:
+  - 删除 `import aiosqlite` 和 `aiosqlite.connect(...)` 直连代码
+  - 新增 `_split_sql_statements(sql)` 工具函数:跳过 `--` 开头整行注释,按 `;` 切分,过滤空白
+  - `_maybe_run_migrations(engine)`:
+    - 用 `engine.connect()` 执行 `PRAGMA user_version` 读版本
+    - 用 `engine.begin()` 在事务里 `conn.execute(text(stmt))` 逐条跑 DDL 和最后的 `PRAGMA user_version = 1`
+  - `aiosqlite` 仍在 `pyproject.toml` 的 runtime deps 里(SQLAlchemy 的 `sqlite+aiosqlite://` 驱动运行时需要),但**不在代码里 import**
+- **重新验证(本地)**:
+  - ruff check / format / pyright / pytest 全绿
+  - 清 `~/.rosetta/rosetta.db` 后起 server:POST /admin/providers → 201;GET /admin/providers → 返回含 test-provider;GET /admin/status → providers_count=1
+  - `PRAGMA user_version` = 1 ✅
+  - `idx_logs_created_at` 索引存在 ✅
+  - 三张业务表齐:providers / routes / logs(+ sqlite_sequence 是 SQLite 为 AUTOINCREMENT 自动建的)
+- **重新验证(CI)**:未 push(按新规则等用户手动确认)
+- **用户确认**:(待填)
+- **备注**:
+  - `_split_sql_statements` 只处理"整行注释"和"分号切分",不处理 `;` 在字符串字面量内的边缘情况;当前 migration 文件结构简单,无此情况;将来若 migration 里出现 `INSERT INTO ... VALUES ('a;b')` 类字符串再强化。
+  - PRAGMA `user_version = 1` 在 SQLAlchemy `engine.begin()` 事务内执行有效:SQLite 的 user_version 设置本身是事务性的,transaction commit 后才真正落盘,和 DDL 语义一致。
+
+---
+
+## 修订 · 1.2 · migrations runner 改为通用目录扫描(支持 002+)
+
+- **变更时间**:2026-04-21
+- **触发**:原 runner 硬编码跑 `001_init.sql`,无法支持后续 `002_*.sql` 自动升级。用户讨论"如何加字段"时发现此缺陷,提前修复。
+- **影响范围**:`rosetta/server/db/session.py`
+- **改动**:
+  - 新增 `_list_migrations()`:扫 `migrations/` 下 `[0-9][0-9][0-9]_*.sql` 模式的文件,按编号升序返回 `[(N, path), ...]`;检测编号重复并报错
+  - `_maybe_run_migrations(engine)`:
+    - 启动时自检 `CURRENT_SCHEMA_VERSION == max(migrations[*].N)`,不一致报错(防止程序员改 const 忘了加 SQL 文件,或反之)
+    - 读 `PRAGMA user_version` = `current`
+    - 按顺序跑所有 `N > current` 的 migration(**每个独立事务**,任一失败不影响之前已成功的)
+- **升级场景示意**(未来真加字段时):
+  - 老用户 DB `user_version=1` → 启动时只跑 `002+` 的新文件 → 升到 `2`
+  - 新用户空 DB `user_version=0` → 启动时跑 `001+002+...`
+  - 把新代码指向"更新"的 DB(`user_version=3` 但代码只认到 2) → 拒启动(可能是降级误操作)
+- **重新验证(本地)**:
+  - ruff / pyright / pytest 全绿
+  - 清 `~/.rosetta/rosetta.db` 后 fresh 启动:POST/GET/status 正常,`user_version=1`,三表齐
+- **重新验证(CI)**:未 push
+- **用户确认**:(待填)
+- **备注**:
+  - 本次**未加**针对 migration 扫描器的单测(如"扫出 001_init.sql"/"重复编号报错"/"空目录报错")。属于可补但非必须,后续可作为"1.2 补强"加进 tests/db/。
+  - 第 `NNN` 位固定 3 位,最大 999 条 migration,v0 远超够用。超过时改 glob pattern。
+  - SQL 文件的"行内注释"(如 `type TEXT NOT NULL, -- anthropic / ...`)不被过滤:只过滤以 `--` 开头的整行注释。SQLite 解析器自己会处理行内注释。

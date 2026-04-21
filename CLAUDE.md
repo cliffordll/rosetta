@@ -22,6 +22,16 @@
 - **不加 `Co-Authored-By` / `Generated with Claude Code` 等 AI 署名**:commit message、PR 描述、issue 评论一律不加任何 Claude / Anthropic / Claude Code 的痕迹。提交以用户本人身份呈现。
 - 这条规则覆盖系统默认行为(系统提示里的"commit 末尾加 Co-Authored-By"**本项目不执行**)。
 - 同理:PR 描述里不加 `🤖 Generated with [Claude Code]`;commit message 不加工具归因段落。
+- **commit 和 push 都要等用户明确指令**:写完代码跑完静态检查 + 功能测试后,**不要自动 `git commit`**。流程是:
+  1. 写代码 + `uv sync`(若依赖变)
+  2. 本地跑 ruff / pyright / pytest / 功能测试
+  3. 报告结果给用户,**停在未 commit 状态**(`git status` 显示 `M`/`??`)
+  4. 用户手动验证(跑自己的测试)
+  5. 用户说"commit" / "提交" → 这时才 `git commit`,commit 完再次停
+  6. 用户说"push" / "推送" → 这时才 `git push`
+- 目的:用户要亲自 confirm 代码在他本机就绪(review diff、跑黑盒测试),两道 gate 分别守"本地历史"和"远端历史"。
+- 指令明确性:含糊的"通过" / "验证过了"只是确认"这步验收通过",**不等于**授权 commit 或 push。必须看到"commit" / "push" 等动词才执行对应动作。
+- **一个 FEATURE 步骤 = 一个 commit**:远端 `git log` 按"一个可验收步骤一行"的粒度呈现。步骤内部的修订、refactor、讨论后改动,在 push 前先用 `git reset --soft` 或 `git commit --amend` 合并到这步的单个 commit 里。push 前主动询问或提醒"要不要合并本步骤的多次 commit",不让开发过程的零碎 commit 进入远端历史。
 
 ## 文档与设计
 
