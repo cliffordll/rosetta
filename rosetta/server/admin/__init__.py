@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from rosetta.server.admin import health
+from rosetta.server.admin import health, providers
 
 admin_router = APIRouter()
 admin_router.include_router(health.router)
+admin_router.include_router(providers.router)

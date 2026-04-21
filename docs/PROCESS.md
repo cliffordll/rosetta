@@ -182,3 +182,44 @@
   - 测试用 bash `kill $PID` 强杀(Windows git bash 的 kill 对 Windows 进程走 TerminateProcess),没走 Uvicorn 的优雅关闭流程。`Ctrl+C` 会触发优雅关闭;阶段 1.4 的 `graceful_shutdown` 才真正落地完整链路。当前 kill 时 log 没有 "Shutting down" 行是正常的。
   - `providers_count=0` 是占位,阶段 1.2 引入 DB 后真查表。
   - `uvicorn` 实装 0.44.0、`fastapi` 最新、带来的间接依赖:starlette 1.0.0 / watchfiles 1.1.1 / websockets 16.0 / typing-inspection 0.4.2 等。
+
+---
+
+## 步骤 1.2 · SQLite + providers CRUD(最小集)
+
+- **开始**:2026-04-21
+- **完成**:2026-04-21
+- **产出**:
+  - `rosetta/server/db/__init__.py`(空)
+  - `rosetta/server/db/migrations/__init__.py`(空)
+  - `rosetta/server/db/migrations/001_init.sql`:providers / routes / logs 三张表 DDL + `idx_logs_created_at` 索引 + `PRAGMA user_version = 1`
+  - `rosetta/server/db/models.py`:SQLAlchemy 2.x 声明式 `Base` + `Provider` / `Route` / `LogEntry`(`Mapped[T]` 注解 + pyright strict 兼容)
+  - `rosetta/server/db/session.py`:
+    - `DEFAULT_DB_PATH = ~/.rosetta/rosetta.db`
+    - `init_db()`:创建目录 → 读 `PRAGMA user_version` → 为 0 时跑 `001_init.sql` → 建 async engine / session_maker;版本比代码支持的更新则拒启动
+    - `dispose_db()`:释放连接池
+    - `get_session()`:FastAPI 依赖,yield 一个 AsyncSession
+    - `count_providers()`:给 /admin/status 用
+  - `rosetta/server/admin/providers.py`:`GET /admin/providers`(list)+ `POST /admin/providers`(create,409 冲突;`type=custom` 要求必须带 base_url);`ProviderOut` **不暴露 api_key**
+  - `rosetta/server/admin/__init__.py`:挂 providers router
+  - `rosetta/server/admin/health.py`:status 端点实时查 providers_count
+  - `rosetta/server/app.py`:`lifespan` 里 `init_db` / `dispose_db`
+  - `pyproject.toml`:deps 加 `sqlalchemy[asyncio]>=2.0`、`aiosqlite>=0.19`
+  - `uv.lock`(+ sqlalchemy 2.0.49 / aiosqlite 0.22.1 / greenlet 3.4.0)
+- **手动测试结果**:
+  - 本地静态检查:ruff check ✅ / ruff format ✅ 16 files / pyright ✅ 0 errors / pytest ✅ 1 passed
+  - 清理旧 `~/.rosetta/rosetta.db`(fresh run)
+  - 步骤 1-3 起 server + POST + GET:
+    - POST 返回 201,body `{"id":1,"name":"test-provider","type":"anthropic","base_url":null,"enabled":true,"created_at":"2026-04-21T03:30:48.703688"}`
+    - GET 返回含 test-provider 的数组,HTTP 200
+  - 步骤 4-5 kill + restart + GET:✅ 重启后仍能看到 test-provider(持久化生效)
+  - 步骤 6 `PRAGMA user_version`:✅ `1`
+  - 步骤 7 logs 表索引:✅ `idx_logs_created_at` 存在
+  - 额外验证:`GET /admin/status` 返回 `providers_count=1`(实时查表,非硬编码);响应体**不含 api_key** 字段(ProviderOut schema 没定义)
+- **通过判据**:✅ 持久化 / user_version=1 / 索引存在 / api_key 不泄漏 / providers_count 实时
+- **用户确认**:(待填)
+- **偏差 / 备注**:
+  - 用 `aiosqlite` 直连跑 migrations(非 SQLAlchemy):`executescript` 能一次性跑多语句 + `PRAGMA`;SQLAlchemy 的 `conn.execute` 对多语句和 PRAGMA 支持不佳。
+  - `Provider.type` 声明 `Mapped[str]`(非 `Literal`),`ProviderCreate.type` 在 Pydantic 层用 `Literal[...]` 做值域校验。ORM 层保持通用 `str`,避免 SA Mapped 与 typing.Literal 的互操作坑。
+  - `Provider.created_at` Python 默认值 `datetime.now(UTC)`;SQL 迁移里也有 `DEFAULT CURRENT_TIMESTAMP` 兜底(走 ORM 时 Python 默认优先,走原生 SQL 时 SQLite 默认兜底)。
+  - 响应里 `created_at` 是 naive ISO 格式(没带时区后缀),Pydantic 对 `datetime.now(UTC)` 的默认序列化就是这样。若后续 GUI 需明示时区,在 `ProviderOut` 里加 `@field_serializer` 即可,v0 不做。
