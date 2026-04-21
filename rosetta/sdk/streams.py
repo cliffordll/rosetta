@@ -4,11 +4,25 @@
 CLI `chat` 流式渲染使用。与 `rosetta/server/translation/stream.py` 的 SSE 解析对称,
 但这边是 **async** + 只关心文本(非流式的结构化内容不在本模块)。
 
+两种消费方式
+------------
+- `iter_text_deltas(resp, fmt)`:只要文本增量,最简
+- `ChatStream(fmt).text_deltas(resp)`:同样 yield 文本,但同时从终端事件累积 usage
+  到实例字段(`input_tokens` / `output_tokens`),CLI 打 meta 行需要
+
 文本抽取规则(v0.1)
 --------------------
 - `Format.MESSAGES`:`content_block_delta` + `delta.type == "text_delta"` → `delta.text`
 - `Format.CHAT_COMPLETIONS`:`choices[0].delta.content`(chunk `data:` 行,`[DONE]` 终止)
 - `Format.RESPONSES`:`type == "response.output_text.delta"` → `delta`(str)
+
+Usage 抽取规则(v0.1)
+---------------------
+- `Format.MESSAGES`:`message_start.message.usage.input_tokens`(首)
+  + `message_delta.usage.output_tokens`(累加式覆盖,上游会在 delta 里给累计值)
+- `Format.CHAT_COMPLETIONS`:最后一个 chunk 的 `usage` 字段(需在请求里
+  `stream_options.include_usage=true`,CLI 会自动加)
+- `Format.RESPONSES`:`response.completed.response.usage.{input,output}_tokens`
 
 其余事件(工具调用 / 思考 / 错误等)**忽略**——CLI 只做文本回显;更完整的事件消费
 留给未来 v1+ 真正使用 ContentBlock 结构时再引入。
@@ -18,6 +32,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 import httpx
@@ -35,6 +50,71 @@ async def iter_text_deltas(resp: httpx.Response, fmt: Format) -> AsyncIterator[s
         text = _extract_text(fmt, event_name, data)
         if text:
             yield text
+
+
+@dataclass
+class ChatStream:
+    """流式文本 + 终端 usage 的组合消费器。
+
+    用法::
+
+        stream = ChatStream(fmt=Format.MESSAGES)
+        async for tok in stream.text_deltas(resp):
+            print(tok, end="", flush=True)
+        # 流结束后 stream.input_tokens / stream.output_tokens 可用
+    """
+
+    fmt: Format
+    input_tokens: int = field(default=0)
+    output_tokens: int = field(default=0)
+
+    async def text_deltas(self, resp: httpx.Response) -> AsyncIterator[str]:
+        async for event_name, data in _iter_sse(resp):
+            self._update_usage(event_name, data)
+            text = _extract_text(self.fmt, event_name, data)
+            if text:
+                yield text
+
+    def _update_usage(self, event_name: str | None, data: dict[str, Any]) -> None:
+        if self.fmt is Format.MESSAGES:
+            etype = event_name or data.get("type")
+            if etype == "message_start":
+                msg = data.get("message")
+                if isinstance(msg, dict):
+                    u = cast(dict[str, Any], msg).get("usage")
+                    if isinstance(u, dict):
+                        ud = cast(dict[str, Any], u)
+                        self.input_tokens = int(ud.get("input_tokens", 0) or 0)
+                        # message_start 也会带 output_tokens(通常 1 或 0),用它兜底
+                        self.output_tokens = int(ud.get("output_tokens", 0) or 0)
+            elif etype == "message_delta":
+                u = data.get("usage")
+                if isinstance(u, dict):
+                    ud = cast(dict[str, Any], u)
+                    # Anthropic 的 message_delta.usage.output_tokens 是累计值
+                    ot = ud.get("output_tokens")
+                    if isinstance(ot, int):
+                        self.output_tokens = ot
+            return
+
+        if self.fmt is Format.CHAT_COMPLETIONS:
+            u = data.get("usage")
+            if isinstance(u, dict):
+                ud = cast(dict[str, Any], u)
+                self.input_tokens = int(ud.get("prompt_tokens", 0) or 0)
+                self.output_tokens = int(ud.get("completion_tokens", 0) or 0)
+            return
+
+        # Format.RESPONSES
+        etype = event_name or data.get("type")
+        if etype == "response.completed":
+            resp = data.get("response")
+            if isinstance(resp, dict):
+                u = cast(dict[str, Any], resp).get("usage")
+                if isinstance(u, dict):
+                    ud = cast(dict[str, Any], u)
+                    self.input_tokens = int(ud.get("input_tokens", 0) or 0)
+                    self.output_tokens = int(ud.get("output_tokens", 0) or 0)
 
 
 async def _iter_sse(resp: httpx.Response) -> AsyncIterator[tuple[str | None, dict[str, Any]]]:

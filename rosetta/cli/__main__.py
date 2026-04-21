@@ -1,4 +1,4 @@
-"""`rosetta` CLI 入口(阶段 4.2)。
+"""`rosetta` CLI 入口。
 
 子命令
 ------
@@ -9,14 +9,16 @@
 - `rosetta route {list,add,remove,clear}`
 - `rosetta logs [-n N]`
 - `rosetta stats [period]`
-
-chat / serve 等后续阶段加。
+- `rosetta chat [text]`  # 一次性 / REPL
 """
 
 from __future__ import annotations
 
 import typer
 
+from rosetta.cli.commands import (
+    chat as chat_mod,
+)
 from rosetta.cli.commands import (
     logs as logs_mod,
 )
@@ -46,7 +48,16 @@ app = typer.Typer(
     pretty_exceptions_show_locals=False,
 )
 
-for mod in (status_mod, start_mod, stop_mod, provider_mod, route_mod, logs_mod, stats_mod):
+for mod in (
+    status_mod,
+    start_mod,
+    stop_mod,
+    provider_mod,
+    route_mod,
+    logs_mod,
+    stats_mod,
+    chat_mod,
+):
     mod.register(app)
 
 
