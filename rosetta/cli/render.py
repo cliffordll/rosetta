@@ -58,3 +58,44 @@ def kv(pairs: Mapping[str, Any]) -> None:
     for k, v in pairs.items():
         t.add_row(k, _fmt_cell(v))
     _stdout.print(t)
+
+
+def stream_token(tok: str) -> None:
+    """流式打印单个文本增量,立即 flush。
+
+    使用 `sys.stdout` 直写而非 rich,避免 rich 的行缓冲把逐 token 输出攒成整行;
+    rich 控制台只在收尾打 meta 行时用。
+    """
+    sys.stdout.write(tok)
+    sys.stdout.flush()
+
+
+def stream_newline() -> None:
+    """流结束后换行,供 meta 行前使用。"""
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+
+
+def meta_line(
+    *,
+    provider: str,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    latency_ms: int,
+    path: str,
+) -> None:
+    """打 chat 收尾的 meta 行,形如 `[ant-main · claude-haiku-4-5 · 8→21 tok · 412ms · messages]`。
+
+    tok 数为 0 时显示 `?` 占位(上游没回 usage 的情况,如纯透传 + 上游配置未
+    include_usage)。
+    """
+    in_s = str(input_tokens) if input_tokens > 0 else "?"
+    out_s = str(output_tokens) if output_tokens > 0 else "?"
+    line = f"[{provider} · {model} · {in_s}→{out_s} tok · {latency_ms}ms · {path}]"
+    _stdout.print(f"[dim]{line}[/dim]", highlight=False)
+
+
+def error_bubble(msg: str) -> None:
+    """REPL 里的内联错误,不退出;用颜色和前缀与正文区分。"""
+    _stderr.print(f"[bold]✗[/bold] {msg}", highlight=False)
