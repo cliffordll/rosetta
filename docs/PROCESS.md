@@ -149,3 +149,33 @@
   - 实装版本 pyright 1.1.408(2026-04 最新)。pyright 通过 `nodeenv==1.10.0` 拉 Node.js 运行时,新增间接依赖。
   - 首次 `uv sync` 碰到 Windows 临时文件"拒绝访问"(PE 资源写入被拦,可能是 Defender / AV 扫描);重试一次自恢复。
   - FEATURE.md 步骤 0.2 原本就是"pyright 或 mypy 二选一",选 pyright 在设计范围内,不需要改 FEATURE。
+
+---
+
+## 步骤 1.1 · FastAPI app + admin 心跳
+
+- **开始**:2026-04-21
+- **完成**:2026-04-21
+- **产出**:
+  - `rosetta/server/app.py`:`create_app()` 工厂,mount `/admin` router
+  - `rosetta/server/admin/__init__.py`:`admin_router` 聚合 health 子路由
+  - `rosetta/server/admin/health.py`:`GET /admin/ping` + `GET /admin/status`(Pydantic 返回模型 `PingResponse` / `StatusResponse`,带 `version` / `uptime_ms` / `providers_count` 占位字段)
+  - `rosetta/server/__main__.py`:uvicorn 入口,绑 `127.0.0.1:0`(OS 分配 ephemeral),`access_log=False`
+  - `pyproject.toml`:runtime deps 加 `fastapi>=0.115`、`uvicorn[standard]>=0.30`
+  - `uv.lock` 更新
+- **手动测试结果**:
+  - 本地静态检查(基础线不能退化):
+    - `uv run ruff check .`:✅
+    - `uv run ruff format --check .`:✅ 11 files already formatted
+    - `uv run pyright rosetta/`:✅ `0 errors, 0 warnings, 0 informations`
+    - `uv run pytest`:✅ `1 passed`
+  - 步骤 1 `uv run python -m rosetta.server`:✅ stdout 输出 `Uvicorn running on http://127.0.0.1:51155 (Press CTRL+C to quit)`
+  - 步骤 2 `curl /admin/ping`:✅ HTTP 200,body `{"ok":true}`
+  - 步骤 3 `curl /admin/status`:✅ HTTP 200,body `{"version":"0.1.0","uptime_ms":531,"providers_count":0}`
+  - 步骤 4 kill 进程:✅ server 退出,log 里无异常栈
+- **通过判据**:✅ 两个 admin 端点均返回 200,server 能正常启停
+- **用户确认**:(待填 / 待 CI 重跑后)
+- **偏差 / 备注**:
+  - 测试用 bash `kill $PID` 强杀(Windows git bash 的 kill 对 Windows 进程走 TerminateProcess),没走 Uvicorn 的优雅关闭流程。`Ctrl+C` 会触发优雅关闭;阶段 1.4 的 `graceful_shutdown` 才真正落地完整链路。当前 kill 时 log 没有 "Shutting down" 行是正常的。
+  - `providers_count=0` 是占位,阶段 1.2 引入 DB 后真查表。
+  - `uvicorn` 实装 0.44.0、`fastapi` 最新、带来的间接依赖:starlette 1.0.0 / watchfiles 1.1.1 / websockets 16.0 / typing-inspection 0.4.2 等。
