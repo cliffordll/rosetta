@@ -122,6 +122,15 @@ class ProxyClient:
         resp.raise_for_status()
         return ProviderOut.model_validate(resp.json())
 
+    async def delete_provider(self, provider_id: int) -> None:
+        """删 provider;server 级联删引用它的 route。"""
+        self._require_server("delete_provider")
+        resp = await self.http.delete(
+            f"{self.base_url}/admin/providers/{provider_id}",
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
+
     async def list_routes(self) -> list[RouteOut]:
         self._require_server("list_routes")
         resp = await self.http.get(f"{self.base_url}/admin/routes", timeout=_ADMIN_TIMEOUT)
