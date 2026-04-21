@@ -118,9 +118,9 @@
 
 - **目标**:DB 落地 + 能增/查 provider(delete / update 留后面)
 - **产出**:
-  - `rosetta/server/db/models.py`(SQLAlchemy 声明:`providers` / `routes` / `logs` 三张表)
-  - `rosetta/server/db/session.py`(aiosqlite engine + async session factory)
-  - `rosetta/server/db/migrations/001_init.sql`(DDL 镜像,含 `PRAGMA user_version = 1` 和 `logs.created_at` 索引)
+  - `rosetta/server/database/models.py`(SQLAlchemy 声明:`providers` / `routes` / `logs` 三张表)
+  - `rosetta/server/database/session.py`(aiosqlite engine + async session factory)
+  - `rosetta/server/database/migrations/001_init.sql`(DDL 镜像,含 `PRAGMA user_version = 1` 和 `logs.created_at` 索引)
   - `rosetta/server/admin/providers.py`:`GET /admin/providers`、`POST /admin/providers`
   - DB 文件默认位置 `~/.rosetta/rosetta.db`
 - **手动测试步骤**:
@@ -212,15 +212,15 @@
 - **目标**:定义 Request / Response / Stream Event IR;Claude 格式双向 adapter
 - **产出**:
   - `rosetta/server/translation/ir.py`(Pydantic 模型)
-  - `rosetta/server/translation/claude/request.py`:`claude_to_ir` + `ir_to_claude`
-  - `rosetta/server/translation/claude/response.py`:非流 + 流(`content_block_*` 事件状态机)
-  - `tests/translation/fixtures/claude/*.json`(金标样本:简单文本 / 带 system / 带 tool_use / 流式)
-  - `tests/translation/test_claude_roundtrip.py`
+  - `rosetta/server/translation/messages/request.py`:`messages_to_ir` + `ir_to_messages`
+  - `rosetta/server/translation/messages/response.py`:非流 + 流(`content_block_*` 事件状态机)
+  - `tests/translation/fixtures/messages/*.json`(金标样本:简单文本 / 带 system / 带 tool_use / 流式)
+  - `tests/translation/test_messages_roundtrip.py`
 - **手动测试步骤**:
   1. 准备 fixture:用 anthropic SDK 真调一次 Claude,把 request body 和完整 response(含 SSE 事件序列)存为 JSON
-  2. `uv run pytest tests/translation/test_claude_roundtrip.py -v`
+  2. `uv run pytest tests/translation/test_messages_roundtrip.py -v`
 - **预期结果**:
-  - 步骤 2:每个 fixture 一个 test case,全部 PASSED;逻辑是 `json → claude_to_ir → ir_to_claude → 字段级等价`(排除 id/timestamp 等易变字段)
+  - 步骤 2:每个 fixture 一个 test case,全部 PASSED;逻辑是 `json → messages_to_ir → ir_to_messages → 字段级等价`(排除 id/timestamp 等易变字段)
 - **通过判据**:pytest exit 0,所有 fixture 测试绿
 - **风险**:`tool_use` block 与 `tool_result` block 的跨消息对应;`content[]` 里文本和工具块混排
 
@@ -228,12 +228,12 @@
 
 - **目标**:Chat Completions 双向 adapter
 - **产出**:
-  - `rosetta/server/translation/openai_chat/request.py` + `response.py`
-  - `tests/translation/fixtures/openai_chat/*.json`
-  - `tests/translation/test_openai_chat_roundtrip.py`
+  - `rosetta/server/translation/completions/request.py` + `response.py`
+  - `tests/translation/fixtures/completions/*.json`
+  - `tests/translation/test_completions_roundtrip.py`
 - **手动测试步骤**:
   1. 同 2.1 的 fixture 准备方式,换 openai SDK
-  2. `uv run pytest tests/translation/test_openai_chat_roundtrip.py -v`
+  2. `uv run pytest tests/translation/test_completions_roundtrip.py -v`
 - **预期结果**:步骤 2 所有 fixture 测试绿
 - **通过判据**:pytest exit 0
 - **风险**:`message.tool_calls.function.arguments`(字符串)vs Claude `tool_use.input`(object)的字段对齐;`finish_reason` 枚举映射
@@ -294,12 +294,12 @@
 
 - **目标**:Responses API 双向 adapter + 三格式两两互通
 - **产出**:
-  - `rosetta/server/translation/openai_resp/request.py` + `response.py`
-  - `tests/translation/fixtures/openai_resp/*.json`
-  - `tests/translation/test_openai_resp_roundtrip.py`
+  - `rosetta/server/translation/responses/request.py` + `response.py`
+  - `tests/translation/fixtures/responses/*.json`
+  - `tests/translation/test_responses_roundtrip.py`
   - dispatcher 加第三条路径
 - **手动测试步骤**:
-  1. `uv run pytest tests/translation/test_openai_resp_roundtrip.py -v`(roundtrip)
+  1. `uv run pytest tests/translation/test_responses_roundtrip.py -v`(roundtrip)
   2. 跑 smoke 脚本:用 openai SDK 的 `responses.create` 指向本地,model 传 Claude 的
   3. 反向:用 anthropic SDK 指向本地,provider 是 `type=openai` 但 URL 是 responses 端点
 - **预期结果**:

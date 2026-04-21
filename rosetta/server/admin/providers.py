@@ -12,8 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rosetta.server.db.models import Provider
-from rosetta.server.db.session import get_session
+from rosetta.server.database.models import Provider
+from rosetta.server.database.session import get_session
 
 router = APIRouter()
 

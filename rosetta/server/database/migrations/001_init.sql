@@ -1,5 +1,5 @@
 -- Rosetta schema v1 · 初始化
--- 和 rosetta/server/db/models.py 的 ORM 声明保持字段对齐
+-- 和 rosetta/server/database/models.py 的 ORM 声明保持字段对齐
 -- 执行时机:DB 文件首次创建 / PRAGMA user_version = 0 时由 session.init_db() 调用
 
 CREATE TABLE providers (

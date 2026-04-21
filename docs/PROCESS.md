@@ -42,6 +42,7 @@
 - **2026-04-21** · `FEATURE.md` 所有 30 步的 `**验证**` 字段改成三段式:`**手动测试步骤**`(编号动作) + `**预期结果**`(逐条对应输出) + `**通过判据**`(一行完成标志);`CLAUDE.md` 对应更新
 - **2026-04-21** · DESIGN.md 补入 6 处逻辑漏洞修补(endpoint.json 抢锁、watcher 优雅关闭、流式错误传播、路由异格式回退自动翻译、direct 模式互斥校验、logs 索引 + schema 迁移)
 - **2026-04-21** · DESIGN.md 同步实际布局(5 处):(a) §7 `server/` 目录从"横切(api/schemas/services/)"改为"纵切(admin/ + dataplane/ + db/ + translation/ 嵌套)"以对齐阶段 1.1-1.3 实装;(b) §8.2 补 migration 实现约定(SQLAlchemy 事务/目录扫描/版本自检/独立事务);(c) tech stack 措辞精确化(aiosqlite 表述为"底层驱动");(d) ASCII 图中"keys"表引用清除;(e) `POST /admin/providers/{id}/test` 端点标注推迟到 v1+
+- **2026-04-21** · 目录重命名(整齐化):`rosetta/server/db/` → `rosetta/server/database/`(代码 `git mv` 保留历史 + 6 Python 文件 import 更新 + SQL 注释一处);DESIGN.md §7 树里规划中的 `translation/claude/` / `openai_chat/` / `openai_resp/` → `messages/` / `completions/` / `responses/`(对齐 `Format` 枚举值);FEATURE.md 2.1/2.2/2.5.1 同步更新(含测试文件名、fixture 路径、函数名 `claude_to_ir` → `messages_to_ir`);guides/database.md 11 处路径更新。PROCESS.md 步骤 1.2 历史条目按 append-only 不回改。
 
 ---
 
