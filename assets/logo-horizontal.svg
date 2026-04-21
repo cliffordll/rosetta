@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 180" width="640" height="180">
+  <defs>
+    <linearGradient id="rosettaBg2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0ea5e9"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(10,10) scale(0.8)">
+    <rect x="0" y="0" width="200" height="200" rx="36" fill="url(#rosettaBg2)"/>
+    <path d="M 62 58 Q 46 58 46 78 Q 46 98 32 100 Q 46 102 46 122 Q 46 142 62 142"
+          stroke="#ffffff" stroke-width="9" fill="none"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M 138 58 Q 154 58 154 78 Q 154 98 168 100 Q 154 102 154 122 Q 154 142 138 142"
+          stroke="#ffffff" stroke-width="9" fill="none"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M 74 86 L 126 86"
+          stroke="#ffffff" stroke-width="7" fill="none" stroke-linecap="round"/>
+    <path d="M 118 78 L 126 86 L 118 94"
+          stroke="#ffffff" stroke-width="7" fill="none"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M 126 114 L 74 114"
+          stroke="#fbbf24" stroke-width="7" fill="none" stroke-linecap="round"/>
+    <path d="M 82 106 L 74 114 L 82 122"
+          stroke="#fbbf24" stroke-width="7" fill="none"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <text x="195" y="108"
+        font-family="'Segoe UI', 'Inter', 'Helvetica Neue', Arial, sans-serif"
+        font-size="72" font-weight="700" fill="#0f172a"
+        letter-spacing="-2">Rosetta</text>
+
+  <text x="198" y="144"
+        font-family="'Segoe UI', 'Inter', 'Helvetica Neue', Arial, sans-serif"
+        font-size="20" font-weight="500" fill="#64748b"
+        letter-spacing="2">API  ·  DATA  ·  TRANSLATE</text>
+</svg>
