@@ -72,3 +72,27 @@
   - 前置补记:uv 本机未预装,通过 `python -m pip install uv` 装了 0.11.7(走了用户选的选项 3)。`FEATURE.md` 步骤 0.1 默认 uv 就位,实际新机器需先装 uv。暂不改 FEATURE,后续若换机再考虑补一个"步骤 0.0 · 环境预检"。
   - `uv sync` 警告 `Failed to hardlink files; falling back to full copy`:跨盘 / 跨文件系统的常见提示,不影响功能,可选加 `export UV_LINK_MODE=copy` 消警告。
   - `[project.scripts]` 注册的 `rosetta` / `rosetta-server` 当前指向尚未创建的 `rosetta.cli.__main__:main` 和 `rosetta.server.__main__:main`。`uv sync` 不校验 entry point 存在性,shim 仍生成;直接运行 `rosetta` 会 ImportError,符合预期(这些模块在步骤 1.1 / 4.2 才落地)。
+
+---
+
+## 步骤 0.2 · Lint / 类型 / 测试基建
+
+- **开始**:2026-04-21
+- **完成**:2026-04-21
+- **产出**:
+  - `ruff.toml`(line-length=100;启用 E / F / I / B / UP / N / SIM / RUF 规则族;format 双引号;tests/ 放宽命名规则)
+  - `mypy.ini`(strict + warn_unreachable + pretty)
+  - `tests/__init__.py`(空)
+  - `tests/test_smoke.py`(1 个测试:`rosetta.__version__ == "0.1.0"`)
+  - `pyproject.toml` 更新:`[dependency-groups] dev = [ruff, mypy, pytest, pytest-asyncio]`;`[tool.pytest.ini_options]`(testpaths, asyncio_mode=auto)
+  - `uv.lock` 更新(新增 dev 依赖)
+- **手动测试结果**:
+  - 步骤 1 `uv run ruff check .`:✅ `All checks passed!`
+  - 步骤 2 `uv run ruff format --check .`:✅ `7 files already formatted`
+  - 步骤 3 `uv run mypy rosetta/`:✅ `Success: no issues found in 5 source files`
+  - 步骤 4 `uv run pytest`:✅ `1 passed in 0.02s`
+- **通过判据**:✅ 四条命令 exit 0
+- **用户确认**:2026-04-21 · "通过"
+- **偏差 / 备注**:
+  - 装出的实际版本:ruff 0.15.11,pytest 9.0.3,pytest-asyncio 1.3.0(uv 自行解析到最新兼容)。pytest 9 相对 FEATURE 写的 `>=8` 更新但行为兼容。
+  - mypy 选了 `strict = True` 起步。当前代码规模小,strict 没报任何问题;后续引入 httpx / sqlalchemy 等无官方 stubs 的库时,可能需要加 `[mypy-<module>]` 块 `ignore_missing_imports = true`。
