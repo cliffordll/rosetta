@@ -1,6 +1,6 @@
-"""`rosetta provider` — provider 的 add / list。
+"""`rosetta provider` — provider 的 add / list / remove。
 
-remove / update / test 留到 v1+(FEATURE 附录 B)。
+update / test 留到 v1+(FEATURE 附录 B)。
 """
 
 from __future__ import annotations
@@ -79,6 +79,25 @@ async def _create(payload: ProviderCreate) -> None:
         f"provider '{created.name}' created "
         f"(id={created.id}, type={created.type}, enabled={created.enabled})"
     )
+
+
+@app.command("remove")
+def remove_cmd(provider_id: Annotated[int, typer.Argument(help="要删除的 provider id")]) -> None:
+    """按 id 删 provider;server 级联删引用它的 route。"""
+    asyncio.run(_remove(provider_id))
+
+
+async def _remove(provider_id: int) -> None:
+    try:
+        async with ProxyClient.discover_session(spawn_if_missing=False) as client:
+            await client.delete_provider(provider_id)
+    except httpx.HTTPStatusError as e:
+        die(f"删除失败: {e.response.status_code} {e.response.text}")
+        return
+    except RuntimeError as e:
+        die(f"server 未就绪: {e}")
+        return
+    out(f"provider id={provider_id} removed")
 
 
 def register(app_root: typer.Typer) -> None:
