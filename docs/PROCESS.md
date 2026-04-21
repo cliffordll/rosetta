@@ -173,8 +173,11 @@
   - 步骤 2 `curl /admin/ping`:✅ HTTP 200,body `{"ok":true}`
   - 步骤 3 `curl /admin/status`:✅ HTTP 200,body `{"version":"0.1.0","uptime_ms":531,"providers_count":0}`
   - 步骤 4 kill 进程:✅ server 退出,log 里无异常栈
-- **通过判据**:✅ 两个 admin 端点均返回 200,server 能正常启停
-- **用户确认**:(待填 / 待 CI 重跑后)
+- **CI 验证**:commit `fd1bc1c` 触发 run 24702026697 → conclusion `success`
+  - `check (ubuntu-latest)`:12s ✅
+  - `check (windows-latest)`:36s ✅
+- **通过判据**:✅ 两个 admin 端点均返回 200,server 能正常启停,CI 两平台绿
+- **用户确认**:2026-04-21 · "验证通过"
 - **偏差 / 备注**:
   - 测试用 bash `kill $PID` 强杀(Windows git bash 的 kill 对 Windows 进程走 TerminateProcess),没走 Uvicorn 的优雅关闭流程。`Ctrl+C` 会触发优雅关闭;阶段 1.4 的 `graceful_shutdown` 才真正落地完整链路。当前 kill 时 log 没有 "Shutting down" 行是正常的。
   - `providers_count=0` 是占位,阶段 1.2 引入 DB 后真查表。
