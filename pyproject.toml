@@ -37,3 +37,6 @@ dev = [
 minversion = "8.0"
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "integration: 真启动子进程 / 访问外部服务的集成测试(--integration 才跑)",
+]
