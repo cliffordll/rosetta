@@ -96,3 +96,54 @@
 - **偏差 / 备注**:
   - 装出的实际版本:ruff 0.15.11,pytest 9.0.3,pytest-asyncio 1.3.0(uv 自行解析到最新兼容)。pytest 9 相对 FEATURE 写的 `>=8` 更新但行为兼容。
   - mypy 选了 `strict = True` 起步。当前代码规模小,strict 没报任何问题;后续引入 httpx / sqlalchemy 等无官方 stubs 的库时,可能需要加 `[mypy-<module>]` 块 `ignore_missing_imports = true`。
+
+---
+
+## 步骤 0.3 · 基础 CI(GitHub Actions)
+
+- **开始**:2026-04-21
+- **完成**:2026-04-21
+- **产出**:
+  - `.github/workflows/ci.yml`:
+    - 触发:push/PR 到 main
+    - matrix:windows-latest + ubuntu-latest(`fail-fast: false`)
+    - 步骤:`actions/checkout` → `astral-sh/setup-uv@v3`(enable-cache) → `uv sync --frozen` → ruff check → ruff format check → mypy → pytest
+    - concurrency:同分支后续 push 取消在途 run
+    - permissions:contents: read(最小化)
+- **手动测试结果**:
+  - 直接推 commit 228fc3f 到 main 触发 CI(跳过 FEATURE 写的"临时分支 ci-test"路径 — 直接推 main 同样触发,更简洁)
+  - 通过 GitHub REST API 轮询 `https://api.github.com/repos/cliffordll/rosetta/actions/runs`:
+    - run id 24701532639,status=completed,conclusion=success
+    - 两个 job 均 ✅:
+      - `check (ubuntu-latest)`:12s(02:53:36 → 02:53:48)
+      - `check (windows-latest)`:25s(02:53:36 → 02:54:01)
+- **通过判据**:✅ 最新 CI run 为 success,两个平台都绿
+- **用户确认**:(待填)
+- **偏差 / 备注**:
+  - FEATURE 原设计用临时 `ci-test` 分支触发,实际直接推 main 就触发(yml 配的 `on: push: branches: [main]`)。省了"新建分支 → 推送 → 删分支"的环节。后续改动若想不污染 main 历史,仍可用 PR 流程(yml 也监听 pull_request)。
+  - 第一次 run 特别快(12-25s),部分原因是 setup-uv 的 cache 首次就命中(astral-sh/setup-uv 有跨 job 共享的全局缓存)+ 无其他 jobs 排队。后续加依赖后会变慢一些。
+  - 本机没装 `gh` CLI,监控用的 curl + GitHub API。对 public 仓库免鉴权就能查 runs/jobs。若以后要本地触发 re-run,可以 `winget install --id=GitHub.cli -e`。
+
+---
+
+## 变更 · 步骤 0.2 / 0.3:类型检查器 mypy → pyright
+
+- **变更时间**:2026-04-21
+- **触发**:用户要求替换
+- **影响范围**:步骤 0.2(lint/类型/测试基建)和 0.3(CI)的产出
+- **改动清单**:
+  - `pyproject.toml` 的 dev deps:`mypy>=1.10` → `pyright>=1.1.380`
+  - 删除 `mypy.ini`
+  - 新建 `pyrightconfig.json`(`include: ["rosetta"]`、`pythonVersion: "3.12"`、`typeCheckingMode: "strict"`、`useLibraryCodeForTypes: true`)
+  - `.github/workflows/ci.yml`:步骤 `uv run mypy rosetta/` → `uv run pyright rosetta/`
+- **重新验证(本地)**:
+  - `uv run ruff check .`:✅
+  - `uv run ruff format --check .`:✅
+  - `uv run pyright rosetta/`:✅ `0 errors, 0 warnings, 0 informations`
+  - `uv run pytest`:✅ `1 passed`
+- **重新验证(CI)**:(待 push 后补)
+- **用户确认**:(待填)
+- **备注**:
+  - 实装版本 pyright 1.1.408(2026-04 最新)。pyright 通过 `nodeenv==1.10.0` 拉 Node.js 运行时,新增间接依赖。
+  - 首次 `uv sync` 碰到 Windows 临时文件"拒绝访问"(PE 资源写入被拦,可能是 Defender / AV 扫描);重试一次自恢复。
+  - FEATURE.md 步骤 0.2 原本就是"pyright 或 mypy 二选一",选 pyright 在设计范围内,不需要改 FEATURE。
