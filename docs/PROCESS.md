@@ -118,7 +118,7 @@
       - `check (ubuntu-latest)`:12s(02:53:36 → 02:53:48)
       - `check (windows-latest)`:25s(02:53:36 → 02:54:01)
 - **通过判据**:✅ 最新 CI run 为 success,两个平台都绿
-- **用户确认**:(待填)
+- **用户确认**:2026-04-21 · "通过"
 - **偏差 / 备注**:
   - FEATURE 原设计用临时 `ci-test` 分支触发,实际直接推 main 就触发(yml 配的 `on: push: branches: [main]`)。省了"新建分支 → 推送 → 删分支"的环节。后续改动若想不污染 main 历史,仍可用 PR 流程(yml 也监听 pull_request)。
   - 第一次 run 特别快(12-25s),部分原因是 setup-uv 的 cache 首次就命中(astral-sh/setup-uv 有跨 job 共享的全局缓存)+ 无其他 jobs 排队。后续加依赖后会变慢一些。
@@ -144,7 +144,7 @@
 - **重新验证(CI)**:commit `60a0e20` 触发 run 24701741897 → conclusion `success`
   - `check (ubuntu-latest)`:9s ✅
   - `check (windows-latest)`:30s ✅
-- **用户确认**:(待填)
+- **用户确认**:2026-04-21 · "通过"
 - **备注**:
   - 实装版本 pyright 1.1.408(2026-04 最新)。pyright 通过 `nodeenv==1.10.0` 拉 Node.js 运行时,新增间接依赖。
   - 首次 `uv sync` 碰到 Windows 临时文件"拒绝访问"(PE 资源写入被拦,可能是 Defender / AV 扫描);重试一次自恢复。
