@@ -8,7 +8,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from rosetta import __version__
-from rosetta.server.db.session import count_providers
+from rosetta.server.database.session import count_providers
 
 router = APIRouter()
 

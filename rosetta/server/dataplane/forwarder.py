@@ -15,7 +15,7 @@ import httpx
 from fastapi import HTTPException, status
 from fastapi.responses import Response, StreamingResponse
 
-from rosetta.server.db.models import Provider
+from rosetta.server.database.models import Provider
 from rosetta.shared.formats import DEFAULT_BASE_URL, UPSTREAM_PATH, Format
 
 # 超时:连接 10s、读取 5min(LLM 长响应常态)

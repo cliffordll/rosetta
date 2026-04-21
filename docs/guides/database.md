@@ -5,7 +5,7 @@
 > - 如何查询 / 插入 / 更新 / 删除数据(业务 CRUD)
 > - 如何通过 migrations 修改 schema
 
-代码实现:`rosetta/server/db/*`。
+代码实现:`rosetta/server/database/*`。
 
 ---
 
@@ -16,9 +16,9 @@
 | SQLite | 本地文件型 DB,单文件 `~/.rosetta/rosetta.db`,零运维 |
 | **aiosqlite** | 异步驱动,不在代码层 import,只作 SQLAlchemy 驱动后端 |
 | **SQLAlchemy 2.x async** | 所有 DB 操作(业务 CRUD + migrations)统一走这层 |
-| `rosetta/server/db/models.py` | ORM 声明(`Provider` / `Route` / `LogEntry`) |
-| `rosetta/server/db/session.py` | engine / session 工厂 + migration runner |
-| `rosetta/server/db/migrations/` | `NNN_*.sql` schema 变更文件 |
+| `rosetta/server/database/models.py` | ORM 声明(`Provider` / `Route` / `LogEntry`) |
+| `rosetta/server/database/session.py` | engine / session 工厂 + migration runner |
+| `rosetta/server/database/migrations/` | `NNN_*.sql` schema 变更文件 |
 
 ---
 
@@ -45,7 +45,7 @@ async def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
 
 ```python
 from pathlib import Path
-from rosetta.server.db.session import init_db, dispose_db
+from rosetta.server.database.session import init_db, dispose_db
 
 await init_db(Path("/tmp/test.db"))
 # ... 用 DB ...
@@ -72,7 +72,7 @@ from typing import Annotated
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rosetta.server.db.session import get_session
+from rosetta.server.database.session import get_session
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
@@ -87,7 +87,7 @@ async def anything(session: SessionDep) -> Response:
 ### 脱离 FastAPI 上下文(脚本 / 后台任务 / 测试)
 
 ```python
-from rosetta.server.db.session import _state, init_db
+from rosetta.server.database.session import _state, init_db
 
 if _state.session_maker is None:
     await init_db()
@@ -111,7 +111,7 @@ async with _state.session_maker() as session:
 
 ```python
 from sqlalchemy import select
-from rosetta.server.db.models import Provider
+from rosetta.server.database.models import Provider
 
 result = await session.execute(select(Provider).order_by(Provider.id))
 providers = result.scalars().all()         # Sequence[Provider]
@@ -316,7 +316,7 @@ FastAPI 的 `SessionDep` 依赖在请求异常退出时会自动 rollback,业务
 
 ### 6.2 整体机制
 
-`rosetta/server/db/migrations/` 下放 `NNN_*.sql` 文件,runner 按 `PRAGMA user_version` 自动增量跑:
+`rosetta/server/database/migrations/` 下放 `NNN_*.sql` 文件,runner 按 `PRAGMA user_version` 自动增量跑:
 
 - `001_init.sql` 建初始 schema,末尾 `PRAGMA user_version = 1;`
 - `002_xxx.sql` 的末尾 `PRAGMA user_version = 2;`
@@ -331,7 +331,7 @@ FastAPI 的 `SessionDep` 依赖在请求异常退出时会自动 rollback,业务
 
 #### 步骤 1:写 migration 文件
 
-`rosetta/server/db/migrations/002_add_last_used_at.sql`:
+`rosetta/server/database/migrations/002_add_last_used_at.sql`:
 
 ```sql
 -- v0.2 · 给 providers 加 last_used_at 字段

@@ -268,7 +268,7 @@ rosetta/
 │   │   │   ├── router.py         # ⊕ 扩 x-rosetta-provider header + routes 表匹配（阶段 3）
 │   │   │   └── dispatcher.py     # ⊕ 扩 入口 format × 出口 format → 选翻译路径（阶段 2.3）
 │   │   │
-│   │   ├── db/                   # 存储层
+│   │   ├── database/             # 存储层
 │   │   │   ├── __init__.py
 │   │   │   ├── models.py         # SQLAlchemy 2.x 声明式 Base + Provider / Route / LogEntry
 │   │   │   ├── session.py        # async engine + session factory + init_db/dispose_db + migration runner
@@ -279,13 +279,13 @@ rosetta/
 │   │   ├── translation/          # ⊕ 扩 核心翻译层（阶段 2 起）
 │   │   │   ├── __init__.py
 │   │   │   ├── ir.py             # Request/Response/StreamEvent IR 定义
-│   │   │   ├── claude/
-│   │   │   │   ├── request.py    # claude_to_ir / ir_to_claude
+│   │   │   ├── messages/         # Format.MESSAGES（Claude Messages API）
+│   │   │   │   ├── request.py    # messages_to_ir / ir_to_messages
 │   │   │   │   └── response.py   # 非流式 + 流式（content_block_* 状态机）
-│   │   │   ├── openai_chat/
+│   │   │   ├── completions/      # Format.CHAT_COMPLETIONS（OpenAI Chat Completions）
 │   │   │   │   ├── request.py
 │   │   │   │   └── response.py
-│   │   │   └── openai_resp/
+│   │   │   └── responses/        # Format.RESPONSES（OpenAI Responses）
 │   │   │       ├── request.py
 │   │   │       └── response.py
 │   │   │
@@ -486,7 +486,7 @@ logs                                  -- 请求流水（异步写入）
   - 等于当前版本 → 正常启动
   - 小于当前版本 → 按顺序跑 `migrations/NNN_*.sql`，跑完更新 user_version
   - 大于当前版本（老 server 开新 DB）→ 拒绝启动，日志提示"DB schema 来自更高版本 rosetta"
-- 迁移脚本放 `rosetta/server/db/migrations/`，文件名 `001_init.sql` / `002_add_xxx.sql`
+- 迁移脚本放 `rosetta/server/database/migrations/`，文件名 `001_init.sql` / `002_add_xxx.sql`
 
 **实现约定**（阶段 1.2 落地，修订见 `PROCESS.md`）：
 

@@ -9,9 +9,9 @@ from fastapi import FastAPI
 
 from rosetta import __version__
 from rosetta.server.admin import admin_router
+from rosetta.server.database.session import dispose_db, init_db
 from rosetta.server.dataplane import dataplane_router
 from rosetta.server.dataplane.forwarder import dispose_client, init_client
-from rosetta.server.db.session import dispose_db, init_db
 
 
 @asynccontextmanager

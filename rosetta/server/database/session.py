@@ -120,7 +120,7 @@ async def count_providers() -> int:
     """给 /admin/status 用;DB 未初始化时返回 0 兜底。"""
     from sqlalchemy import func, select
 
-    from rosetta.server.db.models import Provider
+    from rosetta.server.database.models import Provider
 
     if _state.session_maker is None:
         return 0
