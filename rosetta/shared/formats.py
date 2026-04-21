@@ -1,11 +1,12 @@
-"""三格式标识 + 上游路径映射 + provider type 默认 base_url 表。
+"""三格式标识 + 上游路径映射 + provider type 默认值表。
 
 定义:
 - `Format`:API 形态(/v1/messages / /v1/chat/completions / /v1/responses)
-- `UPSTREAM_PATH`:format → 上游 URL 路径(同格式直通:format 是啥就打啥路径)
+- `UPSTREAM_PATH`:format → 上游 URL 路径
 - `DEFAULT_BASE_URL`:provider.type → 官方上游 base_url(DB 里 base_url 为空时兜底)
+- `PROVIDER_NATIVE_FORMAT`:provider.type → 默认的 "原生 format"(翻译层决定目标格式用)
 
-阶段 1.3 只走"同格式直通",format 和 provider.type 的交叉翻译要到阶段 2。
+阶段 1.3 同格式直通;阶段 2 起翻译层按 client_format vs provider_native_format 路由。
 """
 
 from __future__ import annotations
@@ -33,3 +34,18 @@ DEFAULT_BASE_URL: dict[str, str] = {
     "openrouter": "https://openrouter.ai/api",
     # custom 必须显式填写,不在这里兜底
 }
+
+
+# provider.type → 上游原生 format(v0.1 默认值;custom 型 provider 将来用显式字段覆盖)
+# openai 默认为 completions(Chat Completions 兼容面最广);使用 Responses 的上游通过
+# `provider.default_format` 字段覆盖(v0.1 暂未引入该字段,2.5.1 前夕再加)
+PROVIDER_NATIVE_FORMAT: dict[str, Format] = {
+    "anthropic": Format.MESSAGES,
+    "openai": Format.CHAT_COMPLETIONS,
+    "openrouter": Format.CHAT_COMPLETIONS,
+}
+
+
+def resolve_provider_format(provider_type: str) -> Format:
+    """查 provider.type 对应的原生 format;未知类型兜底到 completions。"""
+    return PROVIDER_NATIVE_FORMAT.get(provider_type, Format.CHAT_COMPLETIONS)
