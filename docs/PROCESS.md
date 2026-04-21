@@ -41,6 +41,7 @@
 - **2026-04-21** · 删除 `ROADMAP.md`,其 v1+ 方向和节奏建议并入 `FEATURE.md` 附录 A/B
 - **2026-04-21** · `FEATURE.md` 所有 30 步的 `**验证**` 字段改成三段式:`**手动测试步骤**`(编号动作) + `**预期结果**`(逐条对应输出) + `**通过判据**`(一行完成标志);`CLAUDE.md` 对应更新
 - **2026-04-21** · DESIGN.md 补入 6 处逻辑漏洞修补(endpoint.json 抢锁、watcher 优雅关闭、流式错误传播、路由异格式回退自动翻译、direct 模式互斥校验、logs 索引 + schema 迁移)
+- **2026-04-21** · DESIGN.md 同步实际布局(5 处):(a) §7 `server/` 目录从"横切(api/schemas/services/)"改为"纵切(admin/ + dataplane/ + db/ + translation/ 嵌套)"以对齐阶段 1.1-1.3 实装;(b) §8.2 补 migration 实现约定(SQLAlchemy 事务/目录扫描/版本自检/独立事务);(c) tech stack 措辞精确化(aiosqlite 表述为"底层驱动");(d) ASCII 图中"keys"表引用清除;(e) `POST /admin/providers/{id}/test` 端点标注推迟到 v1+
 
 ---
 
@@ -245,7 +246,7 @@
   - `idx_logs_created_at` 索引存在 ✅
   - 三张业务表齐:providers / routes / logs(+ sqlite_sequence 是 SQLite 为 AUTOINCREMENT 自动建的)
 - **重新验证(CI)**:未 push(按新规则等用户手动确认)
-- **用户确认**:(待填)
+- **用户确认**:2026-04-21 · "开始执行下一步"(随 `b8ba68c` push 后一并隐式确认)
 - **备注**:
   - `_split_sql_statements` 只处理"整行注释"和"分号切分",不处理 `;` 在字符串字面量内的边缘情况;当前 migration 文件结构简单,无此情况;将来若 migration 里出现 `INSERT INTO ... VALUES ('a;b')` 类字符串再强化。
   - PRAGMA `user_version = 1` 在 SQLAlchemy `engine.begin()` 事务内执行有效:SQLite 的 user_version 设置本身是事务性的,transaction commit 后才真正落盘,和 DDL 语义一致。
@@ -271,8 +272,42 @@
   - ruff / pyright / pytest 全绿
   - 清 `~/.rosetta/rosetta.db` 后 fresh 启动:POST/GET/status 正常,`user_version=1`,三表齐
 - **重新验证(CI)**:未 push
-- **用户确认**:(待填)
+- **用户确认**:2026-04-21 · "开始执行下一步"(随 `b8ba68c` push 后一并隐式确认)
 - **备注**:
   - 本次**未加**针对 migration 扫描器的单测(如"扫出 001_init.sql"/"重复编号报错"/"空目录报错")。属于可补但非必须,后续可作为"1.2 补强"加进 tests/db/。
   - 第 `NNN` 位固定 3 位,最大 999 条 migration,v0 远超够用。超过时改 glob pattern。
   - SQL 文件的"行内注释"(如 `type TEXT NOT NULL, -- anthropic / ...`)不被过滤:只过滤以 `--` 开头的整行注释。SQLite 解析器自己会处理行内注释。
+
+---
+
+## 步骤 1.3 · 三格式入口(同格式直通,无翻译)
+
+- **开始**:2026-04-21
+- **完成**:2026-04-21
+- **产出**:
+  - `rosetta/shared/formats.py`:`Format` 枚举(messages/completions/responses)、`UPSTREAM_PATH` 映射、`DEFAULT_BASE_URL`(provider.type → 官方 base_url 兜底表)
+  - `rosetta/server/dataplane/__init__.py`:`dataplane_router` 聚合
+  - `rosetta/server/dataplane/routes.py`:`POST /v1/messages`、`POST /v1/chat/completions`、`POST /v1/responses`(501);`_pick_provider()` 硬编取第一个 enabled;`_is_stream(body)` 解析 JSON 的 `stream` 字段兜底
+  - `rosetta/server/dataplane/forwarder.py`:全局 `httpx.AsyncClient`(lifespan 管);`forward()` 按 `is_stream` 分派到 `_forward_once`(普通 POST)或 `_forward_stream`(`client.send(stream=True)` + `StreamingResponse`);auth header 按 provider.type 分(anthropic → `x-api-key` + `anthropic-version`,其余 → `Authorization: Bearer`);`httpx.RequestError` → 502;上游非 2xx 在流式路径会读完 body 转成非流式错误响应
+  - `rosetta/server/app.py`(改):lifespan 增加 `init_client` / `dispose_client`;mount `dataplane_router`
+  - `pyproject.toml`(改):runtime deps 加 `httpx>=0.28`
+  - `uv.lock` 更新(新增 httpx 0.28.1 / httpcore 1.0.9 / certifi 2026.2.25)
+  - `tests/mock_upstream.py`:本地假上游,`POST /v1/messages` 模拟 Anthropic(非流 + SSE 8 事件),`POST /v1/chat/completions` 模拟 OpenAI(非流 + SSE chunks + `[DONE]`);`python -m tests.mock_upstream --port 8765` 启动
+- **手动测试结果**:
+  - 本地静态检查:ruff check ✅ / ruff format ✅ 21 files / pyright ✅ 0 errors / pytest ✅ 1 passed
+  - 无 provider 请求 /v1/messages:✅ HTTP 503 "没有 enabled 的 provider"
+  - 注册 mock 为 provider(`type=anthropic, base_url=http://127.0.0.1:8765`):✅ 201
+  - `POST /v1/messages` 非流式:✅ 200,返回 mock Anthropic-shape JSON(`msg_mock_001`)
+  - `POST /v1/messages` 流式:✅ 200,text/event-stream,逐事件透传 `message_start` / `content_block_*` / `message_delta` / `message_stop`
+  - `POST /v1/chat/completions` 非流式:✅ 200,mock OpenAI-shape JSON(`chatcmpl_mock_001`)
+  - `POST /v1/chat/completions` 流式:✅ 200,逐 chunk + 末尾 `data: [DONE]`
+  - `POST /v1/responses`:✅ HTTP 501 "/v1/responses 阶段 2.5 才实现"
+- **通过判据**:✅ 三格式端点路由正确、SSE 透传不缓冲、provider 兜底 503、responses 501、auth header 按 type 切换
+- **用户确认**:2026-04-21 · "通过"
+- **偏差 / 备注**:
+  - **验证方案**:原 FEATURE 要求用真 API key 跑 anthropic/openai SDK 冒烟;实际改为**本地 mock upstream + curl**(内网可跑、零外网依赖、错误路径可构造)。FEATURE 未改,偏差记在这里。
+  - **未做的扩展**:没建 `tests/smoke_forward.py` 或 pytest 集成测试;验证走人肉 curl。pytest 集成测试(fixture 启动 mock + rosetta + 回归)留到阶段 2 翻译层一起建更划算(有真正需回归的翻译逻辑)。
+  - **FastAPI 坑**:`JSONResponse | StreamingResponse` 作为 endpoint 的 return type 注解会触发 FastAPI 的 response_model 推断并报错,加 `response_model=None` 绕开。
+  - **auth header 精度**:1.3 阶段所有 /v1/* 请求都用 DB 里的 `provider.api_key`,没做客户端 `x-api-key` 透传优先。FEATURE 3.2 会补。当前 mock 不校验 auth,功能验证不受影响。
+  - **provider 选择**:`_pick_provider` 硬编"第一个 enabled",不看 format 和上游 type 匹配。意味着若第一个 provider 是 anthropic,客户端打 /v1/chat/completions 也会用 x-api-key + anthropic-version 发给该上游——在 mock 场景工作,对真 OpenAI 上游会 401。这是 1.3 的**已知简化**,阶段 3.1 路由表接入后消失。
+  - **实装 deps**:httpx 0.28.1 + httpcore 1.0.9 + certifi 2026.2.25;bash `rm ~/.rosetta/rosetta.db` 在 Windows 报 "Device or resource busy" 时,rosetta server 仍能正常启动跑 migrations —— 初步判断是 git bash rm 行为问题,不是真 SQLite 锁,后续阶段 1.4 若再碰到同现象再深查。

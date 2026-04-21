@@ -37,7 +37,7 @@
 | 2 | 上游支持 | Anthropic 原生 + OpenAI + OpenRouter + 自定义中转 | |
 | 3 | 对外 API 格式 | Claude Messages + OpenAI Chat Completions + OpenAI Responses 全部支持 | 三格式任意互译，客户端按自己习惯的接口接入 |
 | 4 | 翻译引擎 | 自研核心（3×3 IR 翻译矩阵） | Responses API 较新，LiteLLM 覆盖有限；对角线直通保真，异格式走 IR |
-| 5 | 本地数据库 | SQLite (aiosqlite / SQLAlchemy 2.x async) | 单用户本地场景够用 |
+| 5 | 本地数据库 | SQLite (SQLAlchemy 2.x async，aiosqlite 作底层驱动) | 单用户本地场景够用 |
 | 6 | Server 生命周期 | Sidecar + 引用计数（模型 ②） | GUI/CLI 任一先启动都拉起，最后一个退出带走 |
 | 7 | 管理面实时性 | 普通 HTTP，不做 WebSocket | v0 不要实时流 |
 | 8 | 数据面实时性 | SSE 透传 | Claude 流式响应必须 |
@@ -88,8 +88,8 @@
 │  └──────┬────────────────────────┘                              │
 │         │                                                        │
 │  ┌──────▼──────────┐   ┌────────────────────────────────────┐   │
-│  │ Translation 3×3 │   │   SQLite (aiosqlite)               │   │
-│  │ IR + 3 adapters │   │   providers / keys / routes / logs │   │
+│  │ Translation 3×3 │   │   SQLite (SQLAlchemy + aiosqlite)  │   │
+│  │ IR + 3 adapters │   │   providers / routes / logs        │   │
 │  └──────┬──────────┘   └────────────────────────────────────┘   │
 │         │                                                        │
 └─────────┼────────────────────────────────────────────────────────┘
@@ -251,37 +251,48 @@ rosetta/
 │   ├── server/                   # 子包：FastAPI 代理核心 —— v0 先做这个
 │   │   ├── __init__.py
 │   │   ├── __main__.py           # python -m rosetta.server → 启动 server
-│   │   ├── main.py               # FastAPI app factory + lifespan
-│   │   ├── models.py             # SQLAlchemy ORM
-│   │   ├── api/
-│   │   │   ├── admin.py          # /admin/*
-│   │   │   └── proxy.py          # ⊕ 扩  /v1/*，解析 x-rosetta-provider header；x-api-key 透传上游
-│   │   ├── schemas/
-│   │   │   ├── admin.py          # 管理面 Pydantic
-│   │   │   ├── messages.py       # Claude Messages 请求/响应
-│   │   │   ├── completions.py    # OpenAI Chat Completions 请求/响应
-│   │   │   └── responses.py      # OpenAI Responses 请求/响应
-│   │   ├── services/
-│   │   │   ├── forwarder.py      # ⊕ 扩  选直通 or 翻译；客户端传的 x-api-key 优先，缺省用 providers.api_key；
-│   │   │   │                     #         把翻译路径("messages↔messages 直通" 等)写进响应 header x-rosetta-path
-│   │   │   ├── provider.py       # ⊕ 扩  建 provider 时按 type 填 default base_url（custom 必填）
-│   │   │   ├── router.py         # ⊕ 扩  支持 x-rosetta-provider header 绕路由直指 provider
-│   │   │   ├── logger.py         # 异步写 logs
-│   │   │   └── stats.py          # 用量统计
-│   │   ├── translation/          # 核心翻译层
+│   │   ├── app.py                # FastAPI app factory + lifespan
+│   │   │
+│   │   ├── admin/                # 控制面：/admin/* —— 按端点职责拆文件
+│   │   │   ├── __init__.py       # admin_router 聚合
+│   │   │   ├── health.py         # GET /admin/ping、GET /admin/status
+│   │   │   ├── providers.py      # GET/POST /admin/providers（ProviderCreate/ProviderOut 内联）
+│   │   │   ├── routes.py         # ⊕ 扩 GET/PUT /admin/routes（阶段 3）
+│   │   │   ├── logs.py           # ⊕ 扩 GET /admin/logs
+│   │   │   └── stats.py          # ⊕ 扩 GET /admin/stats
+│   │   │
+│   │   ├── dataplane/            # 数据面：/v1/* + 上游转发/翻译
+│   │   │   ├── __init__.py       # dataplane_router 聚合
+│   │   │   ├── routes.py         # ⊕ 扩 POST /v1/messages、/v1/chat/completions、/v1/responses（阶段 1.3）
+│   │   │   ├── forwarder.py      # ⊕ 扩 httpx 转发 + SSE 透传；x-api-key 透传规则（阶段 1.3）
+│   │   │   ├── router.py         # ⊕ 扩 x-rosetta-provider header + routes 表匹配（阶段 3）
+│   │   │   └── dispatcher.py     # ⊕ 扩 入口 format × 出口 format → 选翻译路径（阶段 2.3）
+│   │   │
+│   │   ├── db/                   # 存储层
+│   │   │   ├── __init__.py
+│   │   │   ├── models.py         # SQLAlchemy 2.x 声明式 Base + Provider / Route / LogEntry
+│   │   │   ├── session.py        # async engine + session factory + init_db/dispose_db + migration runner
+│   │   │   └── migrations/
+│   │   │       ├── __init__.py
+│   │   │       └── 001_init.sql  # 三表 DDL + idx_logs_created_at + PRAGMA user_version=1
+│   │   │
+│   │   ├── translation/          # ⊕ 扩 核心翻译层（阶段 2 起）
+│   │   │   ├── __init__.py
 │   │   │   ├── ir.py             # Request/Response/StreamEvent IR 定义
-│   │   │   ├── messages.py       # Claude Messages adapter（in + out + stream）
-│   │   │   ├── completions.py    # OpenAI Chat Completions adapter
-│   │   │   └── responses.py      # OpenAI Responses adapter
-│   │   ├── core/
-│   │   │   ├── config.py         # BaseSettings
-│   │   │   └── deps.py           # FastAPI 依赖（loopback 校验、DB session 注入等）
-│   │   ├── storage/
-│   │   │   └── db.py             # engine + session factory
-│   │   └── runtime/
-│   │       ├── endpoint.py       # 读/写 endpoint.json
-│   │       ├── lockfile.py       # pid-file 单例
-│   │       └── watcher.py        # parent pid 监控
+│   │   │   ├── claude/
+│   │   │   │   ├── request.py    # claude_to_ir / ir_to_claude
+│   │   │   │   └── response.py   # 非流式 + 流式（content_block_* 状态机）
+│   │   │   ├── openai_chat/
+│   │   │   │   ├── request.py
+│   │   │   │   └── response.py
+│   │   │   └── openai_resp/
+│   │   │       ├── request.py
+│   │   │       └── response.py
+│   │   │
+│   │   └── runtime/              # ⊕ 扩 进程生命周期管理（阶段 1.4）
+│   │       ├── endpoint.py       # 读/写 endpoint.json（.tmp → rename 原子替换）
+│   │       ├── lockfile.py       # spawn.lock 独占创建 + PID 陈旧检测
+│   │       └── watcher.py        # parent PID 监控 + 5 步优雅关闭
 │   │
 │   ├── sdk/                      # 子包：HTTP 客户端（CLI 用；导出给外部脚本复用）
 │   │   ├── __init__.py
@@ -395,7 +406,7 @@ POST   /admin/providers                  新建：{name, type, base_url, api_key
 GET    /admin/providers/{id}             详情
 PUT    /admin/providers/{id}             修改
 DELETE /admin/providers/{id}             删除
-POST   /admin/providers/{id}/test        测试连通性（向上游发一个空请求）
+（连通性测试端点 `POST /admin/providers/{id}/test` 推迟到 v1+，见 `FEATURE.md` 附录 B）
 
 GET    /admin/routes                     路由规则：[{model_glob, provider_id, priority}]
 PUT    /admin/routes                     批量替换路由规则
@@ -476,6 +487,13 @@ logs                                  -- 请求流水（异步写入）
   - 小于当前版本 → 按顺序跑 `migrations/NNN_*.sql`，跑完更新 user_version
   - 大于当前版本（老 server 开新 DB）→ 拒绝启动，日志提示"DB schema 来自更高版本 rosetta"
 - 迁移脚本放 `rosetta/server/db/migrations/`，文件名 `001_init.sql` / `002_add_xxx.sql`
+
+**实现约定**（阶段 1.2 落地，修订见 `PROCESS.md`）：
+
+- migration runner 走 SQLAlchemy `engine.begin()` 事务，**代码里不 import aiosqlite**（aiosqlite 仅作为 SQLAlchemy 的底层驱动被动加载）
+- 启动时自检 `CURRENT_SCHEMA_VERSION == max(migrations[*].N)`，不一致拒启动（防止常量改了忘加 SQL 文件，或反之）
+- 每个 migration 在**独立事务**里跑，任一失败不回滚已成功的前几个
+- migration 目录通过 glob `[0-9][0-9][0-9]_*.sql` 扫描，按编号升序；编号重复启动时报错
 
 （v0 **不再有 `keys` 表**——rosetta 自己的"本地 key"概念已删除。`providers.api_key` 是上游 key 的默认值，客户端可通过 `x-api-key` 头逐次 override。）
 
