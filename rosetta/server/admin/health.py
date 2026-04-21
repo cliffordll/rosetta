@@ -8,6 +8,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from rosetta import __version__
+from rosetta.server.db.session import count_providers
 
 router = APIRouter()
 
@@ -32,8 +33,9 @@ async def ping() -> PingResponse:
 @router.get("/status", response_model=StatusResponse)
 async def status() -> StatusResponse:
     uptime_ms = int((time.monotonic() - _START_MONO) * 1000)
+    providers_count = await count_providers()
     return StatusResponse(
         version=__version__,
         uptime_ms=uptime_ms,
-        providers_count=0,
+        providers_count=providers_count,
     )
