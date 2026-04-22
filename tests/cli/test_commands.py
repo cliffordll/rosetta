@@ -30,9 +30,19 @@ def test_root_help() -> None:
     "sub",
     ["status", "start", "stop", "provider", "route", "logs", "stats", "chat"],
 )
-def test_subcommand_help(sub: str) -> None:
-    result = runner.invoke(app, [sub, "--help"])
-    assert result.exit_code == 0, f"{sub} --help 应成功,实际 exit={result.exit_code}"
+@pytest.mark.parametrize("flag", ["--help", "-h"])
+def test_subcommand_help(sub: str, flag: str) -> None:
+    result = runner.invoke(app, [sub, flag])
+    assert result.exit_code == 0, (
+        f"{sub} {flag} 应成功,实际 exit={result.exit_code}"
+    )
+
+
+@pytest.mark.parametrize("flag", ["--help", "-h"])
+def test_root_help_accepts_short_and_long(flag: str) -> None:
+    result = runner.invoke(app, [flag])
+    assert result.exit_code == 0
+    assert "rosetta" in result.output
 
 
 def test_unknown_subcommand_fails() -> None:
@@ -50,3 +60,34 @@ def test_chat_invalid_format_fails() -> None:
     """--format 必须是 messages/completions/responses;其它值在 argparse 前就报错。"""
     result = runner.invoke(app, ["chat", "--format", "bogus", "hi"])
     assert result.exit_code != 0
+
+
+# ---------- --quiet 全局 flag ----------
+
+
+def test_quiet_flag_accepted_by_root_help() -> None:
+    """根 --help 里有 --quiet / -q 选项。"""
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+    assert "--quiet" in result.output
+    assert "-q" in result.output
+
+
+def test_quiet_flag_sets_renderer_state() -> None:
+    """--quiet 触发根 callback 后,Renderer.QUIET = True。"""
+    from rosetta.cli.render import Renderer
+
+    Renderer.QUIET = False  # 保险丝
+    # 用一个必然失败的子命令快速走完 callback + 子命令参数校验(不触 server)
+    runner.invoke(app, ["--quiet", "chat", "--format", "bogus", "hi"])
+    assert Renderer.QUIET is True
+    Renderer.QUIET = False  # 复位,避免污染后续 test
+
+
+def test_short_quiet_flag() -> None:
+    from rosetta.cli.render import Renderer
+
+    Renderer.QUIET = False
+    runner.invoke(app, ["-q", "chat", "--format", "bogus", "hi"])
+    assert Renderer.QUIET is True
+    Renderer.QUIET = False

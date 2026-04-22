@@ -10,7 +10,7 @@ from typing import Annotated
 
 import typer
 
-from rosetta.cli.render import die, out, table
+from rosetta.cli.render import Renderer
 from rosetta.sdk.client import ProxyClient
 
 
@@ -29,13 +29,13 @@ async def _run(*, n: int, provider: str | None) -> None:
         async with ProxyClient.discover_session(spawn_if_missing=False) as client:
             items = await client.list_logs(limit=n, provider=provider)
     except RuntimeError as e:
-        die(f"server 未就绪: {e}")
+        Renderer.die(f"server 未就绪: {e}")
         return
 
     if not items:
-        out("no logs yet")
+        Renderer.out("no logs yet")
         return
-    table(
+    Renderer.table(
         ["id", "created_at", "provider", "model", "in→out", "ms", "status"],
         [
             [

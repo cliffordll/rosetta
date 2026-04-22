@@ -24,7 +24,6 @@ from rosetta.server.database.models import Provider
 from rosetta.server.dataplane import forwarder
 from rosetta.shared.formats import Format
 
-
 RequestHandler = Callable[[httpx.Request], httpx.Response]
 
 

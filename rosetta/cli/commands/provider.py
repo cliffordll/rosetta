@@ -11,13 +11,17 @@ from typing import Annotated, get_args
 import httpx
 import typer
 
-from rosetta.cli.render import die, out, table
+from rosetta.cli.render import Renderer
 from rosetta.sdk.client import ProxyClient
 from rosetta.server.admin.providers import ProviderCreate, ProviderType
 
 _ALLOWED_TYPES = get_args(ProviderType)
 
-app = typer.Typer(help="provider 管理", no_args_is_help=True)
+app = typer.Typer(
+    help="provider 管理",
+    no_args_is_help=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
 
 
 @app.command("list")
@@ -31,13 +35,13 @@ async def _list() -> None:
         async with ProxyClient.discover_session(spawn_if_missing=False) as client:
             items = await client.list_providers()
     except RuntimeError as e:
-        die(f"server 未就绪: {e}")
+        Renderer.die(f"server 未就绪: {e}")
         return
 
     if not items:
-        out("no providers yet")
+        Renderer.out("no providers yet")
         return
-    table(
+    Renderer.table(
         ["id", "name", "type", "base_url", "enabled"],
         [[p.id, p.name, p.type, p.base_url or "-", p.enabled] for p in items],
     )
@@ -54,7 +58,7 @@ def add_cmd(
 ) -> None:
     """新增一个 provider。"""
     if type not in _ALLOWED_TYPES:
-        die(f"--type 必须是 anthropic/openai/openrouter/custom,收到 {type!r}")
+        Renderer.die(f"--type 必须是 anthropic/openai/openrouter/custom,收到 {type!r}")
         return
     payload = ProviderCreate(
         name=name,
@@ -70,12 +74,12 @@ async def _create(payload: ProviderCreate) -> None:
         async with ProxyClient.discover_session(spawn_if_missing=False) as client:
             created = await client.create_provider(payload)
     except httpx.HTTPStatusError as e:
-        die(f"创建失败: {e.response.status_code} {e.response.text}")
+        Renderer.die(f"创建失败: {e.response.status_code} {e.response.text}")
         return
     except RuntimeError as e:
-        die(f"server 未就绪: {e}")
+        Renderer.die(f"server 未就绪: {e}")
         return
-    out(
+    Renderer.out(
         f"provider '{created.name}' created "
         f"(id={created.id}, type={created.type}, enabled={created.enabled})"
     )
@@ -92,12 +96,12 @@ async def _remove(provider_id: int) -> None:
         async with ProxyClient.discover_session(spawn_if_missing=False) as client:
             await client.delete_provider(provider_id)
     except httpx.HTTPStatusError as e:
-        die(f"删除失败: {e.response.status_code} {e.response.text}")
+        Renderer.die(f"删除失败: {e.response.status_code} {e.response.text}")
         return
     except RuntimeError as e:
-        die(f"server 未就绪: {e}")
+        Renderer.die(f"server 未就绪: {e}")
         return
-    out(f"provider id={provider_id} removed")
+    Renderer.out(f"provider id={provider_id} removed")
 
 
 def register(app_root: typer.Typer) -> None:

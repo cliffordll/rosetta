@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rosetta.server.database.session import dispose_db, init_db
 from rosetta.server.database.session import _state as _db_state
+from rosetta.server.database.session import dispose_db, init_db
 
 
 @pytest_asyncio.fixture

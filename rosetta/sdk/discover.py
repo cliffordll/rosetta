@@ -1,5 +1,16 @@
 """SDK 侧发现/启动 rosetta-server(DESIGN §6)。
 
+核心类 `ServerDiscovery` 提供四个原语(名空间 classmethod,不实例化):
+
+- `ping(url)`:探活 /admin/ping
+- `check_existing()`:读 endpoint.json + PID + ping;任一失败返 None(清陈旧文件)
+- `spawn(parent_pid=...)`:后台 detach 启动 server。`parent_pid=None` 时不拼
+  `--parent-pid`(独立 daemon,`rosetta start` 走这条);给值时绑 caller 生命周期
+- `wait_until_ready(deadline)`:轮询直到 endpoint.json 出现且 ping 通
+
+模块级 `discover(...)` 保留作为 SDK public 入口,内部调用这几个原语,封装"抢
+`spawn.lock` + spawn + 轮询"的完整流程。
+
 流程
 ----
 1. 读 `~/.rosetta/endpoint.json`
@@ -12,8 +23,7 @@
    - 抢不到 → 说明别人在 spawn,转为只轮询 endpoint.json + ping(最多 5s)
 3. 返回可用的 `Endpoint`
 
-与 server 侧 `runtime/lockfile.py` / `runtime/endpoint.py` 的实现对称:
-同一把 spawn.lock,同一个 endpoint.json 格式,同一个原子写入语义。
+与 server 侧 `runtime/lockfile.py` / `runtime/endpoint.py` 的实现对称。
 """
 
 from __future__ import annotations
@@ -23,127 +33,146 @@ import os
 import subprocess
 import sys
 import time
+from typing import ClassVar
 
 import httpx
 import psutil
 
-from rosetta.server.runtime.endpoint import Endpoint, delete_endpoint, read_endpoint
-from rosetta.server.runtime.lockfile import acquire_spawn_lock, release_spawn_lock
+from rosetta.server.runtime.endpoint import EndpointBase, EndpointFile
+from rosetta.server.runtime.lockfile import SpawnLock
 
-# 轮询 endpoint.json + /admin/ping 的总超时与间隔
-_SPAWN_WAIT_TIMEOUT_SEC = 10.0
-_POLL_INTERVAL_SEC = 0.1
 
-# 新进程的命令行:与 FEATURE 4.1 动手清单一致,用 `python -m rosetta.server`
-# 不依赖 exe(阶段 6 才打包)。
-_SPAWN_CMD = [sys.executable, "-m", "rosetta.server"]
+class ServerDiscovery:
+    """rosetta-server 发现 + spawn + 就绪轮询原语集合(不实例化)。
+
+    所有成员都是 classmethod / 类常量,外部用 `ServerDiscovery.<method>()` 调用。
+    `cli/commands/start.py` 和本模块的 `discover()` 各自复用这些原语组合流程。
+    """
+
+    # 启动 server 的命令行:用 `python -m rosetta.server` 不依赖 exe(PyInstaller
+    # 打包前后都能跑)
+    _SPAWN_CMD: ClassVar[list[str]] = [sys.executable, "-m", "rosetta.server"]
+
+    # 轮询总超时(公共:cli/start.py 组装自己的流程时也读这个值);无下划线表示可外部读
+    WAIT_TIMEOUT_SEC: ClassVar[float] = 10.0
+
+    # 单次 sleep 间隔 / /admin/ping HTTP 超时(内部用)
+    _POLL_INTERVAL_SEC: ClassVar[float] = 0.1
+    _PING_TIMEOUT_SEC: ClassVar[float] = 1.0
+
+    @classmethod
+    async def ping(cls, url: str) -> bool:
+        """短超时 ping /admin/ping;失败(含连接失败)返回 False。"""
+        try:
+            async with httpx.AsyncClient(timeout=cls._PING_TIMEOUT_SEC) as client:
+                resp = await client.get(f"{url}/admin/ping")
+                return resp.status_code == 200
+        except httpx.HTTPError:
+            return False
+
+    @classmethod
+    async def check_existing(cls) -> EndpointBase | None:
+        """读 endpoint.json + PID 活性 + /admin/ping;任一失败返回 None 并清陈旧文件。"""
+        ep = EndpointFile.read()
+        if ep is None:
+            return None
+        if not psutil.pid_exists(ep.pid):
+            EndpointFile.delete()
+            return None
+        if not await cls.ping(ep.url):
+            return None
+        return ep
+
+    @classmethod
+    def spawn(cls, *, parent_pid: int | None = None) -> None:
+        """后台启动 server,与当前进程 detach(关 stdio,不做 wait)。
+
+        - `parent_pid=None`:不拼 `--parent-pid`,server 独立存活(`rosetta start`
+          语义:CLI 退出后 server 继续)
+        - `parent_pid=<pid>`:绑 caller 生命周期,caller 挂后 5s 内 graceful_shutdown
+          (SDK `discover()` 语义)
+
+        平台特定:
+        - Windows:`creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`
+        - POSIX:`start_new_session=True`(脱离 caller 控制终端)
+        """
+        cmd = list(cls._SPAWN_CMD)
+        if parent_pid is not None:
+            cmd.extend(["--parent-pid", str(parent_pid)])
+
+        if sys.platform == "win32":
+            # DETACHED_PROCESS = 0x00000008;CREATE_NEW_PROCESS_GROUP = 0x00000200
+            subprocess.Popen(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+                creationflags=0x00000008 | 0x00000200,
+            )
+        else:
+            subprocess.Popen(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+                start_new_session=True,
+            )
+
+    @classmethod
+    async def wait_until_ready(cls, *, deadline: float) -> EndpointBase | None:
+        """轮询直到 endpoint.json 出现且 ping 通;到 deadline 仍未就绪返回 None。"""
+        while time.monotonic() < deadline:
+            ep = EndpointFile.read()
+            if ep is not None and psutil.pid_exists(ep.pid) and await cls.ping(ep.url):
+                return ep
+            await asyncio.sleep(cls._POLL_INTERVAL_SEC)
+        return None
 
 
 async def discover(
     *,
     parent_pid: int | None = None,
     spawn_if_missing: bool = True,
-) -> Endpoint:
+) -> EndpointBase:
     """返回一个 **已 ping 通**(可用)的 Endpoint。
 
     - `parent_pid`:spawn 时传给 server 的 `--parent-pid`;None → 当前进程
     - `spawn_if_missing`:False 时,若 endpoint 不存在 / 不可达直接 raise
       `RuntimeError`,不启动新 server;SDK `.direct()` 分支 / 测试用
     """
-    # 1. 先尝试已有 endpoint.json
-    ep = await _check_existing_endpoint()
+    ep = await ServerDiscovery.check_existing()
     if ep is not None:
         return ep
 
     if not spawn_if_missing:
         raise RuntimeError("no running rosetta-server (endpoint.json 不存在或不可达)")
 
-    # 2. spawn:抢锁分支
     effective_parent = parent_pid if parent_pid is not None else os.getpid()
 
     spawned_ourselves = False
     lock_fd: int | None = None
     try:
         try:
-            lock_fd = acquire_spawn_lock()
+            lock_fd = SpawnLock.acquire()
             spawned_ourselves = True
         except FileExistsError:
             lock_fd = None  # 别人在 spawn,走"只轮询"分支
 
         if spawned_ourselves:
-            _spawn_server_detached(parent_pid=effective_parent)
+            ServerDiscovery.spawn(parent_pid=effective_parent)
 
-        # 3. 轮询直到 endpoint.json 出现且 ping 通,或超时
-        ep = await _wait_until_ready(deadline=time.monotonic() + _SPAWN_WAIT_TIMEOUT_SEC)
+        ep = await ServerDiscovery.wait_until_ready(
+            deadline=time.monotonic() + ServerDiscovery.WAIT_TIMEOUT_SEC
+        )
         if ep is None:
             raise RuntimeError(
-                f"rosetta-server {_SPAWN_WAIT_TIMEOUT_SEC}s 内未就绪"
+                f"rosetta-server {ServerDiscovery.WAIT_TIMEOUT_SEC}s 内未就绪"
                 f"({'自 spawn' if spawned_ourselves else '等待别人 spawn'})"
             )
         return ep
     finally:
-        # 仅当自己抢到锁才 release(server 启动成功后自己会释放,但客户端手持
-        # 兜底 release 以防 server 启动失败卡住锁)
-        if spawned_ourselves:
-            release_spawn_lock(lock_fd)
-
-
-async def _check_existing_endpoint() -> Endpoint | None:
-    """读 endpoint.json + PID 活性 + /admin/ping;任一失败返回 None 并清陈旧文件。"""
-    ep = read_endpoint()
-    if ep is None:
-        return None
-    if not psutil.pid_exists(ep["pid"]):
-        delete_endpoint()
-        return None
-    if not await _ping(ep["url"]):
-        return None
-    return ep
-
-
-async def _wait_until_ready(*, deadline: float) -> Endpoint | None:
-    """轮询直到 endpoint.json 出现 + ping 通;超时返回 None。"""
-    while time.monotonic() < deadline:
-        ep = read_endpoint()
-        if ep is not None and psutil.pid_exists(ep["pid"]) and await _ping(ep["url"]):
-            return ep
-        await asyncio.sleep(_POLL_INTERVAL_SEC)
-    return None
-
-
-async def _ping(url: str) -> bool:
-    """短超时 ping /admin/ping;失败(含连接失败)返回 False。"""
-    try:
-        async with httpx.AsyncClient(timeout=1.0) as client:
-            resp = await client.get(f"{url}/admin/ping")
-            return resp.status_code == 200
-    except httpx.HTTPError:
-        return False
-
-
-def _spawn_server_detached(*, parent_pid: int) -> None:
-    """后台启动 server,与当前进程 detach(关 stdio,不做 wait)。
-
-    - Windows:`creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`
-    - POSIX:`start_new_session=True`(脱离 caller 控制终端)
-    """
-    cmd = [*_SPAWN_CMD, "--parent-pid", str(parent_pid)]
-    if sys.platform == "win32":
-        # DETACHED_PROCESS = 0x00000008;CREATE_NEW_PROCESS_GROUP = 0x00000200
-        subprocess.Popen(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            close_fds=True,
-            creationflags=0x00000008 | 0x00000200,
-        )
-    else:
-        subprocess.Popen(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            close_fds=True,
-            start_new_session=True,
-        )
+        # 仅当自己抢到锁才 release(server 启动成功会自释,客户端兜底以防启动失败卡锁)
+        if spawned_ourselves and lock_fd is not None:
+            SpawnLock.release(lock_fd)
