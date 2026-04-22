@@ -2,7 +2,7 @@
 
 > 版本：v0.1 · 起草日期：2026-04-20
 > 状态：设计评审中，未开始实现
-> 本文档**只描述架构**。分阶段实施计划见 [`FEATURE.md`](./FEATURE.md);执行进度见 [`PROCESS.md`](./PROCESS.md)。
+> 本文档**只描述架构**。分阶段实施计划见 [`FEATURE.md`](./FEATURE.md)(heading emoji 标进度);执行细节由 commit history 承载。
 
 ---
 
@@ -229,11 +229,11 @@ rosetta/
 ├── README.md                     # 项目简介（留根，GitHub 默认渲染）
 ├── docs/                         # 设计与路线图文档集中在此
 │   ├── DESIGN.md                 # 本文档（架构设计 · 真源）
-│   ├── FEATURE.md                # 分步开发任务清单（可验收 + v1+ 规划）
-│   ├── PROCESS.md                # 执行进度日志（append-only）
+│   ├── FEATURE.md                # 分步开发任务清单（可验收 + v1+ 规划 · heading emoji 标进度）
 │   └── archive/                  # 已归档备选方案（不再维护）
 │       ├── DESIGN_TS.md          # TS 栈备选
-│       └── DESIGN_multi_pkg.md   # 旧三包布局备份
+│       ├── DESIGN_multi_pkg.md   # 旧三包布局备份
+│       └── PROCESS.md            # 早期执行进度日志(已停写,由 commit history 承载)
 ├── .gitignore
 ├── .python-version
 ├── pyproject.toml                # Python 包 rosetta 的定义（依赖 / entry points / 工具配置）
@@ -488,7 +488,7 @@ logs                                  -- 请求流水（异步写入）
   - 大于当前版本（老 server 开新 DB）→ 拒绝启动，日志提示"DB schema 来自更高版本 rosetta"
 - 迁移脚本放 `rosetta/server/database/migrations/`，文件名 `001_init.sql` / `002_add_xxx.sql`
 
-**实现约定**（阶段 1.2 落地，修订见 `PROCESS.md`）：
+**实现约定**（阶段 1.2 落地,修订见 commit history):
 
 - migration runner 走 SQLAlchemy `engine.begin()` 事务，**代码里不 import aiosqlite**（aiosqlite 仅作为 SQLAlchemy 的底层驱动被动加载）
 - 启动时自检 `CURRENT_SCHEMA_VERSION == max(migrations[*].N)`，不一致拒启动（防止常量改了忘加 SQL 文件，或反之）
