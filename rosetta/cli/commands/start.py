@@ -1,29 +1,25 @@
 """`rosetta start` — 确保 server 在后台跑着。
 
-与 `discover` 不同:spawn 的 server **不**绑定 CLI 进程为 parent,
+与 SDK `discover()` 不同:spawn 的 server **不**绑定 CLI 进程为 parent,
 让它在 CLI 退出后继续存活(真后台化)。这样后续 `rosetta status` / `provider`
 等命令才能连到同一个 server。
+
+原语来自 `rosetta.sdk.discover.ServerDiscovery`(check_existing / spawn /
+wait_until_ready / ping),本文件只负责组装 + 面向用户的进度打印。
 """
 
 from __future__ import annotations
 
 import asyncio
-import subprocess
-import sys
 import time
 
-import httpx
 import psutil
 import typer
 
-from rosetta.cli.render import die, out
-from rosetta.server.runtime.endpoint import Endpoint, delete_endpoint, read_endpoint
-from rosetta.server.runtime.lockfile import acquire_spawn_lock, release_spawn_lock
-
-_WAIT_TIMEOUT_SEC = 10.0
-_POLL_INTERVAL_SEC = 0.1
-
-_SPAWN_CMD = [sys.executable, "-m", "rosetta.server"]
+from rosetta.cli.render import Renderer
+from rosetta.sdk.discover import ServerDiscovery
+from rosetta.server.runtime.endpoint import EndpointFile
+from rosetta.server.runtime.lockfile import SpawnLock
 
 
 def start_cmd() -> None:
@@ -33,70 +29,38 @@ def start_cmd() -> None:
 
 async def _run() -> None:
     # 已跑就直接报告
-    ep = read_endpoint()
-    if ep is not None and psutil.pid_exists(ep["pid"]) and await _ping(ep["url"]):
-        out(f"already running at {ep['url']} (pid {ep['pid']})")
+    ep = await ServerDiscovery.check_existing()
+    if ep is not None:
+        Renderer.out(f"already running at {ep.url} (pid {ep.pid})")
         return
 
-    if ep is not None and not psutil.pid_exists(ep["pid"]):
-        delete_endpoint()
+    # check_existing 已清陈旧文件;但它的 None 分支也包括"PID 活但 ping 不通",
+    # 此时 endpoint.json 可能仍在,顺手再清一次避免下一步轮询读到误导数据
+    stale = EndpointFile.read()
+    if stale is not None and not psutil.pid_exists(stale.pid):
+        Renderer.out(f"delete stale endpoint {stale.url} (pid {stale.pid})")
+        EndpointFile.delete()
 
     try:
-        lock_fd = acquire_spawn_lock()
+        Renderer.out("acquiring spawn lock...")
+        lock_fd = SpawnLock.acquire()
     except FileExistsError:
-        die("另一个进程正在启动 server,请稍后再试")
+        Renderer.die("另一个进程正在启动 server,请稍后再试")
         return  # for type checker
 
     try:
-        _spawn_detached()
-        ep = await _wait_ready()
+        ServerDiscovery.spawn(parent_pid=None)  # None = 独立 daemon,不绑 CLI
+        Renderer.out("spawned detached server process, waiting for it to be ready...")
+
+        deadline = time.monotonic() + ServerDiscovery.WAIT_TIMEOUT_SEC
+        ep = await ServerDiscovery.wait_until_ready(deadline=deadline)
         if ep is None:
-            die(f"server {_WAIT_TIMEOUT_SEC}s 内未就绪")
+            Renderer.die(f"server {ServerDiscovery.WAIT_TIMEOUT_SEC}s 内未就绪")
             return
-        out(f"server started on {ep['url']} (pid {ep['pid']})")
+        Renderer.out(f"server started on {ep.url} (pid {ep.pid})")
     finally:
-        release_spawn_lock(lock_fd)
-
-
-def _spawn_detached() -> None:
-    """不传 --parent-pid,让 server 独立存活于 CLI 进程之外。"""
-    if sys.platform == "win32":
-        subprocess.Popen(
-            _SPAWN_CMD,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            close_fds=True,
-            creationflags=0x00000008 | 0x00000200,  # DETACHED + NEW_PROCESS_GROUP
-        )
-    else:
-        subprocess.Popen(
-            _SPAWN_CMD,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            close_fds=True,
-            start_new_session=True,
-        )
-
-
-async def _wait_ready() -> Endpoint | None:
-    deadline = time.monotonic() + _WAIT_TIMEOUT_SEC
-    while time.monotonic() < deadline:
-        ep = read_endpoint()
-        if ep is not None and psutil.pid_exists(ep["pid"]) and await _ping(ep["url"]):
-            return ep
-        await asyncio.sleep(_POLL_INTERVAL_SEC)
-    return None
-
-
-async def _ping(url: str) -> bool:
-    try:
-        async with httpx.AsyncClient(timeout=1.0) as client:
-            resp = await client.get(f"{url}/admin/ping")
-            return resp.status_code == 200
-    except httpx.HTTPError:
-        return False
+        SpawnLock.release(lock_fd)
+        Renderer.out("released spawn lock")
 
 
 def register(app: typer.Typer) -> None:

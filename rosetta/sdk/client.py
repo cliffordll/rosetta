@@ -58,7 +58,7 @@ class ProxyClient:
         ep = await discover(parent_pid=parent_pid, spawn_if_missing=spawn_if_missing)
         http = httpx.AsyncClient(timeout=_DATA_TIMEOUT)
         try:
-            yield cls(http=http, base_url=ep["url"], mode="server", token=ep["token"])
+            yield cls(http=http, base_url=ep.url, mode="server", token=ep.token)
         finally:
             await http.aclose()
 

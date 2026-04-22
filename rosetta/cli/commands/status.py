@@ -6,7 +6,7 @@ import asyncio
 
 import typer
 
-from rosetta.cli.render import kv, out
+from rosetta.cli.render import Renderer
 from rosetta.sdk.client import ProxyClient
 
 
@@ -21,7 +21,7 @@ async def _run() -> None:
             st = await client.status()
             providers = await client.list_providers()
             routes = await client.list_routes()
-            kv(
+            Renderer.kv(
                 {
                     "server": client.base_url,
                     "version": st.version,
@@ -31,7 +31,7 @@ async def _run() -> None:
                 }
             )
     except RuntimeError:
-        out("not running")
+        Renderer.out("not running")
 
 
 def register(app: typer.Typer) -> None:

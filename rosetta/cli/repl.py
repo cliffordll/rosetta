@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from rosetta.cli.commands.chat_core import DEFAULT_MODELS, ChatError, run_turn
-from rosetta.cli.render import error_bubble, meta_line, out, stream_newline, stream_token
+from rosetta.cli.render import Renderer
 from rosetta.sdk.client import ProxyClient
 from rosetta.shared.formats import Format
 
@@ -59,13 +59,13 @@ async def run(
         api_key=api_key,
         max_tokens=max_tokens,
     )
-    out(f"rosetta chat · format={state.fmt.value} · model={state.model} · /help 查看命令")
+    Renderer.out(f"rosetta chat · format={state.fmt.value} · model={state.model} · /help 查看命令")
 
     while True:
         try:
             line = input(_PROMPT)
         except (EOFError, KeyboardInterrupt):
-            stream_newline()
+            Renderer.stream_newline()
             break
 
         line = line.strip()
@@ -87,18 +87,18 @@ async def run(
                 provider=state.provider,
                 api_key=state.api_key,
                 max_tokens=state.max_tokens,
-                on_token=stream_token,
+                on_token=Renderer.stream_token,
             )
         except ChatError as e:
-            stream_newline()
+            Renderer.stream_newline()
             # 本轮失败,把刚加的 user 撤回,避免污染后续上下文
             state.messages.pop()
-            error_bubble(f"HTTP {e.status}: {e.short_body()}")
+            Renderer.error_bubble(f"HTTP {e.status}: {e.short_body()}")
             continue
 
-        stream_newline()
+        Renderer.stream_newline()
         state.messages.append({"role": "assistant", "content": text})
-        meta_line(
+        Renderer.meta_line(
             provider=state.provider or "auto",
             model=state.model,
             input_tokens=in_tok,
@@ -118,37 +118,37 @@ def _handle_slash(state: ReplState, line: str) -> bool:
         return True
 
     if cmd == "/help":
-        out(_HELP)
+        Renderer.out(_HELP)
         return False
 
     if cmd == "/reset":
         state.messages.clear()
-        out("history cleared")
+        Renderer.out("history cleared")
         return False
 
     if cmd == "/model":
         if not arg:
-            error_bubble("用法:/model <name>")
+            Renderer.error_bubble("用法:/model <name>")
             return False
         state.model = arg
-        out(f"model → {state.model}")
+        Renderer.out(f"model → {state.model}")
         return False
 
     if cmd == "/format":
         try:
             new_fmt = Format(arg)
         except ValueError:
-            error_bubble(f"format 必须是 messages/completions/responses,收到 {arg!r}")
+            Renderer.error_bubble(f"format 必须是 messages/completions/responses,收到 {arg!r}")
             return False
         state.fmt = new_fmt
         # 切格式时如果没显式 --model,把 model 同步到新 format 的默认值
         default_for_new = DEFAULT_MODELS[new_fmt]
         if state.model in DEFAULT_MODELS.values() and state.model != default_for_new:
             state.model = default_for_new
-            out(f"format → {new_fmt.value} · model → {state.model}")
+            Renderer.out(f"format → {new_fmt.value} · model → {state.model}")
         else:
-            out(f"format → {new_fmt.value}")
+            Renderer.out(f"format → {new_fmt.value}")
         return False
 
-    error_bubble(f"未知命令 {cmd!r};/help 查看可用命令")
+    Renderer.error_bubble(f"未知命令 {cmd!r};/help 查看可用命令")
     return False

@@ -16,11 +16,15 @@ from typing import Annotated
 import httpx
 import typer
 
-from rosetta.cli.render import die, out, table
+from rosetta.cli.render import Renderer
 from rosetta.sdk.client import ProxyClient
 from rosetta.server.admin.routes import RouteIn, RouteOut
 
-app = typer.Typer(help="路由规则管理", no_args_is_help=True)
+app = typer.Typer(
+    help="路由规则管理",
+    no_args_is_help=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
 
 
 @app.command("list")
@@ -33,13 +37,13 @@ async def _list() -> None:
         async with ProxyClient.discover_session(spawn_if_missing=False) as client:
             items = await client.list_routes()
     except RuntimeError as e:
-        die(f"server 未就绪: {e}")
+        Renderer.die(f"server 未就绪: {e}")
         return
 
     if not items:
-        out("no routes yet")
+        Renderer.out("no routes yet")
         return
-    table(
+    Renderer.table(
         ["id", "pattern", "provider", "priority"],
         [[r.id, r.model_glob, r.provider, r.priority] for r in items],
     )
@@ -63,12 +67,12 @@ async def _add(*, pattern: str, provider: str, priority: int) -> None:
             new_list.append(RouteIn(model_glob=pattern, provider=provider, priority=priority))
             await client.replace_routes(new_list)
     except httpx.HTTPStatusError as e:
-        die(f"add 失败: {e.response.status_code} {e.response.text}")
+        Renderer.die(f"add 失败: {e.response.status_code} {e.response.text}")
         return
     except RuntimeError as e:
-        die(f"server 未就绪: {e}")
+        Renderer.die(f"server 未就绪: {e}")
         return
-    out(f"route added: '{pattern}' → {provider} (priority={priority})")
+    Renderer.out(f"route added: '{pattern}' → {provider} (priority={priority})")
 
 
 @app.command("remove")
@@ -83,17 +87,17 @@ async def _remove(route_id: int) -> None:
             current = await client.list_routes()
             target = next((r for r in current if r.id == route_id), None)
             if target is None:
-                die(f"route id={route_id} 不存在")
+                Renderer.die(f"route id={route_id} 不存在")
                 return
             new_list = [_to_in(r) for r in current if r.id != route_id]
             await client.replace_routes(new_list)
     except httpx.HTTPStatusError as e:
-        die(f"remove 失败: {e.response.status_code} {e.response.text}")
+        Renderer.die(f"remove 失败: {e.response.status_code} {e.response.text}")
         return
     except RuntimeError as e:
-        die(f"server 未就绪: {e}")
+        Renderer.die(f"server 未就绪: {e}")
         return
-    out(f"route id={route_id} removed")
+    Renderer.out(f"route id={route_id} removed")
 
 
 @app.command("clear")
@@ -107,9 +111,9 @@ async def _clear() -> None:
         async with ProxyClient.discover_session(spawn_if_missing=False) as client:
             await client.replace_routes([])
     except RuntimeError as e:
-        die(f"server 未就绪: {e}")
+        Renderer.die(f"server 未就绪: {e}")
         return
-    out("all routes cleared")
+    Renderer.out("all routes cleared")
 
 
 def _to_in(r: RouteOut) -> RouteIn:

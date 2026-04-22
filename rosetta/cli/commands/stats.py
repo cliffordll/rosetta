@@ -7,7 +7,7 @@ from typing import Annotated, get_args
 
 import typer
 
-from rosetta.cli.render import die, kv
+from rosetta.cli.render import Renderer
 from rosetta.sdk.client import ProxyClient
 from rosetta.server.admin.stats import Period
 
@@ -18,7 +18,7 @@ def stats_cmd(
     period: Annotated[str, typer.Argument(help="today | week | month")] = "today",
 ) -> None:
     if period not in _ALLOWED:
-        die(f"period 必须是 today/week/month,收到 {period!r}")
+        Renderer.die(f"period 必须是 today/week/month,收到 {period!r}")
         return
     asyncio.run(_run(period))  # type: ignore[arg-type]
 
@@ -28,9 +28,9 @@ async def _run(period: Period) -> None:
         async with ProxyClient.discover_session(spawn_if_missing=False) as client:
             s = await client.stats(period=period)
     except RuntimeError as e:
-        die(f"server 未就绪: {e}")
+        Renderer.die(f"server 未就绪: {e}")
         return
-    kv(
+    Renderer.kv(
         {
             "period": s.period,
             "since": s.since.isoformat(timespec="seconds"),

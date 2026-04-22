@@ -25,7 +25,7 @@ import psutil
 import uvicorn
 
 from rosetta.server.app import create_app
-from rosetta.server.runtime.endpoint import delete_endpoint, read_endpoint, write_endpoint
+from rosetta.server.runtime.endpoint import EndpointFile
 from rosetta.server.runtime.watcher import watch_parent
 
 _UVICORN_STARTUP_TIMEOUT_SEC = 10.0
@@ -69,17 +69,17 @@ async def _amain(args: argparse.Namespace) -> int:
     # 并发保护:只靠 endpoint.json + pid 活检;spawn.lock 由客户端(CLI/SDK)持有,
     # server 自身不抢(否则客户端持锁时子进程 server 会抢不到 → 假冒"another instance"
     # 退出 0,把 CLI 的轮询卡到超时。阶段 4.2 调试定位)
-    ep = read_endpoint()
+    ep = EndpointFile.read()
     if ep is not None:
-        if psutil.pid_exists(ep["pid"]):
+        if psutil.pid_exists(ep.pid):
             print(
-                f"rosetta-server: another server already running at {ep['url']} "
-                f"(pid {ep['pid']}), exiting cleanly.",
+                f"rosetta-server: another server already running at {ep.url} "
+                f"(pid {ep.pid}), exiting cleanly.",
                 file=sys.stderr,
             )
             return 0
         # 陈旧 endpoint.json(pid 已死) → 清掉继续
-        delete_endpoint()
+        EndpointFile.delete()
 
     endpoint_written = False
     watcher_task: asyncio.Task[None] | None = None
@@ -103,7 +103,7 @@ async def _amain(args: argparse.Namespace) -> int:
 
         url = _read_bound_url(server)
         token = secrets.token_urlsafe(32)
-        write_endpoint(url=url, token=token, pid=os.getpid())
+        EndpointFile.write(url=url, token=token, pid=os.getpid())
         endpoint_written = True
 
         print(f"rosetta-server listening on {url}", file=sys.stderr)
@@ -119,7 +119,7 @@ async def _amain(args: argparse.Namespace) -> int:
             with contextlib.suppress(asyncio.CancelledError):
                 await watcher_task
         if endpoint_written:
-            delete_endpoint()
+            EndpointFile.delete()
 
 
 def main() -> None:
@@ -132,4 +132,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    print("#########################################")
     main()

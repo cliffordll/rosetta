@@ -16,7 +16,7 @@ from typing import Annotated
 import typer
 
 from rosetta.cli.commands.chat_core import DEFAULT_MODELS, ChatError, run_turn
-from rosetta.cli.render import die, error_bubble, meta_line, stream_newline, stream_token
+from rosetta.cli.render import Renderer
 from rosetta.sdk.client import ProxyClient
 from rosetta.shared.formats import Format
 
@@ -49,14 +49,14 @@ def chat_cmd(
 ) -> None:
     # direct 模式占位校验,实装在 4.4
     if base_url is not None:
-        die("--base-url 在阶段 4.4 才接入;当前请去掉该参数走 server 模式")
+        Renderer.die("--base-url 在阶段 4.4 才接入;当前请去掉该参数走 server 模式")
         return
 
     # format 校验
     try:
         fmt = Format(format)
     except ValueError:
-        die(f"--format 必须是 messages/completions/responses,收到 {format!r}")
+        Renderer.die(f"--format 必须是 messages/completions/responses,收到 {format!r}")
         return
 
     effective_model = model or DEFAULT_MODELS[fmt]
@@ -108,7 +108,7 @@ async def _run(
                 max_tokens=max_tokens,
             )
     except RuntimeError as e:
-        die(f"server 未就绪: {e}")
+        Renderer.die(f"server 未就绪: {e}")
 
 
 async def _one_shot(
@@ -131,15 +131,15 @@ async def _one_shot(
             provider=provider,
             api_key=api_key,
             max_tokens=max_tokens,
-            on_token=stream_token,
+            on_token=Renderer.stream_token,
         )
     except ChatError as e:
-        stream_newline()
-        error_bubble(f"HTTP {e.status}: {e.short_body()}")
+        Renderer.stream_newline()
+        Renderer.error_bubble(f"HTTP {e.status}: {e.short_body()}")
         raise typer.Exit(code=1) from None
 
-    stream_newline()
-    meta_line(
+    Renderer.stream_newline()
+    Renderer.meta_line(
         provider=provider or "auto",
         model=model,
         input_tokens=in_tok,
