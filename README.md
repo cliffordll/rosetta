@@ -21,8 +21,7 @@
 **pre-v0 · 设计评审中,未开始编码**。
 
 - 架构已定稿:见 [`docs/DESIGN.md`](./docs/DESIGN.md)
-- 分阶段实施清单:[`docs/FEATURE.md`](./docs/FEATURE.md)(v0 共 8 阶段 30 步,预估 13-20 人日)
-- 执行进度日志:[`docs/PROCESS.md`](./docs/PROCESS.md)
+- 分阶段实施清单:[`docs/FEATURE.md`](./docs/FEATURE.md)(v0 共 8 阶段 30 步 · heading emoji 标进度,预估 13-20 人日)
 
 ---
 
@@ -90,9 +89,8 @@ uv run ruff format .
 | 文件 | 作用 |
 |---|---|
 | [`docs/DESIGN.md`](./docs/DESIGN.md) | 架构真源(为什么这么设计) |
-| [`docs/FEATURE.md`](./docs/FEATURE.md) | v0 分步任务清单 + v1+ 规划 + 节奏建议 |
-| [`docs/PROCESS.md`](./docs/PROCESS.md) | 执行进度日志(append-only) |
-| [`docs/archive/`](./docs/archive/) | 已归档的设计备选(TS 栈 / 多包布局) |
+| [`docs/FEATURE.md`](./docs/FEATURE.md) | v0 分步任务清单 + v1+ 规划 + 节奏建议(heading emoji 标进度) |
+| [`docs/archive/`](./docs/archive/) | 已归档的设计备选(TS 栈 / 多包布局 / 早期 PROCESS.md) |
 | [`CLAUDE.md`](./CLAUDE.md) | Claude 会话协作约定(项目级) |
 
 ---

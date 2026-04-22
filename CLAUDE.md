@@ -10,7 +10,7 @@
 - **语言**:对话、代码注释、文档全部中文
 - **简洁**:技术判断先给结论 + tradeoff,再展开细节;不写多余的总结 / 铺垫 / 情绪化语言
 - **先列方案再执行**:多步骤任务执行前,先列出完整方案让用户审阅,批准后再动手
-- **每步确认 gate**:按 `docs/FEATURE.md` 推进时,**每步完成后**:(1) 跑 FEATURE 里的"验证"命令;(2) 在 `docs/PROCESS.md` 末尾 append 一条记录(按模板);(3) 明确向用户请求确认;(4) 得到"继续"/"通过"回复后才进入下一步
+- **每步确认 gate**:按 `docs/FEATURE.md` 推进时,**每步完成后**:(1) 跑 FEATURE 里的"验证"命令;(2) 明确向用户请求确认;(3) 得到"继续"/"通过"回复后再在 heading 打 emoji(✅ 完成 / ⏸️ 暂缓 / 🟡 跳过)标进度,再进入下一步。执行细节不再双写文档,由 commit message 承载
 - **不替用户做不可逆决策**:删除文件 / drop table / force push / 覆盖未提交改动这类动作,执行前必须征求同意,默认选非破坏性方案(rename / archive / 保留旧代码并标注)
 
 ## 目录权限
@@ -36,8 +36,8 @@
 ## 文档与设计
 
 - **文档先行**:任何架构级改动,先在 `docs/` 更新设计文档,再写代码
-- **三文件体系**:`docs/DESIGN.md`(架构真源) + `docs/FEATURE.md`(任务清单) + `docs/PROCESS.md`(执行日志,append-only) — 职责正交,不要混写
-- **归档目录**:`docs/archive/` 下放已决定不再维护的设计备选(`DESIGN_multi_pkg.md` / `DESIGN_TS.md`),仅供对比参考,不做同步
+- **两文件体系**:`docs/DESIGN.md`(架构真源) + `docs/FEATURE.md`(任务清单 · heading emoji 标进度) — 职责正交,不要混写。执行细节由 commit history 承载
+- **归档目录**:`docs/archive/` 下放已决定不再维护的设计备选(`DESIGN_multi_pkg.md` / `DESIGN_TS.md` / `PROCESS.md`),仅供对比参考,不做同步
 - **逻辑 audit 常态化**:schema / 流程 / 协议相关的变更,实现前先做一轮逻辑漏洞扫描(参照 DESIGN.md §6 / §8 补丁的做法)
 
 ## 命名与重构
