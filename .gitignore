@@ -41,7 +41,9 @@ out/
 packages/app/dist/
 
 # ─── Tauri(Rust 侧) ─────────────────────────────────────
-packages/desktop/src-tauri/target/
+packages/desktop/tauri/target/
+packages/desktop/tauri/gen/
+packages/desktop/tauri/binaries/*.exe
 target/
 
 # ─── PyInstaller ─────────────────────────────────────────

@@ -9,6 +9,9 @@
     uv run --group build python scripts/build.py --target server
     uv run --group build python scripts/build.py --target cli
 
+打完自动同步 sidecar 到 Tauri(packages/desktop/tauri/binaries/):
+    uv run --group build python scripts/build.py --target server --sync-sidecar
+
 产物
 ----
     dist/rosetta-server.exe
@@ -69,6 +72,17 @@ def _report(exe_name: str) -> None:
     print(f"[build] OK   {exe_path}  ({size_mb:.1f} MB)")
 
 
+def _sync_sidecar() -> None:
+    """调 packages/desktop/scripts/sync-sidecar.mjs 同步 server.exe 到 Tauri 期待位置。"""
+    script = _REPO_ROOT / "packages" / "desktop" / "scripts" / "sync-sidecar.mjs"
+    if not script.exists():
+        raise RuntimeError(f"sync-sidecar 脚本不存在:{script}")
+    print(f"\n[build] $ node {script}\n", flush=True)
+    result = subprocess.run(["node", str(script)], check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"sync-sidecar 失败 exit={result.returncode}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="PyInstaller 打包驱动")
     parser.add_argument(
@@ -76,6 +90,11 @@ def main() -> int:
         choices=["server", "cli", "all"],
         default="all",
         help="打哪个;默认全打",
+    )
+    parser.add_argument(
+        "--sync-sidecar",
+        action="store_true",
+        help="打完后把 dist/rosetta-server.exe 同步到 packages/desktop/tauri/binaries/",
     )
     args = parser.parse_args()
 
@@ -94,6 +113,16 @@ def main() -> int:
     print("\n[build] 产物:")
     for t in targets:
         _report(_TARGETS[t][1])
+
+    if args.sync_sidecar:
+        if "server" not in targets:
+            print(
+                "[build] --sync-sidecar 被忽略(未打 server target)",
+                file=sys.stderr,
+            )
+        else:
+            _sync_sidecar()
+
     return 0
 
 
