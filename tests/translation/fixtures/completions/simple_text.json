@@ -1,0 +1,23 @@
+{
+  "request": {
+    "model": "gpt-4o-mini",
+    "messages": [
+      {"role": "user", "content": "say hi in 3 words"}
+    ],
+    "max_tokens": 64
+  },
+  "response_nonstream": {
+    "id": "chatcmpl_01ABCD",
+    "object": "chat.completion",
+    "created": 0,
+    "model": "gpt-4o-mini",
+    "choices": [
+      {
+        "index": 0,
+        "message": {"role": "assistant", "content": "Hi there, friend!"},
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {"prompt_tokens": 12, "completion_tokens": 5, "total_tokens": 17}
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "request": {
+    "model": "gpt-4.1-mini",
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": "weather in SF?"}]
+      },
+      {
+        "type": "function_call",
+        "call_id": "call_sf_w_01",
+        "name": "get_weather",
+        "arguments": "{\"city\": \"SF\"}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_sf_w_01",
+        "output": "15C, foggy"
+      },
+      {
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": "nice, thanks"}]
+      }
+    ],
+    "max_output_tokens": 64,
+    "tools": [
+      {
+        "type": "function",
+        "name": "get_weather",
+        "parameters": {
+          "type": "object",
+          "properties": {"city": {"type": "string"}},
+          "required": ["city"]
+        }
+      }
+    ]
+  },
+  "response_nonstream": {
+    "id": "resp_05TRES",
+    "object": "response",
+    "created_at": 0,
+    "model": "gpt-4.1-mini",
+    "output": [
+      {
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": "You're welcome!"}]
+      }
+    ],
+    "status": "completed",
+    "usage": {"input_tokens": 45, "output_tokens": 4, "total_tokens": 49}
+  }
+}

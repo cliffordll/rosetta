@@ -1,0 +1,29 @@
+{
+  "request": {
+    "model": "gpt-4.1-mini",
+    "instructions": "You are a pirate.",
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": "good morning"}]
+      }
+    ],
+    "max_output_tokens": 128
+  },
+  "response_nonstream": {
+    "id": "resp_02INST",
+    "object": "response",
+    "created_at": 0,
+    "model": "gpt-4.1-mini",
+    "output": [
+      {
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": "Ahoy matey!"}]
+      }
+    ],
+    "status": "completed",
+    "usage": {"input_tokens": 18, "output_tokens": 4, "total_tokens": 22}
+  }
+}

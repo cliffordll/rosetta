@@ -1,0 +1,23 @@
+{
+  "request": {
+    "model": "gpt-4o-mini",
+    "messages": [
+      {"role": "user", "content": "count to 100"}
+    ],
+    "max_tokens": 8
+  },
+  "response_nonstream": {
+    "id": "chatcmpl_06LEN",
+    "object": "chat.completion",
+    "created": 0,
+    "model": "gpt-4o-mini",
+    "choices": [
+      {
+        "index": 0,
+        "message": {"role": "assistant", "content": "1, 2, 3, 4, 5, 6,"},
+        "finish_reason": "length"
+      }
+    ],
+    "usage": {"prompt_tokens": 8, "completion_tokens": 8, "total_tokens": 16}
+  }
+}

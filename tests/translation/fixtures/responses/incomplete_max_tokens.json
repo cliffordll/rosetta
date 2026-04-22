@@ -1,0 +1,29 @@
+{
+  "request": {
+    "model": "gpt-4.1-mini",
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": "count to 100"}]
+      }
+    ],
+    "max_output_tokens": 8
+  },
+  "response_nonstream": {
+    "id": "resp_06INC",
+    "object": "response",
+    "created_at": 0,
+    "model": "gpt-4.1-mini",
+    "output": [
+      {
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": "1, 2, 3, 4, 5, 6,"}]
+      }
+    ],
+    "status": "incomplete",
+    "incomplete_details": {"reason": "max_output_tokens"},
+    "usage": {"input_tokens": 8, "output_tokens": 8, "total_tokens": 16}
+  }
+}

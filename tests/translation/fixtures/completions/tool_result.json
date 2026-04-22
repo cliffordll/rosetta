@@ -1,0 +1,56 @@
+{
+  "request": {
+    "model": "gpt-4o-mini",
+    "messages": [
+      {"role": "user", "content": "what's the weather in SF?"},
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_sfweather01",
+            "type": "function",
+            "function": {
+              "name": "get_weather",
+              "arguments": "{\"city\": \"SF\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_sfweather01",
+        "content": "15C, foggy"
+      },
+      {"role": "user", "content": "nice, thanks"}
+    ],
+    "max_tokens": 64,
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "parameters": {
+            "type": "object",
+            "properties": {"city": {"type": "string"}},
+            "required": ["city"]
+          }
+        }
+      }
+    ]
+  },
+  "response_nonstream": {
+    "id": "chatcmpl_05TRES",
+    "object": "chat.completion",
+    "created": 0,
+    "model": "gpt-4o-mini",
+    "choices": [
+      {
+        "index": 0,
+        "message": {"role": "assistant", "content": "You're welcome!"},
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {"prompt_tokens": 45, "completion_tokens": 4, "total_tokens": 49}
+  }
+}

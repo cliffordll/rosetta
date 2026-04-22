@@ -11,8 +11,11 @@
 > **使用方式**:按步骤顺序执行,每步完成后:
 > 1. 按"手动测试步骤"逐条执行
 > 2. 对照"预期结果"核查每条输出
-> 3. 明确向用户请求确认
-> 4. 得到"通过" / "继续"回复后,在 heading 打 ✅(完成)/ ⏸️(暂缓)/ 🟡(跳过);步骤细节写进 commit message,不再双写
+> 3. 若该步"产出"里列了 `tests/**` 自动化测试文件,跑 `uv run pytest <path>` 作回归兜底
+> 4. 明确向用户请求确认
+> 5. 得到"通过" / "继续"回复后,在 heading 打 ✅(完成)/ ⏸️(暂缓)/ 🟡(跳过);步骤细节写进 commit message,不再双写
+>
+> 运行全量自动化测试:`uv run pytest`(单元层,不打真实上游);集成测试需加 `--integration` 开关。
 >
 > **本文件除 heading 进度标记外原则上不动**;如果步骤定义需要调整,在 commit message 写清原因。
 
@@ -123,6 +126,7 @@
   - `rosetta/server/database/migrations/001_init.sql`(DDL 镜像,含 `PRAGMA user_version = 1` 和 `logs.created_at` 索引)
   - `rosetta/server/admin/providers.py`:`GET /admin/providers`、`POST /admin/providers`
   - DB 文件默认位置 `~/.rosetta/rosetta.db`
+  - `tests/server/test_admin.py`:providers CRUD + DELETE 级联删 routes 的回归测试(共享 `tests/server/conftest.py` 的 per-test sqlite fixture)
 - **手动测试步骤**:
   1. 起 server(同步骤 1.1),记下 `<port>`
   2. `curl -X POST http://127.0.0.1:<port>/admin/providers -H 'content-type: application/json' -d '{"name":"test-provider","type":"anthropic","api_key":"sk-fake-testing"}'`
@@ -149,6 +153,7 @@
   - provider 选择**先硬编**:取"第一个 enabled provider"兜底(阶段 3 才引入路由表)
   - `rosetta/shared/formats.py`:三格式枚举 + URL 路径映射 + 内置默认模型表
   - `tests/smoke/smoke_messages.py` + `tests/smoke/smoke_chat.py`(简单脚本)
+  - `tests/server/test_dataplane.py`:同格式直通(URL / 鉴权头 / provider 类型分派)单元回归,用 `httpx.MockTransport` 拦截,无真实上游
 - **手动测试步骤**:
   1. 准备一个**真实 Anthropic key**,通过 `POST /admin/providers` 建一个 `type=anthropic` 的 provider
   2. 起 server,记 `<port>`
@@ -342,6 +347,8 @@
   - `rosetta/server/admin/routes.py`(`GET /admin/routes` / `PUT /admin/routes`)
   - `rosetta/server/dataplane/router.py`(匹配逻辑)
   - 异格式回退自动走翻译的接线(`DESIGN.md` §8.4 补丁)
+  - `tests/server/test_router.py`:§8.4 七条匹配规则单元测(parse_model 4 形态 + header 绕路 + priority/id 排序 + 兜底 + 503/400 分支)
+  - `tests/server/test_admin.py` 内的 `test_replace_routes_*` / `test_list_routes_*` 三例(routes CRUD + 全量替换语义)
 - **手动测试步骤**:
   1. 建 2 个 provider:`test-ant`(type=anthropic,真 key)+ `test-oai`(type=openai,真 key)
   2. `curl -X PUT http://127.0.0.1:<port>/admin/routes -H 'content-type: application/json' -d '[{"model_glob":"claude-*","provider":"test-ant","priority":1},{"model_glob":"gpt-*","provider":"test-oai","priority":2}]'`
@@ -366,6 +373,7 @@
   - `__main__.py` 绑定 `127.0.0.1` + `::1`(双栈),拒绝其他来源
   - `forwarder.py` 里:客户端带 key → 透传(按上游 type 选 header 名);不带 → `providers.api_key` fallback
   - 临时在 forwarder 加一行 debug log 打印"发给上游的 Authorization 的前 10 字符"(验证完删)
+  - `tests/server/test_dataplane.py` 内的 `test_client_api_key_overrides_db` / `test_client_none_falls_back_to_db` / `test_custom_base_url_used` / `test_extra_response_headers_injected`:key 透传 / 兜底 / base_url / warnings 头注入的单元回归
 - **手动测试步骤**:
   1. 起 server,看日志绑定信息,确认是 `127.0.0.1` / `[::1]` 而非 `0.0.0.0`
   2. 从同局域网另一台机器 curl 本机内网 IP:<port>/admin/ping
@@ -393,7 +401,8 @@
   - `rosetta/sdk/discover.py`:读 `endpoint.json` → 不存在/死了 → spawn → 轮询 `/admin/ping`
   - `rosetta/sdk/client.py`:`ProxyClient.discover()` / `.direct(base_url, api_key, format, model)` 两种工厂
   - `rosetta/sdk/chat.py`:`chat_once(text, model, format)` → `ChatResult(text, usage, path, latency_ms)`
-  - `tests/sdk/test_discover.py`
+  - `tests/sdk/test_discover.py`(集成:`pytest --integration` 才跑)
+  - `tests/sdk/test_client_admin.py`:所有 admin 方法用 `MockTransport` 单元测(URL / method / params / 响应解析 / direct 模式的 RuntimeError 保护)
 - **手动测试步骤**:
   1. 确保没有 server 在跑:`rm -f ~/.rosetta/endpoint.json`,`pkill -f rosetta.server`(Windows:`taskkill /F /IM python.exe` 慎用)
   2. 跑 `uv run pytest tests/sdk/test_discover.py -v -s`
@@ -412,6 +421,7 @@
 - **产出**:
   - `rosetta/cli/__main__.py`(typer 根)
   - `rosetta/cli/commands/{status,start,stop,provider,route,logs,stats}.py`
+  - `tests/cli/test_commands.py`:用 `typer.testing.CliRunner` 验 `--help` 全通 + 子命令注册齐全 + 无效子命令/缺失必填参数退出码非 0(不触达 server)
 - **手动测试步骤**:
   1. `uv run rosetta provider add --name ant-main --type anthropic --api-key sk-ant-XXX`
   2. `uv run rosetta provider list`

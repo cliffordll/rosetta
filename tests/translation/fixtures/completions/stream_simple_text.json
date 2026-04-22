@@ -1,0 +1,55 @@
+{
+  "request": {
+    "model": "gpt-4o-mini",
+    "messages": [
+      {"role": "user", "content": "say hi"}
+    ],
+    "max_tokens": 16,
+    "stream": true
+  },
+  "response_stream": [
+    {
+      "id": "chatcmpl_stream01",
+      "object": "chat.completion.chunk",
+      "created": 0,
+      "model": "gpt-4o-mini",
+      "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": null}]
+    },
+    {
+      "id": "chatcmpl_stream01",
+      "object": "chat.completion.chunk",
+      "created": 0,
+      "model": "gpt-4o-mini",
+      "choices": [{"index": 0, "delta": {"content": "Hi"}, "finish_reason": null}]
+    },
+    {
+      "id": "chatcmpl_stream01",
+      "object": "chat.completion.chunk",
+      "created": 0,
+      "model": "gpt-4o-mini",
+      "choices": [{"index": 0, "delta": {"content": " there"}, "finish_reason": null}]
+    },
+    {
+      "id": "chatcmpl_stream01",
+      "object": "chat.completion.chunk",
+      "created": 0,
+      "model": "gpt-4o-mini",
+      "choices": [{"index": 0, "delta": {"content": "!"}, "finish_reason": null}]
+    },
+    {
+      "id": "chatcmpl_stream01",
+      "object": "chat.completion.chunk",
+      "created": 0,
+      "model": "gpt-4o-mini",
+      "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]
+    },
+    {
+      "id": "chatcmpl_stream01",
+      "object": "chat.completion.chunk",
+      "created": 0,
+      "model": "gpt-4o-mini",
+      "choices": [],
+      "usage": {"prompt_tokens": 6, "completion_tokens": 3, "total_tokens": 9}
+    }
+  ]
+}

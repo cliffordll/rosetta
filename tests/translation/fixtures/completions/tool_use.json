@@ -1,0 +1,51 @@
+{
+  "request": {
+    "model": "gpt-4o-mini",
+    "messages": [
+      {"role": "user", "content": "what's the weather in SF?"}
+    ],
+    "max_tokens": 256,
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "Get current weather for a city",
+          "parameters": {
+            "type": "object",
+            "properties": {"city": {"type": "string"}},
+            "required": ["city"]
+          }
+        }
+      }
+    ],
+    "tool_choice": "auto"
+  },
+  "response_nonstream": {
+    "id": "chatcmpl_04TOOL",
+    "object": "chat.completion",
+    "created": 0,
+    "model": "gpt-4o-mini",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "call_sfweather01",
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "arguments": "{\"city\": \"SF\"}"
+              }
+            }
+          ]
+        },
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "usage": {"prompt_tokens": 30, "completion_tokens": 12, "total_tokens": 42}
+  }
+}
