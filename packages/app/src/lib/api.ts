@@ -9,6 +9,34 @@
 
 export type ProviderType = "anthropic" | "openai" | "openrouter" | "custom";
 
+/** 客户端侧 API 形态;与 `rosetta.shared.formats.Format` 的 str 值严格一致。 */
+export const Format = {
+  MESSAGES: "messages",
+  CHAT_COMPLETIONS: "completions",
+  RESPONSES: "responses",
+} as const;
+export type Format = (typeof Format)[keyof typeof Format];
+
+/** 三格式各自的默认模型 + 下拉候选(5.3 硬编码;v1+ 再引入动态发现)。 */
+export const DEFAULT_MODELS: Record<Format, string> = {
+  [Format.MESSAGES]: "claude-haiku-4-5",
+  [Format.CHAT_COMPLETIONS]: "gpt-4o-mini",
+  [Format.RESPONSES]: "gpt-4o-mini",
+};
+
+export const MODEL_CHOICES: Record<Format, string[]> = {
+  [Format.MESSAGES]: ["claude-haiku-4-5", "claude-sonnet-4-5", "claude-opus-4-5"],
+  [Format.CHAT_COMPLETIONS]: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"],
+  [Format.RESPONSES]: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"],
+};
+
+/** provider.type → 上游原生 format(对齐后端 `PROVIDER_NATIVE_FORMAT`)。 */
+export const PROVIDER_NATIVE_FORMAT: Record<string, Format> = {
+  anthropic: Format.MESSAGES,
+  openai: Format.CHAT_COMPLETIONS,
+  openrouter: Format.CHAT_COMPLETIONS,
+};
+
 export interface StatusResponse {
   version: string;
   uptime_ms: number;
