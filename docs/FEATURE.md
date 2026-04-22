@@ -33,7 +33,7 @@
 
 ## 阶段 0 · 仓库与环境(0.5-1 天)
 
-### 步骤 0.1 · Python 工程骨架
+### 步骤 0.1 ✅ · Python 工程骨架
 
 - **目标**:建立 `rosetta` 单包的目录骨架 + uv 环境
 - **产出**:
@@ -52,7 +52,7 @@
 - **通过判据**:三条命令 exit code 均为 0,输出如上
 - **风险**:import 名 `rosetta` 和 PyPI 包名可能冲突;若打算发布用 distribution 名 `rosetta-proxy`,import 名保持 `rosetta`
 
-### 步骤 0.2 · Lint / 类型 / 测试基建
+### 步骤 0.2 ✅ · Lint / 类型 / 测试基建
 
 - **目标**:静态检查 + 测试框架就位,后续每阶段都能 CI
 - **产出**:
@@ -73,7 +73,7 @@
 - **通过判据**:四条命令 exit code 均为 0
 - **风险**:mypy / pyright 的 async 支持差异;先上 strict,跑得动再说
 
-### 步骤 0.3 · 基础 CI(GitHub Actions)
+### 步骤 0.3 ✅ · 基础 CI(GitHub Actions)
 
 - **目标**:push 时自动跑 lint + test(在 GitHub 云上,不在本地)
 - **产出**:
@@ -93,7 +93,7 @@
 
 ## 阶段 1 · Server 骨架 + 三格式直通(1.5-2 天)
 
-### 步骤 1.1 · FastAPI app + admin 心跳
+### 步骤 1.1 ✅ · FastAPI app + admin 心跳
 
 - **目标**:能起 HTTP 服务,只暴露最小 admin 端点
 - **产出**:
@@ -114,7 +114,7 @@
 - **通过判据**:两个 admin 端点均返回 200,server 能正常启停
 - **风险**:端口 0 拿到的实际端口必须能打印到 stdout(为下一步写 endpoint.json 铺垫)
 
-### 步骤 1.2 · SQLite + providers CRUD(最小集)
+### 步骤 1.2 ✅ · SQLite + providers CRUD(最小集)
 
 - **目标**:DB 落地 + 能增/查 provider(delete / update 留后面)
 - **产出**:
@@ -140,7 +140,7 @@
 - **通过判据**:步骤 5/6/7 全部符合
 - **风险**:aiosqlite 的 WAL 模式 / busy_timeout — 建表时统一配置
 
-### 步骤 1.3 · 三格式入口(同格式直通,无翻译)
+### 步骤 1.3 ✅ · 三格式入口(同格式直通,无翻译)
 
 - **目标**:三条 `/v1/*` 路由,原样 httpx 透传到上游
 - **产出**:
@@ -169,7 +169,7 @@
 - **通过判据**:步骤 3 跑通(messages 直通);OpenAI 条件有的话步骤 4 也跑通
 - **风险**:SSE 透传要关 httpx buffer;`StreamingResponse` 的 `media_type` 必须设 `text/event-stream`
 
-### 步骤 1.4 · endpoint.json + spawn.lock + parent-watcher
+### 步骤 1.4 ✅ · endpoint.json + spawn.lock + parent-watcher
 
 - **目标**:server 启动写发现文件,支持 CLI/GUI 发现;并发 spawn 安全
 - **产出**:
@@ -207,7 +207,7 @@
 
 ## 阶段 2 · 翻译层 v0.1(3-5 天)
 
-### 步骤 2.1 · IR 定义 + Claude adapter(入/出)
+### 步骤 2.1 ✅ · IR 定义 + Claude adapter(入/出)
 
 - **目标**:定义 Request / Response / Stream Event IR;Claude 格式双向 adapter
 - **产出**:
@@ -224,7 +224,7 @@
 - **通过判据**:pytest exit 0,所有 fixture 测试绿
 - **风险**:`tool_use` block 与 `tool_result` block 的跨消息对应;`content[]` 里文本和工具块混排
 
-### 步骤 2.2 · OpenAI Chat Completions adapter(入/出)
+### 步骤 2.2 ✅ · OpenAI Chat Completions adapter(入/出)
 
 - **目标**:Chat Completions 双向 adapter
 - **产出**:
@@ -238,7 +238,7 @@
 - **通过判据**:pytest exit 0
 - **风险**:`message.tool_calls.function.arguments`(字符串)vs Claude `tool_use.input`(object)的字段对齐;`finish_reason` 枚举映射
 
-### 步骤 2.3 · 跨格式翻译(非流式)
+### 步骤 2.3 ✅ · 跨格式翻译(非流式)
 
 - **目标**:Claude ↔ Chat Completions 双向非流式能走通
 - **产出**:
@@ -263,7 +263,7 @@
 - **通过判据**:OpenAI SDK 能解析响应,内容合理;日志显示走了翻译而非直通
 - **风险**:翻译失败时要返回 500 + `rosetta_error` body,不要抛栈
 
-### 步骤 2.4 · 跨格式翻译(流式)
+### 步骤 2.4 ✅ · 跨格式翻译(流式)
 
 - **目标**:流式事件翻译,逐事件 yield 不聚合
 - **产出**:
@@ -290,7 +290,7 @@
 
 ## 阶段 2.5 · Responses API(2-3 天)
 
-### 步骤 2.5.1 · Responses adapter(入/出)
+### 步骤 2.5.1 ✅ · Responses adapter(入/出)
 
 - **目标**:Responses API 双向 adapter + 三格式两两互通
 - **产出**:
@@ -309,7 +309,7 @@
 - **通过判据**:6 条跨格式路径全部跑通
 - **风险**:Responses 事件种类最多,流式状态机最复杂
 
-### 步骤 2.5.2 · 有状态特性降级
+### 步骤 2.5.2 ✅ · 有状态特性降级
 
 - **目标**:`store` / `previous_response_id` / `background` / 内置 tools 的降级策略
 - **产出**:
@@ -335,7 +335,7 @@
 
 ## 阶段 3 · 路由规则 + loopback(1 天)
 
-### 步骤 3.1 · routes 表 + 匹配逻辑 + `x-rosetta-provider`
+### 步骤 3.1 ✅ · routes 表 + 匹配逻辑 + `x-rosetta-provider`
 
 - **目标**:实现 §8.4 的 7 条匹配规则;支持 header 绕路由;异格式自动翻译
 - **产出**:
@@ -359,7 +359,7 @@
 - **通过判据**:4 条路径都按预期路由
 - **风险**:glob 匹配用 `fnmatch` 够;优先级相同时用 id 做稳定排序
 
-### 步骤 3.2 · loopback 绑定 + 数据面 api-key 透传
+### 步骤 3.2 ✅ · loopback 绑定 + 数据面 api-key 透传
 
 - **目标**:server 只接 loopback;`x-api-key` / `Authorization` 透传规则
 - **产出**:
@@ -386,7 +386,7 @@
 
 ## 阶段 4 · SDK + CLI + chat 命令(1-1.5 天)
 
-### 步骤 4.1 · `rosetta.sdk`:discover + ProxyClient
+### 步骤 4.1 ✅ · `rosetta.sdk`:discover + ProxyClient
 
 - **目标**:SDK 能发现/启动 server + 封装 /admin 调用
 - **产出**:
@@ -406,7 +406,7 @@
 - **通过判据**:spawn 和复用两场景均测试通过
 - **风险**:spawn 的 subprocess 必须 detach(server 进程独立于 SDK caller 生命周期)
 
-### 步骤 4.2 · CLI 管理命令
+### 步骤 4.2 ✅ · CLI 管理命令
 
 - **目标**:`rosetta status / start / stop / provider / route / logs / stats`
 - **产出**:
@@ -435,7 +435,7 @@
 - **通过判据**:9 条命令均 exit 0,输出合理
 - **风险**:`rosetta start` / `stop` 生命周期语义要和 sidecar 模型对齐(stop 是发 shutdown 信号给 server,不是杀进程)
 
-### 步骤 4.3 · `rosetta chat`:一次性 + REPL
+### 步骤 4.3 ✅ · `rosetta chat`:一次性 + REPL
 
 - **目标**:两种模式 + `/exit /reset /model /format` 命令
 - **产出**:
@@ -458,7 +458,7 @@
 - **通过判据**:6 个场景全部符合
 - **风险**:Windows terminal 的 ANSI 颜色;typer 对多词 positional 的处理
 
-### 步骤 4.4 · direct 模式 + 互斥校验
+### 步骤 4.4 ⏸️ · direct 模式 + 互斥校验(暂缓)
 
 - **目标**:`--base-url` 触发 direct;与 `--provider` 互斥
 - **产出**:
@@ -484,7 +484,7 @@
 
 ## 阶段 5 · 前端(3-4 天)
 
-### 步骤 5.1 · Vite + React + Tailwind + shadcn 脚手架
+### 步骤 5.1 ✅ · Vite + React + Tailwind + shadcn 脚手架
 
 - **目标**:前端工程跑起来
 - **产出**:
@@ -506,7 +506,7 @@
 - **通过判据**:4 页都能切,console 无 error
 - **风险**:shadcn 要配 `components.json`;Tailwind 路径别名
 
-### 步骤 5.2 · Dashboard + Providers
+### 步骤 5.2 ✅ · Dashboard + Providers
 
 - **目标**:能看 server 状态 + 增删 provider
 - **产出**:`src/pages/Dashboard.tsx` + `src/pages/Providers.tsx`
@@ -526,7 +526,7 @@
 - **通过判据**:增删后 DB 和 UI 同步
 - **风险**:删除做乐观更新要加确认
 
-### 步骤 5.3 · Chat 页(核心)
+### 步骤 5.3 ✅ · Chat 页(核心)
 
 - **目标**:多轮对话 + 流式 + 三下拉联动
 - **产出**:`src/pages/Chat.tsx` + SSE fetch 逻辑 + React state 存 messages
@@ -550,7 +550,7 @@
 - **通过判据**:8 项全通
 - **风险**:切 format 后 tool_use / thinking 块要 toast 提示被丢弃
 
-### 步骤 5.4 · Logs 页
+### 步骤 5.4 🟡 · Logs 页(跳过 · 待后端 logger)
 
 - **目标**:日志列表 + 分页 + provider / 时间筛选
 - **产出**:`src/pages/Logs.tsx`
