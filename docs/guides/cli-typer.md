@@ -157,7 +157,7 @@ except ValueError:
 1. 新建 `rosetta/cli/commands/ping.py`:
    ```python
    import typer
-   from rosetta.cli.render import Renderer
+   from rosetta.cli.core.render import Renderer
 
    def ping_cmd() -> None:
        Renderer.out("pong")

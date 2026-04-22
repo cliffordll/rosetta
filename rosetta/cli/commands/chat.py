@@ -15,8 +15,8 @@ from typing import Annotated
 
 import typer
 
-from rosetta.cli.commands.chat_core import DEFAULT_MODELS, ChatError, run_turn
-from rosetta.cli.render import Renderer
+from rosetta.cli.core.context import DEFAULT_MODELS, ChatContext
+from rosetta.cli.core.render import Renderer
 from rosetta.sdk.client import ProxyClient
 from rosetta.shared.formats import Format
 
@@ -84,69 +84,26 @@ async def _run(
 ) -> None:
     try:
         async with ProxyClient.discover_session(spawn_if_missing=True) as client:
-            if text is None or not text.strip():
-                # 惰性 import 避开模块加载时的环路风险
-                from rosetta.cli import repl as repl_mod
-
-                await repl_mod.run(
-                    client,
-                    fmt=fmt,
-                    model=model,
-                    provider=provider,
-                    api_key=api_key,
-                    max_tokens=max_tokens,
-                )
-                return
-
-            await _one_shot(
-                client,
-                text=text,
+            ctx = ChatContext(
+                client=client,
                 fmt=fmt,
                 model=model,
                 provider=provider,
                 api_key=api_key,
                 max_tokens=max_tokens,
             )
+            if text is None or not text.strip():
+                # 惰性 import 避开模块加载时的环路风险
+                from rosetta.cli.core.repl import ChatRepl
+
+                await ChatRepl(ctx=ctx).run()
+                return
+
+            from rosetta.cli.core.once import ChatOnce
+
+            await ChatOnce(ctx=ctx).run(text)
     except RuntimeError as e:
         Renderer.die(f"server 未就绪: {e}")
-
-
-async def _one_shot(
-    client: ProxyClient,
-    *,
-    text: str,
-    fmt: Format,
-    model: str,
-    provider: str | None,
-    api_key: str | None,
-    max_tokens: int,
-) -> None:
-    messages = [{"role": "user", "content": text}]
-    try:
-        _assistant, in_tok, out_tok, ms = await run_turn(
-            client,
-            messages,
-            fmt=fmt,
-            model=model,
-            provider=provider,
-            api_key=api_key,
-            max_tokens=max_tokens,
-            on_token=Renderer.stream_token,
-        )
-    except ChatError as e:
-        Renderer.stream_newline()
-        Renderer.error_bubble(f"HTTP {e.status}: {e.short_body()}")
-        raise typer.Exit(code=1) from None
-
-    Renderer.stream_newline()
-    Renderer.meta_line(
-        provider=provider or "auto",
-        model=model,
-        input_tokens=in_tok,
-        output_tokens=out_tok,
-        latency_ms=ms,
-        path=fmt.value,
-    )
 
 
 def register(app: typer.Typer) -> None:
