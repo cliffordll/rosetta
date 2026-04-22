@@ -11,7 +11,7 @@ from typing import Annotated, get_args
 import httpx
 import typer
 
-from rosetta.cli.render import Renderer
+from rosetta.cli.core.render import Renderer
 from rosetta.sdk.client import ProxyClient
 from rosetta.server.admin.providers import ProviderCreate, ProviderType
 

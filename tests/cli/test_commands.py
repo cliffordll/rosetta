@@ -75,7 +75,7 @@ def test_quiet_flag_accepted_by_root_help() -> None:
 
 def test_quiet_flag_sets_renderer_state() -> None:
     """--quiet 触发根 callback 后,Renderer.QUIET = True。"""
-    from rosetta.cli.render import Renderer
+    from rosetta.cli.core.render import Renderer
 
     Renderer.QUIET = False  # 保险丝
     # 用一个必然失败的子命令快速走完 callback + 子命令参数校验(不触 server)
@@ -85,7 +85,7 @@ def test_quiet_flag_sets_renderer_state() -> None:
 
 
 def test_short_quiet_flag() -> None:
-    from rosetta.cli.render import Renderer
+    from rosetta.cli.core.render import Renderer
 
     Renderer.QUIET = False
     runner.invoke(app, ["-q", "chat", "--format", "bogus", "hi"])

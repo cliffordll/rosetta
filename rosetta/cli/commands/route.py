@@ -16,7 +16,7 @@ from typing import Annotated
 import httpx
 import typer
 
-from rosetta.cli.render import Renderer
+from rosetta.cli.core.render import Renderer
 from rosetta.sdk.client import ProxyClient
 from rosetta.server.admin.routes import RouteIn, RouteOut
 
