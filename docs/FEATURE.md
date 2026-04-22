@@ -618,7 +618,7 @@
 
 ## 阶段 7 · Tauri 外壳(2-3 天)
 
-### 步骤 7.1 · Tauri 工程 + sidecar 启动
+### 步骤 7.1 ✅ · Tauri 工程 + sidecar 启动
 
 - **目标**:桌面 app 启动时拉起 `rosetta-server.exe` 作为 sidecar
 - **产出**:`packages/desktop/`(Tauri 2.x) + `tauri.conf.json` 的 sidecar 配置
