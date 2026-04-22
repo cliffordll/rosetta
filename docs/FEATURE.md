@@ -575,7 +575,7 @@
 
 ## 阶段 6 · 打包(1 天)
 
-### 步骤 6.1 · PyInstaller 单 exe
+### 步骤 6.1 ✅ · PyInstaller 单 exe
 
 - **目标**:server 和 CLI 各打一个单文件 exe
 - **产出**:

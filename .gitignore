@@ -11,7 +11,7 @@ venv/
 env/
 
 # 打包产物
-build/
+build/work/
 dist/
 *.egg-info/
 *.egg
