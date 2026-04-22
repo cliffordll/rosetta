@@ -1,0 +1,25 @@
+{
+  "request": {
+    "model": "gpt-4o-mini",
+    "messages": [
+      {"role": "user", "content": "what's 2+2?"},
+      {"role": "assistant", "content": "4"},
+      {"role": "user", "content": "and 3+3?"}
+    ],
+    "max_tokens": 32
+  },
+  "response_nonstream": {
+    "id": "chatcmpl_03MULT",
+    "object": "chat.completion",
+    "created": 0,
+    "model": "gpt-4o-mini",
+    "choices": [
+      {
+        "index": 0,
+        "message": {"role": "assistant", "content": "6"},
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {"prompt_tokens": 22, "completion_tokens": 1, "total_tokens": 23}
+  }
+}

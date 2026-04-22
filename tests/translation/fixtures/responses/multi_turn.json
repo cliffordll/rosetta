@@ -1,0 +1,38 @@
+{
+  "request": {
+    "model": "gpt-4.1-mini",
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": "what's 2+2?"}]
+      },
+      {
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": "4"}]
+      },
+      {
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": "and 3+3?"}]
+      }
+    ],
+    "max_output_tokens": 32
+  },
+  "response_nonstream": {
+    "id": "resp_03MULT",
+    "object": "response",
+    "created_at": 0,
+    "model": "gpt-4.1-mini",
+    "output": [
+      {
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": "6"}]
+      }
+    ],
+    "status": "completed",
+    "usage": {"input_tokens": 22, "output_tokens": 1, "total_tokens": 23}
+  }
+}
