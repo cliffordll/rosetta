@@ -728,26 +728,41 @@
   - 步骤 4:API 调用正常,能增删 provider、能发一条 chat
 - **通过判据**:桌面端与 sidecar 通信正常
 
-### 步骤 7.2 · 窗口记忆 + 托盘 + 关窗优雅退出
+### 步骤 7.2 ✅ · 窗口记忆 + 托盘 + 关窗优雅退出(代码就绪,待 GUI 验证)
 
-- **目标**:用户体验完善
-- **产出**:`tauri-plugin-window-state` + tray icon + `on_close` 调 `/admin/shutdown`
-- **手动测试步骤**:
-  1. 打开 app,挪动窗口到右下角,改小窗口
-  2. 关窗 → 重开 app → 看位置/大小是否保持
-  3. 点"最小化到托盘"→ 任务栏消失,托盘出现图标
-  4. 点托盘图标 → 窗口恢复
-  5. 从托盘右键 → `Exit`
-  6. 立即 `tasklist | findstr rosetta-server`
-  7. 5 秒后再看
-  8. `ls ~/.rosetta/endpoint.json`
+- **目标**:桌面端用户体验完善,真退出时顺带 server graceful shutdown
+- **产出**:
+  - `tauri-plugin-window-state`:窗口位置 / 大小自动持久化
+  - `TrayIconBuilder`:系统托盘图标(复用窗口 icon);右键菜单 Show / Exit;
+    **左键点图标 = 显示窗口**(不弹菜单,见 `show_menu_on_left_click(false)`)
+  - `on_window_event` 拦 `CloseRequested` → `window.hide()` + `api.prevent_close()`:
+    点 X 按钮 = 隐到托盘,**不真退出**
+  - `request_exit()`:托盘 Exit 菜单触发,先 `win.hide()` 即时反馈,再同步
+    `POST /admin/shutdown`(手搓 std::net,2s 超时)让 server 起 graceful_shutdown,
+    最后 `app.exit(0)`;即使 post 失败,server 的 `--parent-pid` watcher 也会
+    在 Tauri 挂后 5s 内兜底自退(DESIGN §6)
+- **手动测试步骤**(需要先打好 exe 并同步到 `binaries/`,或 `bun run tauri dev`):
+  1. 打开 app(`cd packages/desktop && bun run tauri dev`),挪窗口到屏幕右下,改小
+  2. **点 X 关窗**:窗口隐到托盘(任务栏图标消失,托盘角出现 rosetta icon)
+  3. **左键点托盘图标**:窗口重新出现,且**位置 / 大小与关前一致**(window-state plugin 生效)
+  4. **再点 X** 隐到托盘;**真退出测试**:托盘右键 → Exit
+  5. Exit 菜单点下那一刻立即:`tasklist | findstr rosetta-server`
+  6. ~5-10 秒后再 `tasklist | findstr rosetta-server`
+  7. `ls ~/.rosetta/endpoint.json`
+  8. (可选)直接**杀掉 Tauri 进程**(如任务管理器强杀 `rosetta-desktop.exe`):
+     `tasklist | findstr rosetta-server`,5 秒内观察 server 也自退(watcher 兜底)
 - **预期结果**:
-  - 步骤 2:位置和大小保持
-  - 步骤 4:窗口恢复到原位
-  - 步骤 6:server 进程**还在**(这时 graceful_shutdown 正在跑)
-  - 步骤 7:server 进程消失
-  - 步骤 8:文件不存在
-- **通过判据**:窗口记忆生效,托盘正常,关闭后 server 在 ~5s 内退出
+  - 步骤 2:窗口消失、任务栏图标消失、托盘 icon 出现
+  - 步骤 3:窗口恢复到关前原位 / 原大小
+  - 步骤 5:server 进程**还在**(`post_shutdown` 发出但 uvicorn graceful 正在处理)
+  - 步骤 6:server 进程消失
+  - 步骤 7:`endpoint.json` 已被 server 的 finally 块清掉,文件不存在
+  - 步骤 8:Tauri 死后 5s 内 server 也被 watcher 兜底退
+- **通过判据**:窗口记忆、托盘显隐、Exit 走 graceful shutdown、watcher 兜底四者全通
+- **已知让步**:
+  - `post_shutdown()` 是同步阻塞调用(最多 2s),Exit 菜单点击到窗口关闭有 0~2s
+    延迟;非关键体验问题,v1+ 若需要再改异步(`tauri::async_runtime::spawn`)
+  - 最小化到任务栏**不会**自动隐到托盘(仅点 X 触发);这符合大多数桌面 app 惯例
 
 **=== 阶段 7 整体验收 ===**:`tauri dev` 桌面端与浏览器内表现一致。
 
