@@ -55,7 +55,9 @@ class LogRepo:
         if upstream_id is not None:
             filters.append(LogEntry.upstream_id == upstream_id)
         if since is not None:
-            filters.append(LogEntry.created_at >= since)
+            # 严格大于:CLI / UI 的 polling 拿到本批最晚 created_at 作为下次 since,
+            # 不重复取到已看过的记录
+            filters.append(LogEntry.created_at > since)
         if until is not None:
             filters.append(LogEntry.created_at <= until)
 
