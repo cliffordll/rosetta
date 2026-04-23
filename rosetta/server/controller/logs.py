@@ -50,7 +50,7 @@ async def list_logs(
     since: datetime | None = None,
     until: datetime | None = None,
 ) -> list[LogOut]:
-    upstream_id: int | None = None
+    upstream_id: str | None = None
     if upstream is not None:
         u = await upstream_repo.get_by_name(upstream)
         if u is None:
