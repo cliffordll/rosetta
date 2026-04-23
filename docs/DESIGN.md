@@ -407,12 +407,13 @@ rosetta/
 GET    /admin/ping                       健康检查，返回 {ok: true}
 GET    /admin/status                     { version, uptime, upstream_count, request_count, ... }
 
-GET    /admin/upstreams                  列表（不返回 api_key）
-POST   /admin/upstreams                  新建：{name, type, base_url, api_key, enabled}
-GET    /admin/upstreams/{id}             详情
-PUT    /admin/upstreams/{id}             修改
+GET    /admin/upstreams                  列表(不返回 api_key)
+POST   /admin/upstreams                  新建:{name, protocol, provider, base_url, api_key, enabled}
+                                         protocol ∈ {messages/completions/responses}(any 不可由用户创建)
+POST   /admin/upstreams/restore-mock?force=bool  幂等恢复内置 mock upstream
+                                         force=true 则先删除再重建
 DELETE /admin/upstreams/{id}             删除
-（连通性测试端点 `POST /admin/upstreams/{id}/test` 推迟到 v1+，见 `FEATURE.md` 附录 B）
+(GET/PUT by id、连通性测试 /test 推迟到 v1+,见 FEATURE.md 附录 B)
 
 GET    /admin/logs?limit=50&offset=0     最近请求日志
 GET    /admin/stats?period=today         用量统计
@@ -453,28 +454,41 @@ GET    /v1/models                        合并所有 enabled upstream 的可用
 
 ```
 upstreams
-  id            INTEGER PK AUTOINCREMENT
+  id            TEXT    PK              -- 32 字符 UUID4 hex（非自增）
   name          TEXT    UNIQUE NOT NULL
-  protocol      TEXT    NOT NULL  -- messages / completions / responses
-  base_url      TEXT    NULLABLE  -- 为空时按 type 取默认
-  api_key       TEXT    NOT NULL  -- 上游的 key
+  protocol      TEXT    NOT NULL        -- messages / completions / responses / any
+  provider      TEXT    NOT NULL DEFAULT 'custom'
+                                        -- anthropic / openai / openrouter / google
+                                        -- / ollama / vllm / custom / mock
+  base_url      TEXT    NOT NULL        -- 上游根地址;必填,不再按 provider 取默认
+  api_key       TEXT    NULLABLE        -- 可选;不填时客户端必须自带 x-api-key 透传
   enabled       BOOLEAN DEFAULT 1
   created_at    DATETIME
 
-logs                                  -- 请求流水（异步写入）
-  id            INTEGER PK
+  -- seed:migration 写入一条内置 mock 上游
+  -- (id='0'×32, name='mock', protocol='any', provider='mock', base_url='mock://')
+  -- 触发 forwarder 短路(见 §8.4),不发 HTTP 而是本地 echo,供演示 / 离线 demo
+
+logs                                  -- 请求流水(异步写入)
+  id            TEXT    PK              -- 32 字符 UUID4 hex
   created_at    DATETIME
-  upstream_id   INTEGER FK upstreams.id
+  upstream_id   TEXT    NULLABLE FK upstreams.id
+                                        -- 不强制 FK:upstream 删除后保留死引用
   model         TEXT
   input_tokens  INTEGER
   output_tokens INTEGER
   latency_ms    INTEGER
-  status        TEXT                  -- ok / error / timeout
+  status        TEXT                    -- ok / error / timeout
   error         TEXT    NULLABLE
-  -- 不记录 api_key（即使哈希）：单用户本地无审计需求，v1+ 真有需要再加
+  -- 不记录 api_key(即使哈希):单用户本地无审计需求,v1+ 真有需要再加
 
   INDEX idx_logs_created_at (created_at)  -- 为 TTL 清理和时间段查询建索引
 ```
+
+**字段语义分层**:
+
+- `protocol`:上游自己"说什么方言"—— 决定 forwarder 跟它说话时走哪条 URL / 哪种鉴权 header / 是否要跨格式翻译。`any` 是保留值,专给 mock 占位(mock 不发 HTTP,protocol 语义不适用),**用户不能通过 `POST /admin/upstreams` / `rosetta upstream add` 创建 `protocol=any` 的 upstream**(controller 层 Literal 限定为 3 值);ORM / DB Literal 则包含 `any` 四值
+- `provider`:上游的厂商身份标签。protocol 和 provider 正交:同一个 `messages` 协议既可能是 `anthropic` 也可能是 OpenRouter 中转。`mock` 是特殊值,由 `forwarder.forward` 入口识别后直接短路
 
 **Schema 版本与迁移**：
 
@@ -492,18 +506,9 @@ logs                                  -- 请求流水（异步写入）
 - 每个 migration 在**独立事务**里跑，任一失败不回滚已成功的前几个
 - migration 目录通过 glob `[0-9][0-9][0-9]_*.sql` 扫描，按编号升序；编号重复启动时报错
 
-（v0 **不再有 `keys` 表**——rosetta 自己的"本地 key"概念已删除。`upstreams.api_key` 是上游 key 的默认值，客户端可通过 `x-api-key` 头逐次 override。）
+（v0 **不再有 `keys` 表**——rosetta 自己的"本地 key"概念已删除。`upstreams.api_key` 是上游 key 的默认值,客户端可通过 `x-api-key` 头逐次 override。）
 
-**`upstreams.base_url` 默认值**（type 对应的官方上游，建 upstream 时 `base_url` 留空就取这里）：
-
-| type | base_url 为空时使用 | 典型用途 |
-|---|---|---|
-| `anthropic` | `https://api.anthropic.com` | 直连 Anthropic |
-| `openai` | `https://api.openai.com` | 直连 OpenAI |
-| `openrouter` | `https://openrouter.ai/api` | 经 OpenRouter 多供应商 |
-| `custom` | **必须显式填写**，否则 `POST /admin/upstreams` 返回 400 | 国内中转站、自托管 vLLM / Ollama、第三方网关 |
-
-填写自定义 `base_url`（如 `https://api.deepseek.com/anthropic`）会覆盖默认；**不带尾斜杠、不带 `/v1`**——forwarder 自动拼路径。
+**`upstreams.base_url`**:v0 起强制必填,不再按 provider 取官方默认。填写时**不带尾斜杠、不带 `/v1`**—— forwarder 自动拼 `UPSTREAM_PATH[protocol]`。
 
 ### 8.3 翻译层策略（3×3 矩阵 + IR）
 
@@ -621,6 +626,8 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 ```
 
 **关于选中的 upstream 与入口 format**:选中 upstream 的 `protocol` 与入口 format 不一致时,自动走 §8.3 翻译(对角线直通仅发生在两者一致的情况)。例如入口 `/v1/messages` + upstream `protocol=completions` → IR 翻译为 Chat Completions 请求。
+
+**provider=mock 短路**:`forwarder.forward` 入口判 `upstream.provider == "mock"`,命中就**不发 HTTP**,直接调 `MockResponder.respond(fmt, body, stream=...)` 本地合成 echo 响应。mock 的请求侧仍走 `_REQ_TO_IR[fmt]` 严格 Pydantic 校验(schema 不合规返 400 `mock_invalid_request`);响应侧按客户端入口 fmt 走对应的 `_IR_TO_RESP` / `_IR_TO_STREAM` 出口 + `encode_sse_stream`,三协议共用一条 IR 流水(见 `rosetta/server/service/mock.py`)。`upstream.protocol=any` 只是占位,mock 不读它。
 
 **错误响应体**:
 

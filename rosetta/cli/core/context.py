@@ -146,18 +146,24 @@ class ChatContext:
 
         if self.fmt is Protocol.CHAT_COMPLETIONS:
             # include_usage=true 让最后一个 chunk 带 prompt/completion_tokens
+            # max_tokens 按 messages 语义复用一个值;真实 OpenAI 可不传,但 rosetta
+            # 的翻译层 adapter 要求必填,一次性给齐简化下游路径
             return {
                 "model": self.model,
                 "stream": True,
                 "stream_options": {"include_usage": True},
+                "max_tokens": self.max_tokens,
                 "messages": self.messages,
             }
 
-        # Protocol.RESPONSES
+        # Protocol.RESPONSES:字段名是 max_output_tokens,语义同 max_tokens;
+        # input item 按 Responses 规范带 type="message"(否则 adapter 拒)
         return {
             "model": self.model,
             "stream": True,
+            "max_output_tokens": self.max_tokens,
             "input": [
-                {"role": m["role"], "content": m["content"]} for m in self.messages
+                {"type": "message", "role": m["role"], "content": m["content"]}
+                for m in self.messages
             ],
         }

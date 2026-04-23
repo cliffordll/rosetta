@@ -8,8 +8,8 @@
 CREATE TABLE upstreams (
     id         TEXT    PRIMARY KEY,                       -- 32 字符 UUID4 hex
     name       TEXT    NOT NULL UNIQUE,
-    protocol   TEXT    NOT NULL,                          -- messages / completions / responses
-    provider   TEXT    NOT NULL DEFAULT 'custom',         -- anthropic / openai / openrouter / google / ollama / vllm / custom
+    protocol   TEXT    NOT NULL,                          -- messages / completions / responses / any(any 仅 mock 占位)
+    provider   TEXT    NOT NULL DEFAULT 'custom',         -- anthropic / openai / openrouter / google / ollama / vllm / custom / mock
     base_url   TEXT    NOT NULL,                          -- 上游根地址,必填
     api_key    TEXT,                                      -- 可选,没填时客户端必须自带 x-api-key 透传
     enabled    INTEGER NOT NULL DEFAULT 1,
@@ -29,5 +29,10 @@ CREATE TABLE logs (
 );
 
 CREATE INDEX idx_logs_created_at ON logs(created_at);
+
+-- seed:内置 mock upstream,forwarder 识别 provider='mock' 后短路掉 HTTP,
+-- 本地 echo 生成响应。base_url 仅占位(短路不会真连),api_key 可空。
+INSERT INTO upstreams (id, name, protocol, provider, base_url, api_key, enabled)
+VALUES ('00000000000000000000000000000000', 'mock', 'any', 'mock', 'mock://', NULL, 1);
 
 PRAGMA user_version = 1;

@@ -42,6 +42,9 @@ _SUPPORTED_REQ_KEYS: frozenset[str] = frozenset(
         "top_p",
         "stop",
         "stream",
+        # stream_options 是 OpenAI 控制流式元数据的开关(例 include_usage);
+        # IR 层不建模,adapter 接受但丢弃,转发真实上游时会从原始 body 重建
+        "stream_options",
     }
 )
 

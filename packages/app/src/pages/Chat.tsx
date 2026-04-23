@@ -76,10 +76,12 @@ export default function Chat() {
     (async () => {
       try {
         const list = await api.listUpstreams();
-        setUpstreams(list);
-        // 如果只有一条 upstream,自动选中,减少用户点击
-        if (list.length === 1) {
-          setUpstreamChoice(String(list[0].id));
+        // 后端按 created_at 升序返回;UI 倒序让最新创建的排在最前
+        const sorted = [...list].reverse();
+        setUpstreams(sorted);
+        // 默认选最新的一条,减少用户点击
+        if (sorted.length > 0) {
+          setUpstreamChoice(String(sorted[0].id));
         }
       } catch (e) {
         setUpstreamsErr(extractErr(e));
