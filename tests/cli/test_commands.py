@@ -22,13 +22,13 @@ def test_root_help() -> None:
     assert result.exit_code == 0
     # 关键子命令名都出现
     out = result.output
-    for sub in ("status", "start", "stop", "provider", "logs", "stats", "chat"):
+    for sub in ("status", "start", "stop", "upstream", "logs", "stats", "chat"):
         assert sub in out, f"--help 输出里缺少子命令 {sub!r}"
 
 
 @pytest.mark.parametrize(
     "sub",
-    ["status", "start", "stop", "provider", "logs", "stats", "chat"],
+    ["status", "start", "stop", "upstream", "logs", "stats", "chat"],
 )
 @pytest.mark.parametrize("flag", ["--help", "-h"])
 def test_subcommand_help(sub: str, flag: str) -> None:
@@ -50,15 +50,15 @@ def test_unknown_subcommand_fails() -> None:
     assert result.exit_code != 0
 
 
-def test_provider_add_missing_required() -> None:
-    """provider add 缺 --name / --type / --api-key 必须报参数错,不发请求。"""
-    result = runner.invoke(app, ["provider", "add"])
+def test_upstream_add_missing_required() -> None:
+    """upstream add 缺 --name / --protocol / --api-key 必须报参数错,不发请求。"""
+    result = runner.invoke(app, ["upstream", "add"])
     assert result.exit_code != 0
 
 
-def test_chat_invalid_format_fails() -> None:
-    """--format 必须是 messages/completions/responses;其它值在 argparse 前就报错。"""
-    result = runner.invoke(app, ["chat", "--format", "bogus", "hi"])
+def test_chat_invalid_protocol_fails() -> None:
+    """--protocol 必须是 messages/completions/responses;其它值在 argparse 前就报错。"""
+    result = runner.invoke(app, ["chat", "--protocol", "bogus", "hi"])
     assert result.exit_code != 0
 
 
@@ -79,7 +79,7 @@ def test_quiet_flag_sets_renderer_state() -> None:
 
     Renderer.QUIET = False  # 保险丝
     # 用一个必然失败的子命令快速走完 callback + 子命令参数校验(不触 server)
-    runner.invoke(app, ["--quiet", "chat", "--format", "bogus", "hi"])
+    runner.invoke(app, ["--quiet", "chat", "--protocol", "bogus", "hi"])
     assert Renderer.QUIET is True
     Renderer.QUIET = False  # 复位,避免污染后续 test
 
@@ -88,6 +88,6 @@ def test_short_quiet_flag() -> None:
     from rosetta.cli.core.render import Renderer
 
     Renderer.QUIET = False
-    runner.invoke(app, ["-q", "chat", "--format", "bogus", "hi"])
+    runner.invoke(app, ["-q", "chat", "--protocol", "bogus", "hi"])
     assert Renderer.QUIET is True
     Renderer.QUIET = False

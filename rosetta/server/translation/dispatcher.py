@@ -11,7 +11,7 @@
 
 SSE 字节层的编解码在 `sse.py`(`parse_sse_stream` / `encode_sse_stream`),本模块只做分派。
 
-Format 枚举(沿用 `rosetta.shared.formats.Format`):
+Protocol 枚举(沿用 `rosetta.shared.formats.Protocol`):
 - `MESSAGES`:Anthropic /v1/messages
 - `CHAT_COMPLETIONS`:OpenAI /v1/chat/completions
 - `RESPONSES`:OpenAI /v1/responses
@@ -59,39 +59,39 @@ from rosetta.server.translation.responses.response import (
     responses_stream_to_ir,
 )
 from rosetta.server.translation.sse import encode_sse_stream, parse_sse_stream
-from rosetta.shared.formats import Format
+from rosetta.shared.protocols import Protocol
 
 # Adapter 表:按方向 x 消息类型 共 6 张
 
 _REQ_TO_IR = {
-    Format.MESSAGES: messages_to_ir,
-    Format.CHAT_COMPLETIONS: completions_to_ir,
-    Format.RESPONSES: responses_to_ir,
+    Protocol.MESSAGES: messages_to_ir,
+    Protocol.CHAT_COMPLETIONS: completions_to_ir,
+    Protocol.RESPONSES: responses_to_ir,
 }
 _IR_TO_REQ = {
-    Format.MESSAGES: ir_to_messages,
-    Format.CHAT_COMPLETIONS: ir_to_completions,
-    Format.RESPONSES: ir_to_responses,
+    Protocol.MESSAGES: ir_to_messages,
+    Protocol.CHAT_COMPLETIONS: ir_to_completions,
+    Protocol.RESPONSES: ir_to_responses,
 }
 _RESP_TO_IR = {
-    Format.MESSAGES: messages_response_to_ir,
-    Format.CHAT_COMPLETIONS: completions_response_to_ir,
-    Format.RESPONSES: responses_response_to_ir,
+    Protocol.MESSAGES: messages_response_to_ir,
+    Protocol.CHAT_COMPLETIONS: completions_response_to_ir,
+    Protocol.RESPONSES: responses_response_to_ir,
 }
 _IR_TO_RESP = {
-    Format.MESSAGES: ir_to_messages_response,
-    Format.CHAT_COMPLETIONS: ir_to_completions_response,
-    Format.RESPONSES: ir_to_responses_response,
+    Protocol.MESSAGES: ir_to_messages_response,
+    Protocol.CHAT_COMPLETIONS: ir_to_completions_response,
+    Protocol.RESPONSES: ir_to_responses_response,
 }
 _STREAM_TO_IR = {
-    Format.MESSAGES: messages_stream_to_ir,
-    Format.CHAT_COMPLETIONS: completions_stream_to_ir,
-    Format.RESPONSES: responses_stream_to_ir,
+    Protocol.MESSAGES: messages_stream_to_ir,
+    Protocol.CHAT_COMPLETIONS: completions_stream_to_ir,
+    Protocol.RESPONSES: responses_stream_to_ir,
 }
 _IR_TO_STREAM = {
-    Format.MESSAGES: ir_to_messages_stream,
-    Format.CHAT_COMPLETIONS: ir_to_completions_stream,
-    Format.RESPONSES: ir_to_responses_stream,
+    Protocol.MESSAGES: ir_to_messages_stream,
+    Protocol.CHAT_COMPLETIONS: ir_to_completions_stream,
+    Protocol.RESPONSES: ir_to_responses_stream,
 }
 
 
@@ -99,7 +99,7 @@ _IR_TO_STREAM = {
 
 
 def translate_request(
-    body: dict[str, Any], *, source: Format, target: Format
+    body: dict[str, Any], *, source: Protocol, target: Protocol
 ) -> dict[str, Any]:
     """客户端请求 body → 上游请求 body。
 
@@ -110,7 +110,7 @@ def translate_request(
 
 
 def translate_response(
-    body: dict[str, Any], *, source: Format, target: Format
+    body: dict[str, Any], *, source: Protocol, target: Protocol
 ) -> dict[str, Any]:
     """上游响应 body → 客户端响应 body。
 
@@ -126,8 +126,8 @@ def translate_response(
 def translate_stream_events(
     events: Iterable[dict[str, Any]],
     *,
-    source: Format,
-    target: Format,
+    source: Protocol,
+    target: Protocol,
 ) -> Iterator[dict[str, Any]]:
     """跨格式 dict 事件流翻译:source → IR → target。
 
@@ -140,8 +140,8 @@ def translate_stream_events(
 async def translate_stream_bytes(
     raw_chunks: AsyncIterable[bytes],
     *,
-    source: Format,
-    target: Format,
+    source: Protocol,
+    target: Protocol,
 ) -> AsyncIterator[bytes]:
     """上游 SSE 字节流 → 客户端 SSE 字节流(完整翻译链)。
 
@@ -158,5 +158,5 @@ async def translate_stream_bytes(
 
     parsed_events = (event_dict for _name, event_dict in parse_sse_stream(iter(collected)))
     translated = translate_stream_events(parsed_events, source=source, target=target)
-    for frame in encode_sse_stream(translated, format_=target):
+    for frame in encode_sse_stream(translated, protocol_=target):
         yield frame

@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, cast
 
-from rosetta.shared.formats import Format
+from rosetta.shared.protocols import Protocol
 
 
 class StatefulNotTranslatableError(ValueError):
@@ -53,13 +53,15 @@ _KNOWN_BUILTIN_TOOL_TYPES = frozenset(
 )
 
 
-def degrade_responses_request(body: dict[str, Any], *, target_format: Format) -> DegradationResult:
+def degrade_responses_request(
+    body: dict[str, Any], *, target_protocol: Protocol
+) -> DegradationResult:
     """对 Responses 请求 body 做降级。
 
-    - 若 `target_format is Format.RESPONSES`:不降级,原样返回(仍剥 warning 标记为空)
+    - 若 `target_protocol is Protocol.RESPONSES`:不降级,原样返回(仍剥 warning 标记为空)
     - 否则按规则剥除 / 抛错
     """
-    if target_format is Format.RESPONSES:
+    if target_protocol is Protocol.RESPONSES:
         return DegradationResult(body=body, warnings=[])
 
     new_body = dict(body)

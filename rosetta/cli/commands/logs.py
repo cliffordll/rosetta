@@ -16,18 +16,18 @@ from rosetta.sdk.client import ProxyClient
 
 def logs_cmd(
     n: Annotated[int, typer.Option("-n", "--limit", help="最多显示多少条")] = 50,
-    provider: Annotated[
-        str | None, typer.Option("--provider", help="按 provider name 过滤")
+    upstream: Annotated[
+        str | None, typer.Option("--upstream", help="按 upstream name 过滤")
     ] = None,
 ) -> None:
     """显示最近 N 条请求日志(时间降序)。"""
-    asyncio.run(_run(n=n, provider=provider))
+    asyncio.run(_run(n=n, upstream=upstream))
 
 
-async def _run(*, n: int, provider: str | None) -> None:
+async def _run(*, n: int, upstream: str | None) -> None:
     try:
         async with ProxyClient.discover_session(spawn_if_missing=False) as client:
-            items = await client.list_logs(limit=n, provider=provider)
+            items = await client.list_logs(limit=n, upstream=upstream)
     except RuntimeError as e:
         Renderer.die(f"server 未就绪: {e}")
         return
@@ -36,12 +36,12 @@ async def _run(*, n: int, provider: str | None) -> None:
         Renderer.out("no logs yet")
         return
     Renderer.table(
-        ["id", "created_at", "provider", "model", "in→out", "ms", "status"],
+        ["id", "created_at", "upstream", "model", "in→out", "ms", "status"],
         [
             [
                 entry.id,
                 entry.created_at.isoformat(timespec="seconds"),
-                entry.provider,
+                entry.upstream,
                 entry.model,
                 f"{entry.input_tokens or 0}→{entry.output_tokens or 0}",
                 entry.latency_ms,

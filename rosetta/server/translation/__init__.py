@@ -6,5 +6,5 @@
 - `completions/`:OpenAI Chat Completions adapter(阶段 2.2)
 - `responses/`:OpenAI Responses adapter(阶段 2.5)
 
-子包命名与 `rosetta.shared.formats.Format` 枚举值一一对齐。
+子包命名与 `rosetta.shared.formats.Protocol` 枚举值一一对齐。
 """

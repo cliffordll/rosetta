@@ -14,7 +14,7 @@ import json
 from collections.abc import Iterable, Iterator
 from typing import Any
 
-from rosetta.shared.formats import Format
+from rosetta.shared.protocols import Protocol
 
 
 def parse_sse_stream(raw: Iterable[bytes]) -> Iterator[tuple[str | None, dict[str, Any]]]:
@@ -78,7 +78,7 @@ def _parse_frame(frame: bytes) -> tuple[str | None, dict[str, Any]] | None:
     return event_name, data_obj  # type: ignore[return-value]
 
 
-def encode_sse_stream(events: Iterable[dict[str, Any]], *, format_: Format) -> Iterator[bytes]:
+def encode_sse_stream(events: Iterable[dict[str, Any]], *, protocol_: Protocol) -> Iterator[bytes]:
     """dict 事件流 → SSE 字节流。
 
     - Messages / Responses:每帧 `event: <type>\\ndata: <json>\\n\\n`
@@ -87,7 +87,7 @@ def encode_sse_stream(events: Iterable[dict[str, Any]], *, format_: Format) -> I
     """
     for ev in events:
         etype = ev.get("type") if isinstance(ev.get("type"), str) else None
-        if format_ is Format.CHAT_COMPLETIONS:
+        if protocol_ is Protocol.CHAT_COMPLETIONS:
             yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n".encode()
         else:
             if etype:
@@ -95,5 +95,5 @@ def encode_sse_stream(events: Iterable[dict[str, Any]], *, format_: Format) -> I
             else:
                 yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n".encode()
 
-    if format_ is Format.CHAT_COMPLETIONS:
+    if protocol_ is Protocol.CHAT_COMPLETIONS:
         yield b"data: [DONE]\n\n"

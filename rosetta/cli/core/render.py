@@ -92,7 +92,7 @@ class Renderer:
     def meta_line(
         cls,
         *,
-        provider: str,
+        upstream: str,
         model: str,
         input_tokens: int,
         output_tokens: int,
@@ -110,7 +110,7 @@ class Renderer:
             return
         in_s = str(input_tokens) if input_tokens > 0 else "?"
         out_s = str(output_tokens) if output_tokens > 0 else "?"
-        line = f"[{provider} · {model} · {in_s}→{out_s} tok · {latency_ms}ms · {path}]"
+        line = f"[{upstream} · {model} · {in_s}→{out_s} tok · {latency_ms}ms · {path}]"
         cls._stdout.print(f"[dim]{line}[/dim]", highlight=False)
 
     # ---------- stderr(不受 QUIET 影响)----------

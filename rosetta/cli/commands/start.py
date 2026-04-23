@@ -1,7 +1,7 @@
 """`rosetta start` — 确保 server 在后台跑着。
 
 与 SDK `discover()` 不同:spawn 的 server **不**绑定 CLI 进程为 parent,
-让它在 CLI 退出后继续存活(真后台化)。这样后续 `rosetta status` / `provider`
+让它在 CLI 退出后继续存活(真后台化)。这样后续 `rosetta status` / `upstream`
 等命令才能连到同一个 server。
 
 原语来自 `rosetta.sdk.discover.ServerDiscovery`(check_existing / spawn /

@@ -15,15 +15,15 @@
  */
 
 import { iterSse, type SseFrame } from "@/lib/sse";
-import { Format } from "@/lib/api";
+import { Protocol } from "@/lib/api";
 
 /** 消费一条流:边 yield 文本增量,边把 usage 累积到 `usage` 对象。 */
 export class ChatStream {
-  readonly fmt: Format;
+  readonly fmt: Protocol;
   inputTokens = 0;
   outputTokens = 0;
 
-  constructor(fmt: Format) {
+  constructor(fmt: Protocol) {
     this.fmt = fmt;
   }
 
@@ -38,7 +38,7 @@ export class ChatStream {
   private updateUsage(frame: SseFrame): void {
     const { event, data } = frame;
 
-    if (this.fmt === Format.MESSAGES) {
+    if (this.fmt === Protocol.MESSAGES) {
       const etype = event ?? (typeof data.type === "string" ? data.type : null);
       if (etype === "message_start") {
         const msg = data.message;
@@ -59,7 +59,7 @@ export class ChatStream {
       return;
     }
 
-    if (this.fmt === Format.CHAT_COMPLETIONS) {
+    if (this.fmt === Protocol.CHAT_COMPLETIONS) {
       const u = data.usage;
       if (isObj(u)) {
         this.inputTokens = toInt(u.prompt_tokens);
@@ -83,10 +83,10 @@ export class ChatStream {
   }
 }
 
-function extractText(fmt: Format, frame: SseFrame): string {
+function extractText(fmt: Protocol, frame: SseFrame): string {
   const { event, data } = frame;
 
-  if (fmt === Format.MESSAGES) {
+  if (fmt === Protocol.MESSAGES) {
     const etype = event ?? (typeof data.type === "string" ? data.type : null);
     if (etype !== "content_block_delta") return "";
     const delta = data.delta;
@@ -94,7 +94,7 @@ function extractText(fmt: Format, frame: SseFrame): string {
     return typeof delta.text === "string" ? delta.text : "";
   }
 
-  if (fmt === Format.CHAT_COMPLETIONS) {
+  if (fmt === Protocol.CHAT_COMPLETIONS) {
     const choices = data.choices;
     if (!Array.isArray(choices) || choices.length === 0) return "";
     const c0 = choices[0];

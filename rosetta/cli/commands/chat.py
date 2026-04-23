@@ -18,7 +18,7 @@ import typer
 from rosetta.cli.core.context import DEFAULT_MODELS, ChatContext
 from rosetta.cli.core.render import Renderer
 from rosetta.sdk.client import ProxyClient
-from rosetta.shared.formats import Format
+from rosetta.shared.protocols import Protocol
 
 
 def chat_cmd(
@@ -26,18 +26,18 @@ def chat_cmd(
         str | None,
         typer.Argument(help="要发送的消息;省略进入 REPL"),
     ] = None,
-    format: Annotated[
-        str, typer.Option("--format", help="messages | completions | responses")
+    protocol: Annotated[
+        str, typer.Option("--protocol", help="messages | completions | responses")
     ] = "messages",
-    model: Annotated[
-        str | None, typer.Option("--model", help="模型 id;未传按 format 取默认")
-    ] = None,
-    provider: Annotated[
+    upstream: Annotated[
         str | None,
-        typer.Option("--provider", help="指定 provider(绕路由);转成 x-rosetta-provider 头"),
+        typer.Option("--upstream", help="指定 upstream;转成 x-rosetta-upstream 头"),
+    ] = None,
+    model: Annotated[
+        str | None, typer.Option("--model", help="模型 id;未传按 protocol 取默认")
     ] = None,
     api_key: Annotated[
-        str | None, typer.Option("--api-key", help="覆盖 provider 的 api_key")
+        str | None, typer.Option("--api-key", help="覆盖 upstream 的 api_key")
     ] = None,
     base_url: Annotated[
         str | None,
@@ -52,11 +52,11 @@ def chat_cmd(
         Renderer.die("--base-url 在阶段 4.4 才接入;当前请去掉该参数走 server 模式")
         return
 
-    # format 校验
+    # protocol 校验
     try:
-        fmt = Format(format)
+        fmt = Protocol(protocol)
     except ValueError:
-        Renderer.die(f"--format 必须是 messages/completions/responses,收到 {format!r}")
+        Renderer.die(f"--protocol 必须是 messages/completions/responses,收到 {protocol!r}")
         return
 
     effective_model = model or DEFAULT_MODELS[fmt]
@@ -66,7 +66,7 @@ def chat_cmd(
             text=text,
             fmt=fmt,
             model=effective_model,
-            provider=provider,
+            upstream=upstream,
             api_key=api_key,
             max_tokens=max_tokens,
         )
@@ -76,9 +76,9 @@ def chat_cmd(
 async def _run(
     *,
     text: str | None,
-    fmt: Format,
+    fmt: Protocol,
     model: str,
-    provider: str | None,
+    upstream: str | None,
     api_key: str | None,
     max_tokens: int,
 ) -> None:
@@ -88,7 +88,7 @@ async def _run(
                 client=client,
                 fmt=fmt,
                 model=model,
-                provider=provider,
+                upstream=upstream,
                 api_key=api_key,
                 max_tokens=max_tokens,
             )

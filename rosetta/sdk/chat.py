@@ -22,7 +22,7 @@ from typing import Any, cast
 from urllib.parse import urlparse
 
 from rosetta.sdk.client import ProxyClient
-from rosetta.shared.formats import Format
+from rosetta.shared.protocols import Protocol
 
 
 @dataclass
@@ -39,15 +39,15 @@ async def chat_once(
     text: str,
     *,
     model: str | None = None,
-    fmt: Format = Format.MESSAGES,
-    provider: str | None = None,
+    fmt: Protocol = Protocol.MESSAGES,
+    upstream: str | None = None,
     api_key: str | None = None,
     max_tokens: int = 1024,
 ) -> ChatResult:
     """发一条消息(非流式),返回 `ChatResult`。
 
     - `model`:None 时 direct 模式用 `client.direct_model`;server 模式必填
-    - `provider`:server 模式可选,传则作 `x-rosetta-provider` header;direct 下禁传
+    - `upstream`:server 模式可选,传则作 `x-rosetta-upstream` header;direct 下禁传
     - `api_key`:server 模式可选 override;direct 下忽略(用 client 自带的)
     """
     effective_model = model
@@ -67,7 +67,7 @@ async def chat_once(
         effective_fmt,
         body,
         override_api_key=api_key if client.mode == "server" else None,
-        provider_header=provider if client.mode == "server" else None,
+        upstream_header=upstream if client.mode == "server" else None,
     )
     latency_ms = int((time.monotonic() - t0) * 1000)
     resp.raise_for_status()
@@ -86,27 +86,27 @@ async def chat_once(
     )
 
 
-def _build_body(fmt: Format, text: str, model: str, max_tokens: int) -> dict[str, Any]:
-    if fmt is Format.MESSAGES:
+def _build_body(fmt: Protocol, text: str, model: str, max_tokens: int) -> dict[str, Any]:
+    if fmt is Protocol.MESSAGES:
         return {
             "model": model,
             "max_tokens": max_tokens,
             "messages": [{"role": "user", "content": text}],
         }
-    if fmt is Format.CHAT_COMPLETIONS:
+    if fmt is Protocol.CHAT_COMPLETIONS:
         return {
             "model": model,
             "messages": [{"role": "user", "content": text}],
         }
-    # Format.RESPONSES
+    # Protocol.RESPONSES
     return {
         "model": model,
         "input": text,
     }
 
 
-def _extract_text(fmt: Format, data: dict[str, Any]) -> str:
-    if fmt is Format.MESSAGES:
+def _extract_text(fmt: Protocol, data: dict[str, Any]) -> str:
+    if fmt is Protocol.MESSAGES:
         blocks = data.get("content", [])
         if not isinstance(blocks, list):
             return ""
@@ -120,7 +120,7 @@ def _extract_text(fmt: Format, data: dict[str, Any]) -> str:
                         parts.append(t)
         return "".join(parts)
 
-    if fmt is Format.CHAT_COMPLETIONS:
+    if fmt is Protocol.CHAT_COMPLETIONS:
         choices = data.get("choices")
         if not isinstance(choices, list) or not choices:
             return ""
@@ -133,7 +133,7 @@ def _extract_text(fmt: Format, data: dict[str, Any]) -> str:
         content = cast(dict[str, Any], msg).get("content")
         return content if isinstance(content, str) else ""
 
-    # Format.RESPONSES
+    # Protocol.RESPONSES
     output = data.get("output")
     if not isinstance(output, list):
         return ""
@@ -157,12 +157,12 @@ def _extract_text(fmt: Format, data: dict[str, Any]) -> str:
     return "".join(parts)
 
 
-def _extract_usage(fmt: Format, data: dict[str, Any]) -> dict[str, int]:
+def _extract_usage(fmt: Protocol, data: dict[str, Any]) -> dict[str, int]:
     usage = data.get("usage")
     if not isinstance(usage, dict):
         return {"input_tokens": 0, "output_tokens": 0}
     u = cast(dict[str, Any], usage)
-    if fmt is Format.CHAT_COMPLETIONS:
+    if fmt is Protocol.CHAT_COMPLETIONS:
         return {
             "input_tokens": int(u.get("prompt_tokens", 0) or 0),
             "output_tokens": int(u.get("completion_tokens", 0) or 0),
@@ -174,7 +174,7 @@ def _extract_usage(fmt: Format, data: dict[str, Any]) -> dict[str, int]:
     }
 
 
-def _path_label(client: ProxyClient, fmt: Format) -> str:
+def _path_label(client: ProxyClient, fmt: Protocol) -> str:
     if client.mode == "direct":
         host = urlparse(client.base_url).hostname or client.base_url
         return f"direct · {host}"
