@@ -1,10 +1,202 @@
+import { useCallback, useEffect, useState } from "react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { api, type LogOut, type UpstreamOut } from "@/lib/api";
+
+const PAGE_SIZE = 50;
+const UPSTREAM_ALL = "__all__";
+
 export default function Logs() {
+  const [items, setItems] = useState<LogOut[] | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [upstreams, setUpstreams] = useState<UpstreamOut[]>([]);
+  const [upstreamFilter, setUpstreamFilter] = useState<string>(UPSTREAM_ALL);
+  const [offset, setOffset] = useState(0);
+
+  const load = useCallback(
+    async (opts: { upstream: string; offset: number }) => {
+      setLoadErr(null);
+      try {
+        const list = await api.listLogs({
+          limit: PAGE_SIZE,
+          offset: opts.offset,
+          upstream: opts.upstream === UPSTREAM_ALL ? undefined : opts.upstream,
+        });
+        setItems(list);
+      } catch (e) {
+        setLoadErr(e instanceof Error ? e.message : String(e));
+        setItems([]);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    // upstream 下拉候选:只拉一次,之后用户 Restore mock / Add upstream 可点刷新
+    (async () => {
+      try {
+        const list = await api.listUpstreams();
+        setUpstreams([...list].reverse());
+      } catch {
+        // 拉不到不致命;过滤器保持 ALL
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    void load({ upstream: upstreamFilter, offset });
+  }, [load, upstreamFilter, offset]);
+
+  function onUpstreamChange(value: string) {
+    setOffset(0); // 换过滤重置分页
+    setUpstreamFilter(value);
+  }
+
+  function refresh() {
+    void load({ upstream: upstreamFilter, offset });
+  }
+
+  const canPrev = offset > 0;
+  const canNext = items !== null && items.length === PAGE_SIZE;
+
   return (
     <section>
-      <h1 className="mb-2 text-2xl font-semibold">Logs</h1>
-      <p className="text-sm text-muted-foreground">
-        请求日志列表 + 分页 + 筛选;阶段 5.4 接入 /admin/logs。
-      </p>
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Logs</h1>
+        <div className="flex items-center gap-2">
+          <Select value={upstreamFilter} onValueChange={onUpstreamChange}>
+            <SelectTrigger className="w-56">
+              <SelectValue placeholder="Filter upstream" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={UPSTREAM_ALL}>all upstreams</SelectItem>
+              {upstreams.map((u) => (
+                <SelectItem key={u.id} value={u.name}>
+                  {u.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button variant="outline" onClick={refresh}>
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      {loadErr && (
+        <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+          {loadErr}
+        </div>
+      )}
+
+      {items === null ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : items.length === 0 && !loadErr ? (
+        <EmptyState />
+      ) : (
+        <div className="rounded-lg border border-border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-44">created_at</TableHead>
+                <TableHead className="w-32">upstream</TableHead>
+                <TableHead>model</TableHead>
+                <TableHead className="w-24">status</TableHead>
+                <TableHead className="w-20 text-right">latency</TableHead>
+                <TableHead className="w-24 text-right">in→out</TableHead>
+                <TableHead>error</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.map((entry) => (
+                <TableRow key={entry.id}>
+                  <TableCell className="font-mono text-xs text-muted-foreground">
+                    {formatDate(entry.created_at)}
+                  </TableCell>
+                  <TableCell>{entry.upstream ?? "-"}</TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {entry.model ?? "-"}
+                  </TableCell>
+                  <TableCell>{statusBadge(entry.status)}</TableCell>
+                  <TableCell className="text-right font-mono text-xs">
+                    {entry.latency_ms !== null ? `${entry.latency_ms}ms` : "-"}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs">
+                    {(entry.input_tokens ?? 0)}→{(entry.output_tokens ?? 0)}
+                  </TableCell>
+                  <TableCell className="max-w-xs truncate text-xs text-muted-foreground">
+                    {entry.error ?? ""}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
+      <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
+        <div>
+          offset {offset}
+          {items !== null ? ` · ${items.length} rows` : ""}
+        </div>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!canPrev}
+            onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+          >
+            Prev
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!canNext}
+            onClick={() => setOffset(offset + PAGE_SIZE)}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
     </section>
   );
+}
+
+function EmptyState() {
+  return (
+    <div className="rounded-lg border border-dashed border-border p-10 text-center">
+      <p className="text-sm text-muted-foreground">
+        暂无日志。发一条 chat 请求(含 mock)后点 Refresh 查看
+      </p>
+    </div>
+  );
+}
+
+function statusBadge(s: string) {
+  if (s === "ok") return <Badge>ok</Badge>;
+  if (s === "error") return <Badge variant="destructive">error</Badge>;
+  return <Badge variant="outline">{s}</Badge>;
+}
+
+function formatDate(iso: string): string {
+  // server 存 UTC;UI 展示本地时间
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString();
 }
