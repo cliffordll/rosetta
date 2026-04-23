@@ -682,7 +682,7 @@
 - **通过判据**:无 uv/venv 环境下 exe 独立运行全链路成功
 - **风险**:httpx / aiosqlite 的 hidden imports 要在 spec 里声明;SSL 证书打包路径
 
-### 步骤 6.2 · CI 产 artifact(已就绪,待 tag 验证)
+### 步骤 6.2 ✅ · CI 产 artifact
 
 - **目标**:打 tag 时 CI 自动产 exe 并 attach 到 Release
 - **产出**:
