@@ -139,6 +139,7 @@ async def test_create_upstream(echo_client: tuple[ProxyClient, dict[str, Any]]) 
     assert req.method == "POST"
     assert req.url.path == "/admin/upstreams"
     import json as _json
+
     sent = _json.loads(req.content)
     assert sent["name"] == "ant-new"
     assert sent["api_key"] == "sk-xxx"

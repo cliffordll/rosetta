@@ -73,7 +73,12 @@ async def test_list_upstreams_only_mock_seed(client: AsyncClient) -> None:
 async def test_create_upstream_success(client: AsyncClient) -> None:
     r = await client.post(
         "/admin/upstreams",
-        json={"name": "ant-main", "protocol": "messages", "api_key": "sk-ant-xxx", "base_url": "https://api.example.com/ant-main"},
+        json={
+            "name": "ant-main",
+            "protocol": "messages",
+            "api_key": "sk-ant-xxx",
+            "base_url": "https://api.example.com/ant-main",
+        },
     )
     assert r.status_code == 201
     body = r.json()
@@ -84,7 +89,12 @@ async def test_create_upstream_success(client: AsyncClient) -> None:
 
 
 async def test_create_upstream_name_conflict(client: AsyncClient) -> None:
-    payload = {"name": "dup", "protocol": "completions", "api_key": "sk-1", "base_url": "https://api.example.com/dup"}
+    payload = {
+        "name": "dup",
+        "protocol": "completions",
+        "api_key": "sk-1",
+        "base_url": "https://api.example.com/dup",
+    }
     r1 = await client.post("/admin/upstreams", json=payload)
     assert r1.status_code == 201
     r2 = await client.post("/admin/upstreams", json=payload)
@@ -95,7 +105,12 @@ async def test_create_upstream_name_conflict(client: AsyncClient) -> None:
 async def test_create_upstream_unknown_type(client: AsyncClient) -> None:
     r = await client.post(
         "/admin/upstreams",
-        json={"name": "c", "protocol": "unknown-protocol", "api_key": "sk", "base_url": "https://api.example.com/c"},
+        json={
+            "name": "c",
+            "protocol": "unknown-protocol",
+            "api_key": "sk",
+            "base_url": "https://api.example.com/c",
+        },
     )
     # Pydantic Literal 校验失败 → 422
     assert r.status_code == 422
@@ -105,7 +120,12 @@ async def test_create_upstream_rejects_any_protocol(client: AsyncClient) -> None
     """`any` 是 mock 专用占位值,用户不可手动建。"""
     r = await client.post(
         "/admin/upstreams",
-        json={"name": "c", "protocol": "any", "api_key": "sk", "base_url": "https://api.example.com/c"},
+        json={
+            "name": "c",
+            "protocol": "any",
+            "api_key": "sk",
+            "base_url": "https://api.example.com/c",
+        },
     )
     assert r.status_code == 422
 
@@ -113,11 +133,21 @@ async def test_create_upstream_rejects_any_protocol(client: AsyncClient) -> None
 async def test_list_upstreams_after_create(client: AsyncClient) -> None:
     await client.post(
         "/admin/upstreams",
-        json={"name": "p1", "protocol": "messages", "api_key": "sk-1", "base_url": "https://api.example.com/p1"},
+        json={
+            "name": "p1",
+            "protocol": "messages",
+            "api_key": "sk-1",
+            "base_url": "https://api.example.com/p1",
+        },
     )
     await client.post(
         "/admin/upstreams",
-        json={"name": "p2", "protocol": "completions", "api_key": "sk-2", "base_url": "https://api.example.com/p2"},
+        json={
+            "name": "p2",
+            "protocol": "completions",
+            "api_key": "sk-2",
+            "base_url": "https://api.example.com/p2",
+        },
     )
     r = await client.get("/admin/upstreams")
     assert r.status_code == 200
@@ -128,12 +158,15 @@ async def test_list_upstreams_after_create(client: AsyncClient) -> None:
     assert set(names[1:]) == {"p1", "p2"}
 
 
-async def test_delete_upstream_success(
-    client: AsyncClient, session: AsyncSession
-) -> None:
+async def test_delete_upstream_success(client: AsyncClient, session: AsyncSession) -> None:
     create = await client.post(
         "/admin/upstreams",
-        json={"name": "doomed", "protocol": "messages", "api_key": "sk", "base_url": "https://api.example.com/doomed"},
+        json={
+            "name": "doomed",
+            "protocol": "messages",
+            "api_key": "sk",
+            "base_url": "https://api.example.com/doomed",
+        },
     )
     pid = create.json()["id"]
     r = await client.delete(f"/admin/upstreams/{pid}")
@@ -196,9 +229,7 @@ async def test_restore_mock_force_rebuilds(client: AsyncClient) -> None:
 # ---------- /admin/logs since polling 语义 ----------
 
 
-async def test_logs_since_strictly_greater(
-    client: AsyncClient, session: AsyncSession
-) -> None:
+async def test_logs_since_strictly_greater(client: AsyncClient, session: AsyncSession) -> None:
     """`?since=T` 只返 created_at > T 的记录(严格大于,为 polling 游标服务)。"""
     from datetime import UTC, datetime, timedelta
 

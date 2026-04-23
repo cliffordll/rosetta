@@ -53,9 +53,7 @@ async def _run(*, n: int, upstream: str | None, follow: bool) -> None:
         Renderer.die(f"server 未就绪: {e}")
 
 
-async def _follow_loop(
-    client: ProxyClient, *, upstream: str | None, tail: int
-) -> None:
+async def _follow_loop(client: ProxyClient, *, upstream: str | None, tail: int) -> None:
     """先打 tail 批,再无限 polling since=last_created_at。"""
     initial = await client.list_logs(limit=tail, upstream=upstream)
     # server 返回时间降序;follow 语义希望时间升序(新日志追加在下面)
@@ -65,9 +63,7 @@ async def _follow_loop(
     last_seen = initial_asc[-1].created_at if initial_asc else None
     while True:
         await asyncio.sleep(_POLL_INTERVAL_SEC)
-        batch = await client.list_logs(
-            limit=_POLL_BATCH_LIMIT, upstream=upstream, since=last_seen
-        )
+        batch = await client.list_logs(limit=_POLL_BATCH_LIMIT, upstream=upstream, since=last_seen)
         if not batch:
             continue
         batch_asc = list(reversed(batch))

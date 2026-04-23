@@ -78,7 +78,8 @@ async def _amain(args: argparse.Namespace) -> int:
         if psutil.pid_exists(ep.pid):
             _log.info(
                 "another server already running at %s (pid %d), exiting cleanly",
-                ep.url, ep.pid,
+                ep.url,
+                ep.pid,
             )
             return 0
         # 陈旧 endpoint.json(pid 已死) → 清掉继续

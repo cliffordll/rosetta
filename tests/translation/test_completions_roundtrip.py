@@ -70,9 +70,7 @@ def test_request_roundtrip(fixture_name: str) -> None:
     ir2 = completions_to_ir(body_back)
 
     assert ir1 == ir2, f"{fixture_name}: IR 不等价"
-    assert _strip_nones(body) == _strip_nones(body_back), (
-        f"{fixture_name}: 归一化 JSON 不等价"
-    )
+    assert _strip_nones(body) == _strip_nones(body_back), f"{fixture_name}: 归一化 JSON 不等价"
 
 
 @pytest.mark.parametrize("fixture_name", NONSTREAM_FIXTURES)
@@ -85,9 +83,7 @@ def test_response_nonstream_roundtrip(fixture_name: str) -> None:
 
     assert ir1 == ir2, f"{fixture_name}: IR 不等价"
     assert body_back.get("object") == "chat.completion"
-    assert _strip_nones(body) == _strip_nones(body_back), (
-        f"{fixture_name}: 归一化 JSON 不等价"
-    )
+    assert _strip_nones(body) == _strip_nones(body_back), f"{fixture_name}: 归一化 JSON 不等价"
 
 
 @pytest.mark.parametrize("fixture_name", STREAM_FIXTURES)

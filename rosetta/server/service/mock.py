@@ -97,9 +97,7 @@ class MockResponder:
         output_tokens = self._estimate_tokens(reply)
 
         if not stream:
-            return self._build_once_response(
-                fmt, req.model, reply, input_tokens, output_tokens
-            )
+            return self._build_once_response(fmt, req.model, reply, input_tokens, output_tokens)
         return StreamingResponse(
             self._build_stream(fmt, req.model, reply, input_tokens, output_tokens),
             status_code=200,
@@ -221,8 +219,7 @@ class MockResponder:
             BlockStartEvent(index=0, block=TextBlock(text="")),
         ]
         events.extend(
-            TextDeltaEvent(index=0, text=piece)
-            for piece in self._tokenize_for_stream(reply)
+            TextDeltaEvent(index=0, text=piece) for piece in self._tokenize_for_stream(reply)
         )
         events.append(BlockStopEvent(index=0))
         events.append(
