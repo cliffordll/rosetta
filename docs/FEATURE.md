@@ -832,7 +832,7 @@
 - **让步**:pubkey 占位未替换前,`check_for_update` 在 Tauri 里会在 `updater()`
   初始化时报错,前端展示"更新检查失败"—— 这是预期,提示用户先做一次性配置
 
-### 步骤 8.3 ✅ · 代码签名 + 安装包 + 首个 Release(CI 就绪,待 tag 验证)
+### 步骤 8.3 🟡 · 代码签名 + 安装包 + 首个 Release(跳过 · CI 就绪,签名证书暂未采购)
 
 - **目标**:打 tag → CI 自动产 `Rosetta_v0.1.0_x64-setup.exe`(NSIS installer)
   + Python CLI/server exe,全部挂到 GitHub Release;提供签名槽位
