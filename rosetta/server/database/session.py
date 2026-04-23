@@ -118,6 +118,11 @@ async def get_session() -> AsyncIterator[AsyncSession]:
         yield session
 
 
+def get_session_maker() -> async_sessionmaker[AsyncSession] | None:
+    """给非 FastAPI-scoped 路径(service 层后台写入)拿 session_maker。未 init 返 None。"""
+    return _state.session_maker
+
+
 # 公共 FastAPI 依赖别名:avoid 各模块重复定义。
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 

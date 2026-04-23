@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import logging
 import os
 import secrets
 import sys
@@ -26,7 +27,10 @@ import uvicorn
 
 from rosetta.server.app import create_app
 from rosetta.server.runtime.endpoint import EndpointFile
+from rosetta.server.runtime.logger import configure_logging
 from rosetta.server.runtime.watcher import watch_parent
+
+_log = logging.getLogger("rosetta.server")
 
 _UVICORN_STARTUP_TIMEOUT_SEC = 10.0
 _UVICORN_GRACEFUL_SHUTDOWN_SEC = 30
@@ -72,13 +76,13 @@ async def _amain(args: argparse.Namespace) -> int:
     ep = EndpointFile.read()
     if ep is not None:
         if psutil.pid_exists(ep.pid):
-            print(
-                f"rosetta-server: another server already running at {ep.url} "
-                f"(pid {ep.pid}), exiting cleanly.",
-                file=sys.stderr,
+            _log.info(
+                "another server already running at %s (pid %d), exiting cleanly",
+                ep.url, ep.pid,
             )
             return 0
         # 陈旧 endpoint.json(pid 已死) → 清掉继续
+        _log.info("stale endpoint.json found (pid %d dead), cleaning up", ep.pid)
         EndpointFile.delete()
 
     endpoint_written = False
@@ -89,7 +93,9 @@ async def _amain(args: argparse.Namespace) -> int:
         app,
         host="127.0.0.1",
         port=0,
-        log_level="info",
+        # logger 由 configure_logging() 托管,uvicorn 不自己装;access_log 关,
+        # dataplane 请求改为由 forwarder 走 logger + logs 表双通道
+        log_config=None,
         access_log=False,
         timeout_graceful_shutdown=_UVICORN_GRACEFUL_SHUTDOWN_SEC,
     )
@@ -106,9 +112,10 @@ async def _amain(args: argparse.Namespace) -> int:
         EndpointFile.write(url=url, token=token, pid=os.getpid())
         endpoint_written = True
 
-        print(f"rosetta-server listening on {url}", file=sys.stderr)
+        _log.info("rosetta-server listening on %s (pid=%d)", url, os.getpid())
 
         if args.parent_pid is not None:
+            _log.info("watching parent pid %d", args.parent_pid)
             watcher_task = asyncio.create_task(watch_parent(args.parent_pid, server))
 
         await serve_task
@@ -123,10 +130,12 @@ async def _amain(args: argparse.Namespace) -> int:
 
 
 def main() -> None:
+    configure_logging()
     args = _parse_args()
     try:
         exit_code = asyncio.run(_amain(args))
     except KeyboardInterrupt:
+        _log.info("received KeyboardInterrupt, exiting")
         exit_code = 0
     sys.exit(exit_code)
 

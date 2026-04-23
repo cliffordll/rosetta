@@ -17,7 +17,9 @@ auth header 按 upstream.protocol 分:`messages` 用 `x-api-key`,其余走 `Auth
 from __future__ import annotations
 
 import json
+import logging
 import sys
+import time
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
@@ -26,6 +28,7 @@ from fastapi.responses import Response, StreamingResponse
 
 from rosetta.server.database.models import Upstream
 from rosetta.server.service.exceptions import ServiceError
+from rosetta.server.service.log_writer import log_writer
 from rosetta.server.service.mock import mock_responder
 from rosetta.server.translation.degradation import (
     StatefulNotTranslatableError,
@@ -40,6 +43,8 @@ from rosetta.shared.protocols import (
     UPSTREAM_PATH,
     Protocol,
 )
+
+_log = logging.getLogger("rosetta.server.forwarder")
 
 # 超时:连接 10s、读取 5min(LLM 长响应常态)
 _DEFAULT_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
@@ -186,15 +191,61 @@ class Forwarder:
 
         `client_api_key`:客户端通过 `x-api-key` / `Authorization: Bearer` 透传来的上游 key。
         为 None 时 forwarder 用 `upstream.api_key`(DB 兜底)。见 DESIGN §8.1 / §8.5。
+
+        埋点:每次调用在 `logs` 表留一条(status=ok/error + latency)。流式路径的
+        latency 仅是"请求分发到响应构造"的时间,不含流持续时长;v1+ 再细化。
         """
-        body_dict = self._parse_body(body)
-        is_stream = body_dict.get("stream") is True
+        t0 = time.monotonic()
+        model: str | None = None
+        try:
+            body_dict = self._parse_body(body)
+            raw_model = body_dict.get("model")
+            if isinstance(raw_model, str):
+                model = raw_model
+            is_stream = body_dict.get("stream") is True
 
-        # provider=mock 短路:不发 HTTP,本地 echo 生成响应
-        if upstream.provider == "mock":
-            resp = await mock_responder.respond(request_protocol, body_dict, stream=is_stream)
+            # provider=mock 短路:不发 HTTP,本地 echo 生成响应
+            if upstream.provider == "mock":
+                resp = await mock_responder.respond(
+                    request_protocol, body_dict, stream=is_stream
+                )
+            else:
+                resp = await self._forward_upstream(
+                    upstream=upstream,
+                    request_protocol=request_protocol,
+                    body=body,
+                    body_dict=body_dict,
+                    is_stream=is_stream,
+                    client_api_key=client_api_key,
+                )
+                # 跨格式降级可能产生 warnings 要塞回响应头
+                warnings_header = getattr(resp, "_rosetta_warnings_header", None)
+                if warnings_header:
+                    extra_response_headers = dict(extra_response_headers or {})
+                    extra_response_headers["x-rosetta-warnings"] = warnings_header
+
+            await self._record_log(upstream, model, "ok", t0)
             return self._with_extra_headers(resp, extra_response_headers)
+        except ServiceError as e:
+            await self._record_log(
+                upstream, model, "error", t0, error=f"{e.code}: {e.message}"
+            )
+            raise
+        except Exception as e:  # pragma: no cover — 防御:service 层理论上不会漏
+            await self._record_log(upstream, model, "error", t0, error=str(e))
+            raise
 
+    async def _forward_upstream(
+        self,
+        *,
+        upstream: Upstream,
+        request_protocol: Protocol,
+        body: bytes,
+        body_dict: dict[str, Any],
+        is_stream: bool,
+        client_api_key: str | None,
+    ) -> Response:
+        """真实上游(非 mock)的转发路径:同格式直通 / 跨格式翻译二选一。"""
         upstream_protocol = Protocol(upstream.protocol)
         url = self._base_url_for(upstream) + UPSTREAM_PATH[upstream_protocol]
         headers = {
@@ -203,26 +254,25 @@ class Forwarder:
         }
         self._debug_log_upstream_key(headers)
 
-        print(
-            f"Resolved target format: {upstream_protocol.value}  "
-            f"source format: {request_protocol.value}",
-            flush=True,
+        _log.debug(
+            "forward: source=%s target=%s stream=%s",
+            request_protocol.value, upstream_protocol.value, is_stream,
         )
+
         # 同格式直通(阶段 1.3 路径)
         if upstream_protocol is request_protocol:
             if not is_stream:
-                resp = await self._forward_passthrough_once(url, headers, body)
-            else:
-                resp = await self._forward_passthrough_stream(url, headers, body)
-            return self._with_extra_headers(resp, extra_response_headers)
+                return await self._forward_passthrough_once(url, headers, body)
+            return await self._forward_passthrough_stream(url, headers, body)
 
         # 跨格式翻译(阶段 2.3+):body_dict 已 parse,直接使用
-        print(f"Request body: {json.dumps(body_dict)}", flush=True)
-
+        warnings_header = ""
         # Responses → 非 Responses:先降级(剥 stateful 阻断字段、store、内置 tools)
         if request_protocol is Protocol.RESPONSES:
             try:
-                degraded = degrade_responses_request(body_dict, target_protocol=upstream_protocol)
+                degraded = degrade_responses_request(
+                    body_dict, target_protocol=upstream_protocol
+                )
             except StatefulNotTranslatableError as e:
                 raise ServiceError(
                     status=400,
@@ -237,10 +287,7 @@ class Forwarder:
                     message=f"Responses 请求降级失败: {e}",
                 ) from e
             body_dict = degraded.body
-            warnings_header = degraded.warnings_header()
-            if warnings_header:
-                extra_response_headers = dict(extra_response_headers or {})
-                extra_response_headers["x-rosetta-warnings"] = warnings_header
+            warnings_header = degraded.warnings_header() or ""
 
         try:
             upstream_body = translate_request(
@@ -271,7 +318,30 @@ class Forwarder:
                 upstream_protocol=upstream_protocol,
                 client_protocol=request_protocol,
             )
-        return self._with_extra_headers(resp, extra_response_headers)
+        if warnings_header:
+            # 用临时属性捎带给外层 forward 拼 extra_response_headers;
+            # 避免让 _forward_upstream 的返回类型变复杂
+            resp._rosetta_warnings_header = warnings_header  # type: ignore[attr-defined]
+        return resp
+
+    async def _record_log(
+        self,
+        upstream: Upstream,
+        model: str | None,
+        status: str,
+        t0: float,
+        *,
+        error: str | None = None,
+    ) -> None:
+        """写一条请求流水;LogWriter 内部已兜底,这里不用 try。"""
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        await log_writer.record(
+            upstream_id=upstream.id,
+            model=model,
+            status=status,  # type: ignore[arg-type]
+            latency_ms=latency_ms,
+            error=error,
+        )
 
     # ---------- 上游 IO helper ----------
 

@@ -19,8 +19,10 @@ from typing import Any
 import httpx
 import pytest
 import pytest_asyncio
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from rosetta.server.database.models import Upstream
+from rosetta.server.database.models import LogEntry, Upstream
 from rosetta.server.service.forwarder import forwarder
 from rosetta.shared.protocols import Protocol
 
@@ -511,3 +513,64 @@ async def test_mock_provider_bypasses_httpx_client() -> None:
         content_type="application/json",
     )
     assert resp.status_code == 200
+
+
+# ---------- 请求流水落库 ----------
+
+
+async def test_forward_writes_log_on_success(session: AsyncSession) -> None:
+    """每次成功 forward 落 1 条 logs 记录:status=ok、upstream_id、model、latency。"""
+    # upstream 要真实存在于 DB(FK 不强制,但用 mock 占位避免发 HTTP)
+    mock_up = Upstream(
+        id="a" * 32, name="mock-log-ok", protocol="any", provider="mock",
+        api_key=None, base_url="mock://", enabled=True,
+    )
+    session.add(mock_up)
+    await session.commit()
+
+    body = json.dumps(
+        {"model": "claude-haiku-4-5", "max_tokens": 32,
+         "messages": [{"role": "user", "content": "hi"}]}
+    ).encode("utf-8")
+    resp = await forwarder.forward(
+        upstream=mock_up, request_protocol=Protocol.MESSAGES,
+        body=body, content_type="application/json",
+    )
+    # 消费流(触发完整生命周期)
+    if hasattr(resp, "body_iterator"):
+        async for _ in resp.body_iterator:  # type: ignore[attr-defined]
+            pass
+
+    stmt = select(LogEntry).where(LogEntry.upstream_id == mock_up.id)
+    rows = (await session.execute(stmt)).scalars().all()
+    assert len(rows) == 1
+    entry = rows[0]
+    assert entry.status == "ok"
+    assert entry.model == "claude-haiku-4-5"
+    assert entry.error is None
+    assert entry.latency_ms is not None and entry.latency_ms >= 0
+
+
+async def test_forward_writes_log_on_service_error(session: AsyncSession) -> None:
+    """ServiceError 路径也落一条 logs(status=error, error 字段带 code+msg)。"""
+    from rosetta.server.service.exceptions import ServiceError
+
+    mock_up = Upstream(
+        id="b" * 32, name="mock-log-err", protocol="any", provider="mock",
+        api_key=None, base_url="mock://", enabled=True,
+    )
+    session.add(mock_up)
+    await session.commit()
+
+    # 非法 JSON body → _parse_body 抛 ServiceError(invalid_json_body)
+    with pytest.raises(ServiceError):
+        await forwarder.forward(
+            upstream=mock_up, request_protocol=Protocol.MESSAGES,
+            body=b"not-json", content_type="application/json",
+        )
+
+    stmt = select(LogEntry).where(LogEntry.upstream_id == mock_up.id)
+    rows = (await session.execute(stmt)).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].status == "error"
+    assert rows[0].error is not None and "invalid_json_body" in rows[0].error

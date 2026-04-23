@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -16,16 +17,22 @@ from rosetta.server.controller import (
 from rosetta.server.database.session import dispose_db, init_db
 from rosetta.server.service.forwarder import forwarder
 
+_log = logging.getLogger("rosetta.server.app")
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    _log.info("starting rosetta v%s (init db + forwarder)", __version__)
     await init_db()
     await forwarder.open()
+    _log.info("startup complete")
     try:
         yield
     finally:
+        _log.info("shutdown: closing forwarder + db")
         await forwarder.close()
         await dispose_db()
+        _log.info("shutdown complete")
 
 
 def create_app() -> FastAPI:
