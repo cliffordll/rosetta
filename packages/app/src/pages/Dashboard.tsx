@@ -144,6 +144,14 @@ export default function Dashboard() {
           <Stat label="version" value={state.status.version} />
           <Stat label="uptime" value={formatUptime(state.status.uptime_ms)} />
           <Stat label="upstreams" value={String(state.status.upstreams_count)} />
+          <Stat
+            label="server url"
+            value={
+              <code className="break-all font-mono text-sm">
+                {state.status.url || "(unknown)"}
+              </code>
+            }
+          />
         </div>
       )}
     </section>

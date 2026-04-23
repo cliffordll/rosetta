@@ -60,6 +60,8 @@ export interface StatusResponse {
   version: string;
   uptime_ms: number;
   upstreams_count: number;
+  /** 客户端抵达 server 的 base URL(含 scheme + host + port)。 */
+  url: string;
 }
 
 export interface UpstreamOut {

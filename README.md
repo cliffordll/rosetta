@@ -101,7 +101,8 @@ uv run ruff format .
 | 文件 | 作用 |
 |---|---|
 | [`docs/DESIGN.md`](./docs/DESIGN.md) | 架构真源(为什么这么设计) |
-| [`docs/FEATURE.md`](./docs/FEATURE.md) | v0 分步任务清单 + v1+ 规划 + 节奏建议(heading emoji 标进度) |
+| [`docs/FEATURE.md`](./docs/FEATURE.md) | v0 分步任务清单(heading emoji 标进度) |
+| [`docs/ROADMAP.md`](./docs/ROADMAP.md) | v1+ 后续方向(不在 v0 范围但值得做) |
 | [`docs/archive/`](./docs/archive/) | 已归档的设计备选(TS 栈 / 多包布局 / 早期 PROCESS.md) |
 | [`CLAUDE.md`](./CLAUDE.md) | Claude 会话协作约定(项目级) |
 

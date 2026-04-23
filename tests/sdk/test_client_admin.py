@@ -77,12 +77,18 @@ async def test_status(echo_client: tuple[ProxyClient, dict[str, Any]]) -> None:
     client, captured = echo_client
     captured["response"] = httpx.Response(
         200,
-        json={"version": "0.1.0", "uptime_ms": 12345, "upstreams_count": 2},
+        json={
+            "version": "0.1.0",
+            "uptime_ms": 12345,
+            "upstreams_count": 2,
+            "url": "http://127.0.0.1:12345",
+        },
     )
     status = await client.status()
     assert status.version == "0.1.0"
     assert status.uptime_ms == 12345
     assert status.upstreams_count == 2
+    assert status.url == "http://127.0.0.1:12345"
     assert captured["request"].url.path == "/admin/status"
 
 
