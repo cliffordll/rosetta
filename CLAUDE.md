@@ -68,6 +68,7 @@
 - **Shell**:bash(git bash),**不要用 PowerShell 特有语法**
 - **路径**:脚本里用 Unix 风格(`/`),避免 `\`
 - **可执行 sentinel**:Windows 下调试 CLI / server 可执行,直接 `python -m rosetta.server` / `python -m rosetta.cli` 不依赖 exe,打包验证到阶段 6 再做
+- **commit 前静态检查**:`uv run ruff check .` + `uv run ruff format --check .` + `uv run pyright rosetta/` + `uv run pytest -q`(CI `ci.yml` 跑这全套,本地漏一步就红 CI)
 
 ## 已知敏感点(来自 DESIGN.md 补丁)
 
