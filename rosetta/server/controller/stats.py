@@ -13,17 +13,12 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 from pydantic import BaseModel
-from sqlalchemy import case, func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from rosetta.server.database.models import LogEntry
-from rosetta.server.database.session import get_session
+from rosetta.server.repository import LogRepoDep
 
 router = APIRouter()
-
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 Period = Literal["today", "week", "month"]
 
@@ -46,26 +41,13 @@ def _period_since(period: Period, *, now: datetime) -> datetime:
 
 @router.get("/stats", response_model=StatsOut)
 async def get_stats(
-    session: SessionDep,
+    repo: LogRepoDep,
     period: Annotated[Period, Query()] = "today",
 ) -> StatsOut:
     now = datetime.now(UTC)
     since = _period_since(period, now=now)
 
-    # 聚合 COUNT / SUM(status=ok) / AVG(latency_ms where not null)
-    stmt = select(
-        func.count(LogEntry.id),
-        func.coalesce(
-            func.sum(case((LogEntry.status == "ok", 1), else_=0)),
-            0,
-        ),
-        func.coalesce(func.avg(LogEntry.latency_ms), 0),
-    ).where(LogEntry.created_at >= since)
-    row = (await session.execute(stmt)).one()
-    total = int(row[0] or 0)
-    ok_count = int(row[1] or 0)
-    avg_latency = float(row[2] or 0.0)
-
+    total, ok_count, avg_latency = await repo.aggregate_stats(since=since)
     success_rate = (ok_count / total) if total > 0 else 0.0
     return StatsOut(
         period=period,

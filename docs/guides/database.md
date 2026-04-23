@@ -16,7 +16,7 @@
 | SQLite | 本地文件型 DB,单文件 `~/.rosetta/rosetta.db`,零运维 |
 | **aiosqlite** | 异步驱动,不在代码层 import,只作 SQLAlchemy 驱动后端 |
 | **SQLAlchemy 2.x async** | 所有 DB 操作(业务 CRUD + migrations)统一走这层 |
-| `rosetta/server/database/models.py` | ORM 声明(`Provider` / `Route` / `LogEntry`) |
+| `rosetta/server/database/models.py` | ORM 声明(`Provider` / `LogEntry`) |
 | `rosetta/server/database/session.py` | engine / session 工厂 + migration runner |
 | `rosetta/server/database/migrations/` | `NNN_*.sql` schema 变更文件 |
 
@@ -463,7 +463,7 @@ from pathlib import Path
 c = sqlite3.connect(str(Path.home()/'.rosetta/rosetta.db'))
 print('user_version =', c.execute('PRAGMA user_version').fetchone()[0])
 print('tables:', [r[0] for r in c.execute(\"SELECT name FROM sqlite_master WHERE type='table'\").fetchall()])
-for t in ('providers', 'routes', 'logs'):
+for t in ('providers', 'logs'):
     cols = [r[1] for r in c.execute(f'PRAGMA table_info({t})').fetchall()]
     print(f'{t}:', cols)
 "

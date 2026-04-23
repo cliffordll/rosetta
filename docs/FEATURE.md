@@ -1,5 +1,17 @@
 # Rosetta 开发任务清单(FEATURE)
 
+> ⚠️ **2026-04 架构重组说明**
+> v0 阶段 1-4 完成后做了一轮较大的包结构调整(详见 `DESIGN.md` §7):
+> - `admin/` → `controller/`;`dataplane/routes.py` 也并入 `controller/`(HTTP 层集中)
+> - `dataplane/forwarder.py` / `selector.py` → `service/`(business logic,不依赖 HTTP)
+> - 新增 `repository/`(ORM 查询封装层)
+> - `routes` 表移除,`pick_provider` 简化为强制 `x-rosetta-provider` header(原 §8.4 七条规则 → 一条)
+> - `router.py` → `selector.py`;`translation/stream.py` → `translation/dispatcher.py` + `translation/sse.py`
+> - `service` 层引入 `ServiceError` domain exception,由 `controller` 层统一映射 HTTP
+>
+> 下方阶段条目是**历史 snapshot**,提到 `admin/*` / `dataplane/router.py` / `routes` 表 /
+> `stream.py` 等路径的地方以**当时状态**为准;当前代码布局以 `DESIGN.md` §7 为准。
+
 > **文件定位**:静态任务定义。"要做什么 / 验收标准"。
 >
 > 配套两文件:

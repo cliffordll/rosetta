@@ -2,7 +2,6 @@
 
 用 `httpx.MockTransport` 拦截请求,覆盖:
 - list_providers / create_provider / delete_provider
-- list_routes / replace_routes
 - list_logs
 - stats
 - shutdown
@@ -20,8 +19,7 @@ import pytest
 import pytest_asyncio
 
 from rosetta.sdk.client import ProxyClient
-from rosetta.server.admin.providers import ProviderCreate
-from rosetta.server.admin.routes import RouteIn
+from rosetta.server.controller.providers import ProviderCreate
 
 
 def _make_client_with_handler(
@@ -160,51 +158,6 @@ async def test_delete_provider_not_found_raises(
         await client.delete_provider(999)
 
 
-# ---------- routes ----------
-
-
-async def test_list_routes(echo_client: tuple[ProxyClient, dict[str, Any]]) -> None:
-    client, captured = echo_client
-    captured["response"] = httpx.Response(
-        200,
-        json=[
-            {
-                "id": 1,
-                "provider_id": 1,
-                "provider": "ant",
-                "model_glob": "claude-*",
-                "priority": 1,
-            }
-        ],
-    )
-    routes = await client.list_routes()
-    assert routes[0].model_glob == "claude-*"
-    assert captured["request"].method == "GET"
-    assert captured["request"].url.path == "/admin/routes"
-
-
-async def test_replace_routes(echo_client: tuple[ProxyClient, dict[str, Any]]) -> None:
-    client, captured = echo_client
-    captured["response"] = httpx.Response(
-        200,
-        json=[
-            {
-                "id": 10,
-                "provider_id": 1,
-                "provider": "ant",
-                "model_glob": "claude-*",
-                "priority": 1,
-            }
-        ],
-    )
-    items = [RouteIn(provider="ant", model_glob="claude-*", priority=1)]
-    result = await client.replace_routes(items)
-    assert len(result) == 1
-    req = captured["request"]
-    assert req.method == "PUT"
-    assert req.url.path == "/admin/routes"
-
-
 # ---------- logs / stats / shutdown ----------
 
 
@@ -265,7 +218,6 @@ async def test_direct_mode_blocks_admin_methods() -> None:
             "ping",
             "status",
             "list_providers",
-            "list_routes",
             "shutdown",
         ):
             with pytest.raises(RuntimeError, match="direct 模式不支持 admin 操作"):

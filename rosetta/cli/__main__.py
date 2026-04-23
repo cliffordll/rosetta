@@ -6,7 +6,6 @@
 - `rosetta start`
 - `rosetta stop`
 - `rosetta provider {list,add}`
-- `rosetta route {list,add,remove,clear}`
 - `rosetta logs [-n N]`
 - `rosetta stats [period]`
 - `rosetta chat [text]`  # 一次性 / REPL
@@ -26,9 +25,6 @@ from rosetta.cli.commands import (
 )
 from rosetta.cli.commands import (
     provider as provider_mod,
-)
-from rosetta.cli.commands import (
-    route as route_mod,
 )
 from rosetta.cli.commands import (
     start as start_mod,
@@ -75,7 +71,6 @@ for mod in (
     start_mod,
     stop_mod,
     provider_mod,
-    route_mod,
     logs_mod,
     stats_mod,
     chat_mod,

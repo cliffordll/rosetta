@@ -3,8 +3,7 @@
 覆盖:
 - GET /admin/providers:空 / 非空
 - POST /admin/providers:成功(201)· name 冲突(409)· type=custom 无 base_url(422)
-- DELETE /admin/providers/{id}:成功(204)· 不存在(404)· 级联删 routes
-- GET/PUT /admin/routes:空 / 全量替换 · provider 不存在的 422
+- DELETE /admin/providers/{id}:成功(204)· 不存在(404)
 - GET /admin/ping / /admin/status:基本心跳
 
 用 httpx.AsyncClient + ASGITransport 做带 async session 的路由测试;依赖覆盖
@@ -21,8 +20,8 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rosetta.server.admin import admin_router
-from rosetta.server.database.models import Provider, Route
+from rosetta.server.controller import admin_router
+from rosetta.server.database.models import Provider
 from rosetta.server.database.session import get_session
 
 
@@ -147,90 +146,3 @@ async def test_delete_provider_not_found(client: AsyncClient) -> None:
     assert r.status_code == 404
 
 
-async def test_delete_provider_cascades_routes(
-    client: AsyncClient, session: AsyncSession
-) -> None:
-    create = await client.post(
-        "/admin/providers",
-        json={"name": "with-routes", "type": "anthropic", "api_key": "sk"},
-    )
-    pid = create.json()["id"]
-    # 建两条指向它的 route
-    await client.put(
-        "/admin/routes",
-        json=[
-            {"provider": "with-routes", "model_glob": "claude-*", "priority": 1},
-            {"provider": "with-routes", "model_glob": "haiku-*", "priority": 2},
-        ],
-    )
-
-    r = await client.delete(f"/admin/providers/{pid}")
-    assert r.status_code == 204
-
-    # routes 也被清空
-    routes = (await session.execute(select(Route))).scalars().all()
-    assert list(routes) == []
-
-
-# ---------- routes ----------
-
-
-async def test_list_routes_empty(client: AsyncClient) -> None:
-    r = await client.get("/admin/routes")
-    assert r.status_code == 200
-    assert r.json() == []
-
-
-async def test_replace_routes_full(client: AsyncClient) -> None:
-    await client.post(
-        "/admin/providers",
-        json={"name": "ant", "type": "anthropic", "api_key": "sk-1"},
-    )
-    await client.post(
-        "/admin/providers",
-        json={"name": "oai", "type": "openai", "api_key": "sk-2"},
-    )
-
-    r = await client.put(
-        "/admin/routes",
-        json=[
-            {"provider": "ant", "model_glob": "claude-*", "priority": 1},
-            {"provider": "oai", "model_glob": "gpt-*", "priority": 2},
-        ],
-    )
-    assert r.status_code == 200
-    assert len(r.json()) == 2
-    # 校验持久化
-    r2 = await client.get("/admin/routes")
-    items = r2.json()
-    assert {item["model_glob"] for item in items} == {"claude-*", "gpt-*"}
-
-
-async def test_replace_routes_unknown_provider(client: AsyncClient) -> None:
-    r = await client.put(
-        "/admin/routes",
-        json=[{"provider": "ghost", "model_glob": "*", "priority": 1}],
-    )
-    # admin/routes.py 对未知 provider 通常返 422 / 400;只要非 2xx
-    assert r.status_code >= 400
-
-
-async def test_replace_routes_clears_previous(client: AsyncClient) -> None:
-    """PUT 是全量替换,不是追加。"""
-    await client.post(
-        "/admin/providers",
-        json={"name": "ant", "type": "anthropic", "api_key": "sk"},
-    )
-    await client.put(
-        "/admin/routes",
-        json=[{"provider": "ant", "model_glob": "old-*", "priority": 1}],
-    )
-    # 第二次 PUT 只含一条新的
-    await client.put(
-        "/admin/routes",
-        json=[{"provider": "ant", "model_glob": "new-*", "priority": 1}],
-    )
-    r = await client.get("/admin/routes")
-    items = r.json()
-    assert len(items) == 1
-    assert items[0]["model_glob"] == "new-*"

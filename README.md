@@ -9,7 +9,7 @@
 ## 能做什么
 
 - **跨生态调用**:客户端用任一主流 API 格式写,上游可以是任一主流 LLM 服务,中间格式差异由代理透明翻译
-- **多 provider 集中管理**:一个地方管所有 key / 路由规则 / 用量统计,按模型名自动路由到对应上游
+- **多 provider 集中管理**:一个地方管所有 key / 用量统计;客户端通过 `x-rosetta-provider` header 显式选择上游 provider
 - **开箱即用**:CLI 一次性对话、REPL 多轮、桌面 GUI 三种交互,SSE 流式全程原生转发
 
 **类比**:cc-switch 的"AI 配置管家"概念 + 自研的格式翻译引擎。cc-switch 切的是配置文件,本项目切的是运行时流量并做格式转换。
@@ -71,8 +71,8 @@ uv run python -m rosetta.server
 # 添 provider
 uv run rosetta provider add --name anthropic-main --type anthropic --api-key sk-ant-XXX
 
-# 跑 chat
-uv run rosetta chat --model claude-haiku-4-5 "hello"
+# 跑 chat(必须指定 provider)
+uv run rosetta chat --provider anthropic-main --model claude-haiku-4-5 "hello"
 
 # 跑测试
 uv run pytest

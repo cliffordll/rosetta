@@ -22,13 +22,13 @@ def test_root_help() -> None:
     assert result.exit_code == 0
     # 关键子命令名都出现
     out = result.output
-    for sub in ("status", "start", "stop", "provider", "route", "logs", "stats", "chat"):
+    for sub in ("status", "start", "stop", "provider", "logs", "stats", "chat"):
         assert sub in out, f"--help 输出里缺少子命令 {sub!r}"
 
 
 @pytest.mark.parametrize(
     "sub",
-    ["status", "start", "stop", "provider", "route", "logs", "stats", "chat"],
+    ["status", "start", "stop", "provider", "logs", "stats", "chat"],
 )
 @pytest.mark.parametrize("flag", ["--help", "-h"])
 def test_subcommand_help(sub: str, flag: str) -> None:

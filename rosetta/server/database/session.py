@@ -10,7 +10,9 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated
 
+from fastapi import Depends
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -20,7 +22,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 DEFAULT_DB_PATH = Path.home() / ".rosetta" / "rosetta.db"
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 
 @dataclass
@@ -116,14 +118,16 @@ async def get_session() -> AsyncIterator[AsyncSession]:
         yield session
 
 
+# 公共 FastAPI 依赖别名:avoid 各模块重复定义。
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
+
+
 async def count_providers() -> int:
     """给 /admin/status 用;DB 未初始化时返回 0 兜底。"""
-    from sqlalchemy import func, select
-
-    from rosetta.server.database.models import Provider
+    # 延迟 import 避免 session → repository → session 的循环引用
+    from rosetta.server.repository import ProviderRepo
 
     if _state.session_maker is None:
         return 0
     async with _state.session_maker() as session:
-        result = await session.execute(select(func.count()).select_from(Provider))
-        return int(result.scalar_one())
+        return await ProviderRepo(session).count()

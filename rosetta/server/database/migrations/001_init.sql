@@ -12,13 +12,6 @@ CREATE TABLE providers (
     created_at TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE routes (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    model_glob  TEXT    NOT NULL,                 -- e.g. 'claude-*' / 'gpt-4*' / '*'
-    provider_id INTEGER NOT NULL REFERENCES providers(id),
-    priority    INTEGER NOT NULL DEFAULT 0        -- 数字越小越优先
-);
-
 CREATE TABLE logs (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at    TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,

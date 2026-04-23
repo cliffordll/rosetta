@@ -9,7 +9,7 @@ import typer
 
 from rosetta.cli.core.render import Renderer
 from rosetta.sdk.client import ProxyClient
-from rosetta.server.admin.stats import Period
+from rosetta.server.controller.stats import Period
 
 _ALLOWED = get_args(Period)
 
