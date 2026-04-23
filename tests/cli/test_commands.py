@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from typer.testing import CliRunner
 
@@ -16,19 +18,32 @@ from rosetta.cli.__main__ import app
 
 runner = CliRunner()
 
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text: str) -> str:
+    """剥 ANSI 颜色 / 样式转义,方便 substring 断言跨平台稳定。"""
+    return _ANSI_RE.sub("", text)
+
 
 @pytest.fixture(autouse=True)
 def _wide_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
-    """rich 在 CI 窄终端会把 `--quiet` 这类 option 名换行拆开,substring 断言就挂。
-    统一强制 200 列,避免测试依赖运行环境宽度。"""
+    """两件事:
+    1. COLUMNS=200 —— CI 终端比本地窄,rich 会把 `--quiet` 等 option 换行拆开
+    2. NO_COLOR=1 + TERM=dumb —— 禁 rich 在 help 里插 ANSI 颜色码,否则
+       `\\x1b[1m--quiet` 里虽然含 --quiet,但 rich 可能把 `--` 和 `quiet`
+       分别上色导致中间插入转义 → substring 断言失败
+    """
     monkeypatch.setenv("COLUMNS", "200")
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setenv("TERM", "dumb")
 
 
 def test_root_help() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     # 关键子命令名都出现
-    out = result.output
+    out = _plain(result.output)
     for sub in ("status", "start", "stop", "upstream", "logs", "stats", "chat"):
         assert sub in out, f"--help 输出里缺少子命令 {sub!r}"
 
@@ -47,7 +62,7 @@ def test_subcommand_help(sub: str, flag: str) -> None:
 def test_root_help_accepts_short_and_long(flag: str) -> None:
     result = runner.invoke(app, [flag])
     assert result.exit_code == 0
-    assert "rosetta" in result.output
+    assert "rosetta" in _plain(result.output)
 
 
 def test_unknown_subcommand_fails() -> None:
@@ -74,8 +89,9 @@ def test_quiet_flag_accepted_by_root_help() -> None:
     """根 --help 里有 --quiet / -q 选项。"""
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    assert "--quiet" in result.output
-    assert "-q" in result.output
+    out = _plain(result.output)
+    assert "--quiet" in out
+    assert "-q" in out
 
 
 def test_quiet_flag_sets_renderer_state() -> None:
