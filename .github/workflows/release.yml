@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write  # 创建 Release 并上传 assets 需要写权限
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # v0 仅 Windows exe;macOS / Linux 扩展到打包后再加
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies (incl. build group)
+        run: uv sync --frozen --group build
+
+      - name: Quick sanity (lint + test)
+        # release 前兜底一次,避免打了坏 exe;比 ci.yml 少跑 pyright 节省 30s
+        run: |
+          uv run ruff check .
+          uv run pytest -q
+
+      - name: Build exes (PyInstaller)
+        run: uv run --group build python scripts/build.py
+
+      - name: List artifacts
+        run: dir dist
+        shell: cmd
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rosetta-windows-${{ github.ref_name }}
+          path: |
+            dist/rosetta.exe
+            dist/rosetta-server.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/rosetta.exe
+            dist/rosetta-server.exe
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
