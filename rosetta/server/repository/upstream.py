@@ -42,9 +42,7 @@ class UpstreamRepo:
         return await self.session.get(Upstream, upstream_id)
 
     async def get_by_name(self, name: str) -> Upstream | None:
-        result = await self.session.execute(
-            select(Upstream).where(Upstream.name == name)
-        )
+        result = await self.session.execute(select(Upstream).where(Upstream.name == name))
         return result.scalar_one_or_none()
 
     async def count(self) -> int:

@@ -61,7 +61,9 @@ class LogWriter:
         except Exception as e:
             _log.warning(
                 "log_writer: 写入失败,忽略 (status=%s, upstream_id=%s): %s",
-                status, upstream_id, e,
+                status,
+                upstream_id,
+                e,
             )
 
 

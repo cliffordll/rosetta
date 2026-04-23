@@ -66,9 +66,7 @@ class LogEntry(Base):
     __tablename__ = "logs"
 
     id: Mapped[str] = mapped_column(primary_key=True, default=_new_id)
-    upstream_id: Mapped[str | None] = mapped_column(
-        ForeignKey("upstreams.id"), default=None
-    )
+    upstream_id: Mapped[str | None] = mapped_column(ForeignKey("upstreams.id"), default=None)
     model: Mapped[str | None] = mapped_column(default=None)
     input_tokens: Mapped[int | None] = mapped_column(default=None)
     output_tokens: Mapped[int | None] = mapped_column(default=None)

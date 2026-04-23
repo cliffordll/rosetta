@@ -53,9 +53,7 @@ async def list_upstreams(repo: UpstreamRepoDep) -> Sequence[Upstream]:
     return await repo.list_all()
 
 
-@router.post(
-    "/upstreams", response_model=UpstreamOut, status_code=status.HTTP_201_CREATED
-)
+@router.post("/upstreams", response_model=UpstreamOut, status_code=status.HTTP_201_CREATED)
 async def create_upstream(payload: UpstreamCreate, repo: UpstreamRepoDep) -> Upstream:
     try:
         return await repo.create(
@@ -74,9 +72,7 @@ async def create_upstream(payload: UpstreamCreate, repo: UpstreamRepoDep) -> Ups
 
 
 @router.post("/upstreams/restore-mock", response_model=RestoreMockOut)
-async def restore_mock_upstream(
-    repo: UpstreamRepoDep, force: bool = False
-) -> RestoreMockOut:
+async def restore_mock_upstream(repo: UpstreamRepoDep, force: bool = False) -> RestoreMockOut:
     """恢复内置 mock upstream。幂等;`?force=true` 则先删除再重建。
 
     用途:开发时误删 mock / 想把它恢复到出厂配置。路由不在 `/{upstream_id}` 之前

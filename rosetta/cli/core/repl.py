@@ -121,17 +121,12 @@ class ChatRepl:
             try:
                 new_fmt = Protocol(arg)
             except ValueError:
-                Renderer.error_bubble(
-                    f"format 必须是 messages/completions/responses,收到 {arg!r}"
-                )
+                Renderer.error_bubble(f"format 必须是 messages/completions/responses,收到 {arg!r}")
                 return False
             self.ctx.set_fmt(new_fmt)
             # 切格式时如果当前 model 是别的 format 的默认值,同步到新 format 的默认
             default_for_new = DEFAULT_MODELS[new_fmt]
-            if (
-                self.ctx.model in DEFAULT_MODELS.values()
-                and self.ctx.model != default_for_new
-            ):
+            if self.ctx.model in DEFAULT_MODELS.values() and self.ctx.model != default_for_new:
                 self.ctx.set_model(default_for_new)
                 Renderer.out(f"format → {new_fmt.value} · model → {self.ctx.model}")
             else:

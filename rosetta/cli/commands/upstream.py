@@ -45,10 +45,7 @@ async def _list() -> None:
         return
     Renderer.table(
         ["id", "name", "protocol", "provider", "base_url", "enabled"],
-        [
-            [u.id, u.name, u.protocol, u.provider, u.base_url, u.enabled]
-            for u in items
-        ],
+        [[u.id, u.name, u.protocol, u.provider, u.base_url, u.enabled] for u in items],
     )
 
 
@@ -58,13 +55,9 @@ def add_cmd(
     base_url: Annotated[str, typer.Option("--base-url", help="上游根地址(必填)")],
     protocol: Annotated[
         str,
-        typer.Option(
-            "--protocol", help="messages | completions | responses(默认 messages)"
-        ),
+        typer.Option("--protocol", help="messages | completions | responses(默认 messages)"),
     ] = "messages",
-    api_key: Annotated[
-        str | None, typer.Option("--api-key", help="上游 api key(可选)")
-    ] = None,
+    api_key: Annotated[str | None, typer.Option("--api-key", help="上游 api key(可选)")] = None,
     provider: Annotated[
         str,
         typer.Option(
@@ -78,9 +71,7 @@ def add_cmd(
         Renderer.die(f"--protocol 必须是 messages/completions/responses,收到 {protocol!r}")
         return
     if provider not in _ALLOWED_PROVIDERS:
-        Renderer.die(
-            f"--provider 必须是 {'/'.join(_ALLOWED_PROVIDERS)},收到 {provider!r}"
-        )
+        Renderer.die(f"--provider 必须是 {'/'.join(_ALLOWED_PROVIDERS)},收到 {provider!r}")
         return
     payload = UpstreamCreate(
         name=name,

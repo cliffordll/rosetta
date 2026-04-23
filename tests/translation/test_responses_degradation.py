@@ -138,9 +138,7 @@ def test_mixed_tools_keep_function_strip_builtin() -> None:
 
 
 def test_all_builtin_tools_stripped_field_removed() -> None:
-    body = _base() | {
-        "tools": [{"type": "web_search"}, {"type": "code_interpreter"}]
-    }
+    body = _base() | {"tools": [{"type": "web_search"}, {"type": "code_interpreter"}]}
     result = degrade_responses_request(body, target_protocol=Protocol.MESSAGES)
     assert "tools" not in result.body
 

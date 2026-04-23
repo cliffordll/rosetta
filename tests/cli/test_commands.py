@@ -33,9 +33,7 @@ def test_root_help() -> None:
 @pytest.mark.parametrize("flag", ["--help", "-h"])
 def test_subcommand_help(sub: str, flag: str) -> None:
     result = runner.invoke(app, [sub, flag])
-    assert result.exit_code == 0, (
-        f"{sub} {flag} 应成功,实际 exit={result.exit_code}"
-    )
+    assert result.exit_code == 0, f"{sub} {flag} 应成功,实际 exit={result.exit_code}"
 
 
 @pytest.mark.parametrize("flag", ["--help", "-h"])

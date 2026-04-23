@@ -63,9 +63,7 @@ def chat_cmd(
     try:
         fmt = Protocol(protocol)
     except ValueError:
-        Renderer.die(
-            f"--protocol 必须是 messages/completions/responses,收到 {protocol!r}"
-        )
+        Renderer.die(f"--protocol 必须是 messages/completions/responses,收到 {protocol!r}")
         return
 
     if base_url is not None:
@@ -135,9 +133,7 @@ async def _run(
     max_tokens: int,
 ) -> None:
     try:
-        async with _session(
-            fmt=fmt, model=model, api_key=api_key, base_url=base_url
-        ) as client:
+        async with _session(fmt=fmt, model=model, api_key=api_key, base_url=base_url) as client:
             ctx = ChatContext(
                 client=client,
                 fmt=fmt,

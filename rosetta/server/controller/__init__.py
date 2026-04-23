@@ -35,9 +35,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     """把 service 层的 `ServiceError` 映射成统一的 rosetta_error HTTP 响应。"""
 
     @app.exception_handler(ServiceError)
-    async def _handle_service_error(
-        _request: Request, exc: ServiceError
-    ) -> JSONResponse:
+    async def _handle_service_error(_request: Request, exc: ServiceError) -> JSONResponse:
         return JSONResponse(
             status_code=exc.status,
             content=rosetta_error(exc.code, exc.message, **exc.extra),

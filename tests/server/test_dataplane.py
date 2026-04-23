@@ -252,9 +252,7 @@ async def test_cross_format_messages_to_completions(
         {
             "model": "gpt-4o-mini",
             "max_tokens": 64,
-            "messages": [
-                {"role": "user", "content": [{"type": "text", "text": "hi"}]}
-            ],
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
         }
     ).encode("utf-8")
     resp = await forwarder.forward(
@@ -268,10 +266,7 @@ async def test_cross_format_messages_to_completions(
     response_body = json.loads(resp.body)
     assert response_body["type"] == "message"
     assert response_body["role"] == "assistant"
-    assert any(
-        b.get("type") == "text" and b.get("text") == "yes"
-        for b in response_body["content"]
-    )
+    assert any(b.get("type") == "text" and b.get("text") == "yes" for b in response_body["content"])
 
 
 # ---------- extra_response_headers ----------
@@ -304,7 +299,7 @@ async def test_forward_without_open_raises() -> None:
             request_protocol=Protocol.MESSAGES,
             body=body,
             content_type="application/json",
-            )
+        )
 
 
 # ---------- provider=mock 短路 ----------
@@ -335,9 +330,7 @@ def _sse_data_payloads(raw: str) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
     for frame in raw.split("\n\n"):
         data_lines = [
-            line[len("data:"):].lstrip()
-            for line in frame.splitlines()
-            if line.startswith("data:")
+            line[len("data:") :].lstrip() for line in frame.splitlines() if line.startswith("data:")
         ]
         if not data_lines:
             continue
@@ -522,19 +515,29 @@ async def test_forward_writes_log_on_success(session: AsyncSession) -> None:
     """每次成功 forward 落 1 条 logs 记录:status=ok、upstream_id、model、latency。"""
     # upstream 要真实存在于 DB(FK 不强制,但用 mock 占位避免发 HTTP)
     mock_up = Upstream(
-        id="a" * 32, name="mock-log-ok", protocol="any", provider="mock",
-        api_key=None, base_url="mock://", enabled=True,
+        id="a" * 32,
+        name="mock-log-ok",
+        protocol="any",
+        provider="mock",
+        api_key=None,
+        base_url="mock://",
+        enabled=True,
     )
     session.add(mock_up)
     await session.commit()
 
     body = json.dumps(
-        {"model": "claude-haiku-4-5", "max_tokens": 32,
-         "messages": [{"role": "user", "content": "hi"}]}
+        {
+            "model": "claude-haiku-4-5",
+            "max_tokens": 32,
+            "messages": [{"role": "user", "content": "hi"}],
+        }
     ).encode("utf-8")
     resp = await forwarder.forward(
-        upstream=mock_up, request_protocol=Protocol.MESSAGES,
-        body=body, content_type="application/json",
+        upstream=mock_up,
+        request_protocol=Protocol.MESSAGES,
+        body=body,
+        content_type="application/json",
     )
     # 消费流(触发完整生命周期)
     if hasattr(resp, "body_iterator"):
@@ -556,8 +559,13 @@ async def test_forward_writes_log_on_service_error(session: AsyncSession) -> Non
     from rosetta.server.service.exceptions import ServiceError
 
     mock_up = Upstream(
-        id="b" * 32, name="mock-log-err", protocol="any", provider="mock",
-        api_key=None, base_url="mock://", enabled=True,
+        id="b" * 32,
+        name="mock-log-err",
+        protocol="any",
+        provider="mock",
+        api_key=None,
+        base_url="mock://",
+        enabled=True,
     )
     session.add(mock_up)
     await session.commit()
@@ -565,8 +573,10 @@ async def test_forward_writes_log_on_service_error(session: AsyncSession) -> Non
     # 非法 JSON body → _parse_body 抛 ServiceError(invalid_json_body)
     with pytest.raises(ServiceError):
         await forwarder.forward(
-            upstream=mock_up, request_protocol=Protocol.MESSAGES,
-            body=b"not-json", content_type="application/json",
+            upstream=mock_up,
+            request_protocol=Protocol.MESSAGES,
+            body=b"not-json",
+            content_type="application/json",
         )
 
     stmt = select(LogEntry).where(LogEntry.upstream_id == mock_up.id)

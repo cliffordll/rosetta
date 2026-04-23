@@ -55,9 +55,7 @@ app = typer.Typer(
 def _root(  # pyright: ignore[reportUnusedFunction] — typer @app.callback() 装饰器注册
     quiet: Annotated[
         bool,
-        typer.Option(
-            "--quiet", "-q", help="静默模式:抑制成功输出(错误仍打 stderr)"
-        ),
+        typer.Option("--quiet", "-q", help="静默模式:抑制成功输出(错误仍打 stderr)"),
     ] = False,
 ) -> None:
     """根 callback:处理全局 flag。子命令执行前会先跑这里。"""

@@ -81,9 +81,7 @@ class Forwarder:
         return upstream.base_url.rstrip("/")
 
     @staticmethod
-    def _auth_headers(
-        upstream: Upstream, override_key: str | None = None
-    ) -> dict[str, str]:
+    def _auth_headers(upstream: Upstream, override_key: str | None = None) -> dict[str, str]:
         """按 `upstream.protocol` 选上游鉴权头写法;`override_key` 非空则覆盖 DB 的 `api_key`。
 
         DESIGN §8.1 约定:客户端请求若带 `x-api-key` / `Authorization: Bearer`,
@@ -206,9 +204,7 @@ class Forwarder:
 
             # provider=mock 短路:不发 HTTP,本地 echo 生成响应
             if upstream.provider == "mock":
-                resp = await mock_responder.respond(
-                    request_protocol, body_dict, stream=is_stream
-                )
+                resp = await mock_responder.respond(request_protocol, body_dict, stream=is_stream)
             else:
                 resp = await self._forward_upstream(
                     upstream=upstream,
@@ -227,9 +223,7 @@ class Forwarder:
             await self._record_log(upstream, model, "ok", t0)
             return self._with_extra_headers(resp, extra_response_headers)
         except ServiceError as e:
-            await self._record_log(
-                upstream, model, "error", t0, error=f"{e.code}: {e.message}"
-            )
+            await self._record_log(upstream, model, "error", t0, error=f"{e.code}: {e.message}")
             raise
         except Exception as e:  # pragma: no cover — 防御:service 层理论上不会漏
             await self._record_log(upstream, model, "error", t0, error=str(e))
@@ -256,7 +250,9 @@ class Forwarder:
 
         _log.debug(
             "forward: source=%s target=%s stream=%s",
-            request_protocol.value, upstream_protocol.value, is_stream,
+            request_protocol.value,
+            upstream_protocol.value,
+            is_stream,
         )
 
         # 同格式直通(阶段 1.3 路径)
@@ -270,9 +266,7 @@ class Forwarder:
         # Responses → 非 Responses:先降级(剥 stateful 阻断字段、store、内置 tools)
         if request_protocol is Protocol.RESPONSES:
             try:
-                degraded = degrade_responses_request(
-                    body_dict, target_protocol=upstream_protocol
-                )
+                degraded = degrade_responses_request(body_dict, target_protocol=upstream_protocol)
             except StatefulNotTranslatableError as e:
                 raise ServiceError(
                     status=400,
