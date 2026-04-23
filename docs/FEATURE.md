@@ -832,23 +832,54 @@
 - **让步**:pubkey 占位未替换前,`check_for_update` 在 Tauri 里会在 `updater()`
   初始化时报错,前端展示"更新检查失败"—— 这是预期,提示用户先做一次性配置
 
-### 步骤 8.3 · 代码签名 + 安装包 + 首个 Release
+### 步骤 8.3 ✅ · 代码签名 + 安装包 + 首个 Release(CI 就绪,待 tag 验证)
 
-- **目标**:`Rosetta-Setup-v0.1.0.exe`
+- **目标**:打 tag → CI 自动产 `Rosetta_v0.1.0_x64-setup.exe`(NSIS installer)
+  + Python CLI/server exe,全部挂到 GitHub Release;提供签名槽位
+- **产出**:
+  - `tauri.conf.json`:Windows NSIS bundle 配置(publisher / copyright /
+    installMode=currentUser / languages=[en, zh_CN]);`plugins.updater.pubkey`
+    占位需替换
+  - `.github/workflows/release.yml` 重构成两个 job:
+    · `python-exe`:原 PyInstaller 产 rosetta.exe / rosetta-server.exe +
+      `--sync-sidecar` 就位到 tauri binaries/,artifact 传给下一 job
+    · `desktop-installer`:`tauri-apps/tauri-action@v0` 跑 tauri build,
+      自动挂到 Release;`includeUpdaterJson: true` 生成 `latest.json` 给
+      自动更新链路
+  - 签名槽位(用户在 repo Settings → Secrets 配齐即自动签):
+    · `TAURI_SIGNING_PRIVATE_KEY` + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+      —— updater 的 ed25519 签名(对应 tauri.conf.json 的 pubkey)
+    · `WINDOWS_CERTIFICATE` (base64) + `WINDOWS_CERTIFICATE_PASSWORD`
+      —— Windows Authenticode 证书签 installer;无则 SmartScreen 会警告
+      但 installer 仍可装
 - **手动测试步骤**:
-  1. 本地跑 `bun run tauri build`,用签名证书打包
-  2. 找一台干净的 Windows 机器(或虚拟机)
-  3. 双击 `Rosetta-Setup-v0.1.0.exe` 安装
-  4. 启动安装后的 Rosetta
-  5. 跑一次 chat
-  6. 控制面板卸载
-  7. 检查残留:`ls ~/.rosetta/`;注册表搜 `Rosetta`
+  1. (可选)准备 ed25519 密钥:`cd packages/desktop/tauri && bun run tauri signer generate -w ~/.tauri/rosetta.key`,
+     pub 替换 `tauri.conf.json::plugins.updater.pubkey`,私钥存 GH secret
+  2. (可选)准备 Windows 代码签名证书 PFX,base64 编码后存 GH secret
+  3. `git tag v0.0.1-test && git push origin v0.0.1-test`
+  4. GH Actions → Release → 两个 job 均绿
+  5. GH Releases 页的 `v0.0.1-test` 应包含:
+     · `rosetta.exe` / `rosetta-server.exe`(CLI / server)
+     · `Rosetta_x.y.z_x64-setup.exe`(NSIS installer)
+     · `latest.json`(updater 清单)
+  6. 在干净 Windows 机器 / 虚拟机双击 installer 安装
+  7. 启动安装后的 Rosetta,跑一次 chat
+  8. Dashboard → Check for updates → 应返"已是最新版本"
+  9. 控制面板卸载;检查 `~/.rosetta/` 用户数据保留、注册表 `Rosetta` 项被清
+  10. 收尾:`git tag -d v0.0.1-test && git push --delete origin v0.0.1-test`,
+      Releases 页手动删该 release
 - **预期结果**:
-  - 步骤 3:无 Windows SmartScreen 警告(前提:签了有效证书)
-  - 步骤 5:开箱即用
-  - 步骤 6:应用从开始菜单和 Program Files 移除
-  - 步骤 7:`~/.rosetta/` 里用户数据保留(正确行为);注册表项被清理
-- **通过判据**:装 → 用 → 卸全链路干净,无警告 / 无残留
+  - 步骤 5:三类 asset 齐
+  - 步骤 6:若 WINDOWS_CERTIFICATE 配齐 → 无 SmartScreen 警告;否则警告点
+    "More info → Run anyway" 可装
+  - 步骤 8:check 成功(pubkey 对应签名有效的 latest.json)
+  - 步骤 9:卸载不留注册表;用户配置数据保留
+- **通过判据**:从 tag → CI → 三类 asset 齐 → 装 → 用 → 卸全链路干净
+- **让步**:
+  - installer 默认 `currentUser` 模式,不进 Program Files,不要 UAC 提升;
+    方便自动更新(无需管理员权限),代价是不同用户要分别装
+  - 没配 WINDOWS_CERTIFICATE 的 CI 运行下 installer 无 Authenticode 签名,
+    SmartScreen 会拦;用户自己签证书后再配齐 secrets 重打
 
 ---
 
