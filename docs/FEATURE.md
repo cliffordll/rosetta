@@ -770,20 +770,32 @@
 
 ## 阶段 8 · 打磨与发布(1-2 天)
 
-### 步骤 8.1 · 错误态 UI + 空状态
+### 步骤 8.1 ✅ · 错误态 UI + 空状态
 
-- **目标**:providers 空时引导 / server 挂了重连 / 流式中断 retry / Logs 空列表
+- **目标**:upstream 空引导 / server 挂了重连 / 流式中断 retry / Logs 空列表
+- **产出**:
+  - `packages/app/src/components/ServerStatusBanner.tsx`:10s 轮询 `/admin/ping`,
+    失败时顶部红色横条 + Retry 按钮;挂到 `App.tsx` 根布局
+  - `packages/app/src/pages/Chat.tsx`:最后一条 assistant 状态为 `error` /
+    `aborted` 时,消息气泡下方出现 "Retry" 链接 —— 回填用户消息到输入框,
+    用户按 Send 完成重试(不自动发,保留用户可见性)
+  - 已有:Upstreams / Logs 页 EmptyState、Dashboard 的 server-unreachable 卡、
+    api.ts 的 `ApiError` 细粒度错误体
 - **手动测试步骤**:
-  1. 清空 providers(`DELETE FROM providers;`),打开 app → Providers 页
-  2. 打开 app,发送 chat,然后手动 kill server 进程,再发一条
-  3. 发一条长 chat,流式中途断网(飞行模式或拔线)
-  4. 清空 logs 表,打开 Logs 页
+  1. 清空 upstreams(删光,包括 mock),Upstreams 页 → 看 EmptyState 带
+     "Add your first upstream" + "Restore built-in mock" 双入口
+  2. 打开 app,发送 chat,另开终端 kill rosetta-server 进程,~10s 内 UI 顶部
+     出现"Rosetta server 失联"红条;重启 server → 条消失;点 Retry 按钮立即
+     复查不等轮询
+  3. 发一条 chat,流式中途 kill server / 断网;消息尾部显示 error 气泡 +
+     "Retry" 链接 → 点击 → 输入框回填,Send 重试成功
+  4. 发一条 chat 点 Stop;消息状态 aborted → Retry 同样可用
+  5. 空 `logs` 表的 Logs 页:已显示 "暂无日志" EmptyState
 - **预期结果**:
-  - 步骤 1:Providers 页显示"暂无 provider,点这里添加"的引导卡,非白屏
-  - 步骤 2:UI 显示"连接 server 失败,点击重试"
-  - 步骤 3:消息尾部出现"已断开"+ "重试"按钮
-  - 步骤 4:Logs 页显示"尚无请求日志"的空状态
-- **通过判据**:4 个场景都有合理兜底
+  - 1:EmptyState 双按钮,点 Restore mock 秒出一条
+  - 2:横条 ~10s 内出现、server 恢复后自动隐藏
+  - 3-4:Retry 回填输入框 + 清空末尾消息对,Send 后 UI 正常
+- **通过判据**:5 个场景均有可恢复 UI,不白屏、不卡死
 
 ### 步骤 8.2 · 自动更新
 

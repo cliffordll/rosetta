@@ -221,6 +221,29 @@ export default function Chat() {
     setMessages([]);
   }, []);
 
+  /**
+   * error / aborted 后点 Retry:
+   * 1. 从 messages 末尾剥掉最近一对 [user, failed assistant]
+   * 2. 把 user.content 回填 input
+   * 用户按 Send 完成重试;不强行自动发,避免"黑盒重试"对用户难追踪
+   */
+  const handleRetry = useCallback(() => {
+    if (inFlight) return;
+    const copy = messages.slice();
+    let failedIdx = -1;
+    for (let i = copy.length - 1; i >= 0; i--) {
+      if (copy[i].role === "assistant") {
+        failedIdx = i;
+        break;
+      }
+    }
+    if (failedIdx < 1) return; // 没找到 user/assistant 对,略过
+    const userMsg = copy[failedIdx - 1];
+    if (userMsg.role !== "user") return;
+    setMessages(copy.slice(0, failedIdx - 1));
+    setInput(userMsg.content);
+  }, [messages, inFlight]);
+
   const openOverrideDialog = useCallback(() => {
     setOverrideDraft(overrideKey ?? "");
     setOverrideDialogOpen(true);
@@ -355,11 +378,18 @@ export default function Chat() {
           </p>
         ) : (
           <ul className="space-y-4">
-            {messages.map((m, i) => (
-              <li key={i}>
-                <MessageBubble msg={m} />
-              </li>
-            ))}
+            {messages.map((m, i) => {
+              const isLast = i === messages.length - 1;
+              const canRetry =
+                isLast &&
+                m.role === "assistant" &&
+                (m.status === "error" || m.status === "aborted");
+              return (
+                <li key={i}>
+                  <MessageBubble msg={m} onRetry={canRetry ? handleRetry : undefined} />
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
@@ -424,7 +454,7 @@ export default function Chat() {
   );
 }
 
-function MessageBubble({ msg }: { msg: DisplayMsg }) {
+function MessageBubble({ msg, onRetry }: { msg: DisplayMsg; onRetry?: () => void }) {
   if (msg.role === "user") {
     return (
       <div className="flex justify-end">
@@ -448,6 +478,15 @@ function MessageBubble({ msg }: { msg: DisplayMsg }) {
         <div className="max-w-[85%] rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1 text-xs text-destructive">
           {msg.errorMsg}
         </div>
+      )}
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+        >
+          Retry(回填输入框,按 Send 重发)
+        </button>
       )}
       {msg.meta && <MetaLine meta={msg.meta} />}
     </div>
