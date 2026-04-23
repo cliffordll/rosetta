@@ -191,3 +191,37 @@ async def test_restore_mock_force_rebuilds(client: AsyncClient) -> None:
     r = await client.post("/admin/upstreams/restore-mock?force=true")
     assert r.status_code == 200
     assert r.json()["created"] is True
+
+
+# ---------- /admin/logs since polling 语义 ----------
+
+
+async def test_logs_since_strictly_greater(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """`?since=T` 只返 created_at > T 的记录(严格大于,为 polling 游标服务)。"""
+    from datetime import UTC, datetime, timedelta
+
+    from rosetta.server.database.models import LogEntry
+
+    base = datetime.now(UTC).replace(microsecond=0)
+    for i, delta in enumerate([0, 10, 20]):  # 三条,间隔 10s
+        session.add(
+            LogEntry(
+                id=f"{i:0>32}",
+                upstream_id=None,
+                model=f"m-{i}",
+                status="ok",
+                latency_ms=i,
+                created_at=base + timedelta(seconds=delta),
+            )
+        )
+    await session.commit()
+
+    # since = 第二条的时间 → 只应拿到第三条(严格大于)
+    cutoff = (base + timedelta(seconds=10)).isoformat()
+    r = await client.get("/admin/logs", params={"since": cutoff})
+    assert r.status_code == 200
+    items = r.json()
+    assert len(items) == 1
+    assert items[0]["model"] == "m-2"

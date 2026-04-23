@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Literal, Self
 
 import httpx
@@ -146,11 +147,15 @@ class ProxyClient:
         limit: int = 50,
         offset: int = 0,
         upstream: str | None = None,
+        since: datetime | None = None,
     ) -> list[LogOut]:
+        """拉请求流水。`since` 作 polling 游标:只返 `created_at > since` 的记录。"""
         self._require_server("list_logs")
         params: dict[str, str | int] = {"limit": limit, "offset": offset}
         if upstream:
             params["upstream"] = upstream
+        if since is not None:
+            params["since"] = since.isoformat()
         resp = await self.http.get(
             f"{self.base_url}/admin/logs", params=params, timeout=_ADMIN_TIMEOUT
         )
