@@ -22,19 +22,18 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   ApiError,
   DEFAULT_MODELS,
-  Format,
   MODEL_CHOICES,
-  PROVIDER_NATIVE_FORMAT,
+  Protocol,
   api,
-  type ProviderOut,
+  type UpstreamOut,
 } from "@/lib/api";
 import { ChatError, runTurn, type ChatTurnMsg } from "@/lib/chat";
 
 const CUSTOM_MODEL_SENTINEL = "__custom__";
-const AUTO_PROVIDER = "__auto__";
+const NO_UPSTREAM_SELECTED = "__none__";
 
 interface MetaInfo {
-  providerLabel: string;
+  upstreamLabel: string;
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -54,13 +53,13 @@ type DisplayMsg =
     };
 
 export default function Chat() {
-  const [format, setFormat] = useState<Format>(Format.MESSAGES);
-  const [model, setModel] = useState<string>(DEFAULT_MODELS[Format.MESSAGES]);
+  const [protocol, setProtocol] = useState<Protocol>(Protocol.MESSAGES);
+  const [model, setModel] = useState<string>(DEFAULT_MODELS[Protocol.MESSAGES]);
   const [useCustomModel, setUseCustomModel] = useState(false);
-  const [providerChoice, setProviderChoice] = useState<string>(AUTO_PROVIDER);
+  const [upstreamChoice, setUpstreamChoice] = useState<string>(NO_UPSTREAM_SELECTED);
 
-  const [providers, setProviders] = useState<ProviderOut[]>([]);
-  const [providersErr, setProvidersErr] = useState<string | null>(null);
+  const [upstreams, setUpstreams] = useState<UpstreamOut[]>([]);
+  const [upstreamsErr, setUpstreamsErr] = useState<string | null>(null);
 
   const [overrideKey, setOverrideKey] = useState<string | null>(null);
   const [overrideDialogOpen, setOverrideDialogOpen] = useState(false);
@@ -76,17 +75,21 @@ export default function Chat() {
   useEffect(() => {
     (async () => {
       try {
-        const list = await api.listProviders();
-        setProviders(list);
+        const list = await api.listUpstreams();
+        setUpstreams(list);
+        // 如果只有一条 upstream,自动选中,减少用户点击
+        if (list.length === 1) {
+          setUpstreamChoice(String(list[0].id));
+        }
       } catch (e) {
-        setProvidersErr(extractErr(e));
+        setUpstreamsErr(extractErr(e));
       }
     })();
   }, []);
 
-  // 切 format:把 model 重置为该 format 的默认首选,并关掉自定义
-  const onFormatChange = useCallback((next: Format) => {
-    setFormat(next);
+  // 切 protocol:把 model 重置为该 protocol 的默认首选,并关掉自定义
+  const onProtocolChange = useCallback((next: Protocol) => {
+    setProtocol(next);
     setModel(DEFAULT_MODELS[next]);
     setUseCustomModel(false);
   }, []);
@@ -101,23 +104,26 @@ export default function Chat() {
     }
   }, [messages]);
 
-  const providerById = useMemo(() => {
-    const map = new Map<number, ProviderOut>();
-    for (const p of providers) map.set(p.id, p);
+  const upstreamById = useMemo(() => {
+    const map = new Map<string, UpstreamOut>();
+    for (const u of upstreams) map.set(u.id, u);
     return map;
-  }, [providers]);
+  }, [upstreams]);
 
-  const resolvedProvider = useMemo<ProviderOut | null>(() => {
-    if (providerChoice === AUTO_PROVIDER) return null;
-    const idNum = Number(providerChoice);
-    return Number.isFinite(idNum) ? providerById.get(idNum) ?? null : null;
-  }, [providerChoice, providerById]);
+  const resolvedUpstream = useMemo<UpstreamOut | null>(() => {
+    if (upstreamChoice === NO_UPSTREAM_SELECTED) return null;
+    return upstreamById.get(upstreamChoice) ?? null;
+  }, [upstreamChoice, upstreamById]);
 
-  const canSend = !inFlight && input.trim().length > 0 && model.trim().length > 0;
+  const canSend =
+    !inFlight &&
+    input.trim().length > 0 &&
+    model.trim().length > 0 &&
+    resolvedUpstream !== null;
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!text || inFlight) return;
+    if (!text || inFlight || !resolvedUpstream) return;
     setInput("");
 
     const nextMsgs: DisplayMsg[] = [
@@ -143,15 +149,15 @@ export default function Chat() {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
-    const providerName = resolvedProvider?.name ?? null;
-    const providerLabel = resolvedProvider?.name ?? "auto";
-    const pathLabel = computePathLabel(format, resolvedProvider);
+    const upstreamName = resolvedUpstream.name;
+    const upstreamLabel = resolvedUpstream.name;
+    const pathLabel = computePathLabel(protocol, resolvedUpstream);
 
     try {
       const result = await runTurn(history, {
-        fmt: format,
+        fmt: protocol,
         model,
-        providerName,
+        upstreamName,
         overrideApiKey: overrideKey,
         maxTokens: 1024,
         signal: ctrl.signal,
@@ -175,7 +181,7 @@ export default function Chat() {
             ...last,
             status: result.aborted ? "aborted" : "done",
             meta: {
-              providerLabel,
+              upstreamLabel,
               model,
               inputTokens: result.inputTokens,
               outputTokens: result.outputTokens,
@@ -188,7 +194,8 @@ export default function Chat() {
         return copy;
       });
     } catch (e) {
-      const msg = e instanceof ChatError ? `HTTP ${e.status}: ${e.body.slice(0, 300)}` : extractErr(e);
+      const msg =
+        e instanceof ChatError ? `HTTP ${e.status}: ${e.body.slice(0, 300)}` : extractErr(e);
       setMessages((cur) => {
         const copy = cur.slice();
         const last = copy[copy.length - 1];
@@ -201,7 +208,7 @@ export default function Chat() {
       setInFlight(false);
       abortRef.current = null;
     }
-  }, [input, inFlight, messages, format, model, resolvedProvider, overrideKey]);
+  }, [input, inFlight, messages, protocol, model, resolvedUpstream, overrideKey]);
 
   const handleStop = useCallback(() => {
     abortRef.current?.abort();
@@ -245,39 +252,43 @@ export default function Chat() {
       <div className="mb-4 grid grid-cols-3 gap-3">
         <div>
           <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
-            Format
+            Protocol
           </Label>
-          <Select value={format} onValueChange={(v) => onFormatChange(v as Format)}>
+          <Select value={protocol} onValueChange={(v) => onProtocolChange(v as Protocol)}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={Format.MESSAGES}>messages</SelectItem>
-              <SelectItem value={Format.CHAT_COMPLETIONS}>completions</SelectItem>
-              <SelectItem value={Format.RESPONSES}>responses</SelectItem>
+              <SelectItem value={Protocol.MESSAGES}>messages</SelectItem>
+              <SelectItem value={Protocol.CHAT_COMPLETIONS}>completions</SelectItem>
+              <SelectItem value={Protocol.RESPONSES}>responses</SelectItem>
             </SelectContent>
           </Select>
         </div>
 
         <div>
           <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
-            Provider
+            Upstream
           </Label>
-          <Select value={providerChoice} onValueChange={setProviderChoice}>
+          <Select value={upstreamChoice} onValueChange={setUpstreamChoice}>
             <SelectTrigger>
-              <SelectValue />
+              <SelectValue placeholder="请选择 upstream" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={AUTO_PROVIDER}>auto (路由表)</SelectItem>
-              {providers.map((p) => (
-                <SelectItem key={p.id} value={String(p.id)}>
-                  {p.name} · {p.type}
+              {upstreams.map((u) => (
+                <SelectItem key={u.id} value={String(u.id)}>
+                  {u.name} · {u.protocol}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-          {providersErr && (
-            <p className="mt-1 text-xs text-destructive">加载 providers 失败:{providersErr}</p>
+          {upstreamsErr && (
+            <p className="mt-1 text-xs text-destructive">加载 upstreams 失败:{upstreamsErr}</p>
+          )}
+          {!upstreamsErr && upstreams.length === 0 && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              还没有 upstream,先去 Upstreams 页面添加。
+            </p>
           )}
         </div>
 
@@ -297,7 +308,7 @@ export default function Chat() {
                 size="sm"
                 onClick={() => {
                   setUseCustomModel(false);
-                  setModel(DEFAULT_MODELS[format]);
+                  setModel(DEFAULT_MODELS[protocol]);
                 }}
               >
                 预设
@@ -305,7 +316,7 @@ export default function Chat() {
             </div>
           ) : (
             <Select
-              value={MODEL_CHOICES[format].includes(model) ? model : CUSTOM_MODEL_SENTINEL}
+              value={MODEL_CHOICES[protocol].includes(model) ? model : CUSTOM_MODEL_SENTINEL}
               onValueChange={(v) => {
                 if (v === CUSTOM_MODEL_SENTINEL) {
                   setUseCustomModel(true);
@@ -318,7 +329,7 @@ export default function Chat() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {MODEL_CHOICES[format].map((m) => (
+                {MODEL_CHOICES[protocol].map((m) => (
                   <SelectItem key={m} value={m}>
                     {m}
                   </SelectItem>
@@ -335,7 +346,11 @@ export default function Chat() {
         className="mb-3 flex-1 overflow-y-auto rounded-lg border border-border bg-muted/20 p-4"
       >
         {messages.length === 0 ? (
-          <p className="text-sm text-muted-foreground">输入消息开始对话;流式逐 token 渲染。</p>
+          <p className="text-sm text-muted-foreground">
+            {resolvedUpstream
+              ? "输入消息开始对话;流式逐 token 渲染。"
+              : "先在上方选一个 upstream,再开始对话。"}
+          </p>
         ) : (
           <ul className="space-y-4">
             {messages.map((m, i) => (
@@ -350,7 +365,9 @@ export default function Chat() {
       <div className="flex gap-2">
         <Textarea
           value={input}
-          placeholder="发消息…(Enter 发送,Shift+Enter 换行)"
+          placeholder={
+            resolvedUpstream ? "发消息…(Enter 发送,Shift+Enter 换行)" : "请先选择 upstream"
+          }
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
@@ -358,7 +375,7 @@ export default function Chat() {
               if (canSend) void handleSend();
             }
           }}
-          disabled={inFlight}
+          disabled={inFlight || !resolvedUpstream}
           className="min-h-20 flex-1"
         />
         {inFlight ? (
@@ -377,7 +394,7 @@ export default function Chat() {
           <DialogHeader>
             <DialogTitle>Override api-key</DialogTitle>
             <DialogDescription>
-              仅本次会话内生效(不落地)。留空等于清除;下一次请求将走 provider 的 DB key。
+              仅本次会话内生效(不落地)。留空等于清除;下一次请求将走 upstream 的 DB key。
             </DialogDescription>
           </DialogHeader>
           <div className="py-2">
@@ -437,7 +454,7 @@ function MessageBubble({ msg }: { msg: DisplayMsg }) {
 
 function MetaLine({ meta }: { meta: MetaInfo }) {
   const parts = [
-    meta.providerLabel,
+    meta.upstreamLabel,
     meta.model,
     `${meta.inputTokens}→${meta.outputTokens} tok`,
     `${meta.latencyMs} ms`,
@@ -449,12 +466,10 @@ function MetaLine({ meta }: { meta: MetaInfo }) {
   );
 }
 
-function computePathLabel(fmt: Format, provider: ProviderOut | null): string {
-  if (!provider) return "?";
-  const nativeFmt = PROVIDER_NATIVE_FORMAT[provider.type];
-  if (!nativeFmt) return "?";
-  if (fmt === nativeFmt) return `${fmt}↔${nativeFmt}`;
-  return `${fmt}→IR→${nativeFmt}`;
+function computePathLabel(fmt: Protocol, upstream: UpstreamOut): string {
+  const nativeProto = upstream.protocol as Protocol;
+  if (fmt === nativeProto) return `${fmt}↔${nativeProto}`;
+  return `${fmt}→IR→${nativeProto}`;
 }
 
 function extractErr(e: unknown): string {

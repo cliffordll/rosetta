@@ -1,9 +1,9 @@
 """/admin/* 管理端点测试(阶段 1.2 / 3.1)。
 
 覆盖:
-- GET /admin/providers:空 / 非空
-- POST /admin/providers:成功(201)· name 冲突(409)· type=custom 无 base_url(422)
-- DELETE /admin/providers/{id}:成功(204)· 不存在(404)
+- GET /admin/upstreams:空 / 非空
+- POST /admin/upstreams:成功(201)· name 冲突(409)· 不支持的 type(422)
+- DELETE /admin/upstreams/{id}:成功(204)· 不存在(404)
 - GET /admin/ping / /admin/status:基本心跳
 
 用 httpx.AsyncClient + ASGITransport 做带 async session 的路由测试;依赖覆盖
@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rosetta.server.controller import admin_router
-from rosetta.server.database.models import Provider
+from rosetta.server.database.models import Upstream
 from rosetta.server.database.session import get_session
 
 
@@ -53,96 +53,81 @@ async def test_status(client: AsyncClient) -> None:
     body = r.json()
     assert "version" in body
     assert "uptime_ms" in body
-    assert body["providers_count"] == 0
+    assert body["upstreams_count"] == 0
 
 
-# ---------- providers ----------
+# ---------- upstreams ----------
 
 
-async def test_list_providers_empty(client: AsyncClient) -> None:
-    r = await client.get("/admin/providers")
+async def test_list_upstreams_empty(client: AsyncClient) -> None:
+    r = await client.get("/admin/upstreams")
     assert r.status_code == 200
     assert r.json() == []
 
 
-async def test_create_provider_success(client: AsyncClient) -> None:
+async def test_create_upstream_success(client: AsyncClient) -> None:
     r = await client.post(
-        "/admin/providers",
-        json={"name": "ant-main", "type": "anthropic", "api_key": "sk-ant-xxx"},
+        "/admin/upstreams",
+        json={"name": "ant-main", "protocol": "messages", "api_key": "sk-ant-xxx", "base_url": "https://api.example.com/ant-main"},
     )
     assert r.status_code == 201
     body = r.json()
     assert body["name"] == "ant-main"
-    assert body["type"] == "anthropic"
+    assert body["protocol"] == "messages"
     assert body["enabled"] is True
     assert "api_key" not in body  # 不回显 api_key
 
 
-async def test_create_provider_name_conflict(client: AsyncClient) -> None:
-    payload = {"name": "dup", "type": "openai", "api_key": "sk-1"}
-    r1 = await client.post("/admin/providers", json=payload)
+async def test_create_upstream_name_conflict(client: AsyncClient) -> None:
+    payload = {"name": "dup", "protocol": "completions", "api_key": "sk-1", "base_url": "https://api.example.com/dup"}
+    r1 = await client.post("/admin/upstreams", json=payload)
     assert r1.status_code == 201
-    r2 = await client.post("/admin/providers", json=payload)
+    r2 = await client.post("/admin/upstreams", json=payload)
     assert r2.status_code == 409
     assert "已存在" in r2.json()["detail"]
 
 
-async def test_create_provider_custom_without_base_url(client: AsyncClient) -> None:
+async def test_create_upstream_unknown_type(client: AsyncClient) -> None:
     r = await client.post(
-        "/admin/providers",
-        json={"name": "c", "type": "custom", "api_key": "sk"},
+        "/admin/upstreams",
+        json={"name": "c", "protocol": "unknown-protocol", "api_key": "sk", "base_url": "https://api.example.com/c"},
     )
-    # Pydantic 校验失败 → 422
+    # Pydantic Literal 校验失败 → 422
     assert r.status_code == 422
 
 
-async def test_create_provider_custom_with_base_url(client: AsyncClient) -> None:
-    r = await client.post(
-        "/admin/providers",
-        json={
-            "name": "c",
-            "type": "custom",
-            "api_key": "sk",
-            "base_url": "http://127.0.0.1:8765",
-        },
-    )
-    assert r.status_code == 201
-
-
-async def test_list_providers_after_create(client: AsyncClient) -> None:
+async def test_list_upstreams_after_create(client: AsyncClient) -> None:
     await client.post(
-        "/admin/providers",
-        json={"name": "p1", "type": "anthropic", "api_key": "sk-1"},
+        "/admin/upstreams",
+        json={"name": "p1", "protocol": "messages", "api_key": "sk-1", "base_url": "https://api.example.com/p1"},
     )
     await client.post(
-        "/admin/providers",
-        json={"name": "p2", "type": "openai", "api_key": "sk-2"},
+        "/admin/upstreams",
+        json={"name": "p2", "protocol": "completions", "api_key": "sk-2", "base_url": "https://api.example.com/p2"},
     )
-    r = await client.get("/admin/providers")
+    r = await client.get("/admin/upstreams")
     assert r.status_code == 200
     names = [p["name"] for p in r.json()]
     assert names == ["p1", "p2"]  # 按 id ASC
 
 
-async def test_delete_provider_success(
+async def test_delete_upstream_success(
     client: AsyncClient, session: AsyncSession
 ) -> None:
     create = await client.post(
-        "/admin/providers",
-        json={"name": "doomed", "type": "anthropic", "api_key": "sk"},
+        "/admin/upstreams",
+        json={"name": "doomed", "protocol": "messages", "api_key": "sk", "base_url": "https://api.example.com/doomed"},
     )
     pid = create.json()["id"]
-    r = await client.delete(f"/admin/providers/{pid}")
+    r = await client.delete(f"/admin/upstreams/{pid}")
     assert r.status_code == 204
     assert r.content == b""
 
     # DB 里确实没了
-    result = await session.execute(select(Provider).where(Provider.id == pid))
+    result = await session.execute(select(Upstream).where(Upstream.id == pid))
     assert result.scalar_one_or_none() is None
 
 
-async def test_delete_provider_not_found(client: AsyncClient) -> None:
-    r = await client.delete("/admin/providers/99999")
+async def test_delete_upstream_not_found(client: AsyncClient) -> None:
+    r = await client.delete("/admin/upstreams/99999")
     assert r.status_code == 404
-
-

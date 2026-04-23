@@ -6,7 +6,7 @@
 典型用法
 --------
 ```
-ctx = ChatContext(client=client, fmt=Format.MESSAGES, model="claude-haiku-4-5")
+ctx = ChatContext(client=client, fmt=Protocol.MESSAGES, model="claude-haiku-4-5")
 ctx.append_user("hi")
 result = await ctx.run_turn(on_token=print)
 ctx.append_assistant(result.text)
@@ -22,12 +22,12 @@ from typing import Any
 
 from rosetta.sdk.client import ProxyClient
 from rosetta.sdk.streams import ChatStream
-from rosetta.shared.formats import Format
+from rosetta.shared.protocols import Protocol
 
-DEFAULT_MODELS: dict[Format, str] = {
-    Format.MESSAGES: "claude-haiku-4-5",
-    Format.CHAT_COMPLETIONS: "gpt-4o-mini",
-    Format.RESPONSES: "gpt-4o-mini",
+DEFAULT_MODELS: dict[Protocol, str] = {
+    Protocol.MESSAGES: "claude-haiku-4-5",
+    Protocol.CHAT_COMPLETIONS: "gpt-4o-mini",
+    Protocol.RESPONSES: "gpt-4o-mini",
 }
 
 
@@ -63,9 +63,9 @@ class ChatContext:
     """一次聊天会话的完整上下文:客户端 + 会话配置 + 多轮历史。"""
 
     client: ProxyClient
-    fmt: Format
+    fmt: Protocol
     model: str
-    provider: str | None = None
+    upstream: str | None = None
     api_key: str | None = None
     max_tokens: int = 1024
     messages: list[dict[str, str]] = field(default_factory=_empty_messages)
@@ -84,10 +84,10 @@ class ChatContext:
             self.messages.pop()
 
     def reset(self) -> None:
-        """清空对话历史,保留会话配置(fmt / model / provider ...)。"""
+        """清空对话历史,保留会话配置(fmt / model / upstream ...)。"""
         self.messages.clear()
 
-    def set_fmt(self, fmt: Format) -> None:
+    def set_fmt(self, fmt: Protocol) -> None:
         self.fmt = fmt
 
     def set_model(self, model: str) -> None:
@@ -99,7 +99,7 @@ class ChatContext:
         """用当前 `self.messages` 发一轮流式请求,`on_token` 实时收每个文本增量。
 
         上游 4xx / 5xx 时抛 `ChatError`(body = 响应正文)。
-        `direct` 模式下 api_key / provider header 不走 server 透传路径。
+        `direct` 模式下 api_key / upstream header 不走 server 透传路径。
         """
         body = self._build_body()
         stream = ChatStream(fmt=self.fmt)
@@ -110,7 +110,7 @@ class ChatContext:
             self.fmt,
             body,
             override_api_key=self.api_key if self.client.mode == "server" else None,
-            provider_header=self.provider if self.client.mode == "server" else None,
+            upstream_header=self.upstream if self.client.mode == "server" else None,
         ) as resp:
             if resp.status_code >= 400:
                 err_bytes = await resp.aread()
@@ -136,7 +136,7 @@ class ChatContext:
 
         v0.1 只存纯文本(`content: str`),三格式的多轮表达都能直接消化。
         """
-        if self.fmt is Format.MESSAGES:
+        if self.fmt is Protocol.MESSAGES:
             return {
                 "model": self.model,
                 "max_tokens": self.max_tokens,
@@ -144,7 +144,7 @@ class ChatContext:
                 "messages": self.messages,
             }
 
-        if self.fmt is Format.CHAT_COMPLETIONS:
+        if self.fmt is Protocol.CHAT_COMPLETIONS:
             # include_usage=true 让最后一个 chunk 带 prompt/completion_tokens
             return {
                 "model": self.model,
@@ -153,7 +153,7 @@ class ChatContext:
                 "messages": self.messages,
             }
 
-        # Format.RESPONSES
+        # Protocol.RESPONSES
         return {
             "model": self.model,
             "stream": True,

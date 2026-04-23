@@ -5,7 +5,7 @@
 - `rosetta status`
 - `rosetta start`
 - `rosetta stop`
-- `rosetta provider {list,add}`
+- `rosetta upstream {list,add,remove}`
 - `rosetta logs [-n N]`
 - `rosetta stats [period]`
 - `rosetta chat [text]`  # 一次性 / REPL
@@ -24,9 +24,6 @@ from rosetta.cli.commands import (
     logs as logs_mod,
 )
 from rosetta.cli.commands import (
-    provider as provider_mod,
-)
-from rosetta.cli.commands import (
     start as start_mod,
 )
 from rosetta.cli.commands import (
@@ -37,6 +34,9 @@ from rosetta.cli.commands import (
 )
 from rosetta.cli.commands import (
     stop as stop_mod,
+)
+from rosetta.cli.commands import (
+    upstream as upstream_mod,
 )
 
 # 所有子 Typer 共享的 context 配置:让 `-h` 也能触发 help(默认只认 `--help`)
@@ -70,7 +70,7 @@ for mod in (
     status_mod,
     start_mod,
     stop_mod,
-    provider_mod,
+    upstream_mod,
     logs_mod,
     stats_mod,
     chat_mod,

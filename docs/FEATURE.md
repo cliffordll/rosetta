@@ -6,6 +6,8 @@
 > - `dataplane/forwarder.py` / `selector.py` → `service/`(business logic,不依赖 HTTP)
 > - 新增 `repository/`(ORM 查询封装层)
 > - `routes` 表移除,`pick_provider` 简化为强制 `x-rosetta-provider` header(原 §8.4 七条规则 → 一条)
+> - `providers` 表重命名为 `upstreams`;字段 `type` → `protocol`(值 `messages` / `completions` / `responses`);`pick_provider` → `pick_upstream`;`x-rosetta-provider` → `x-rosetta-upstream`
+> - `Format` 枚举重命名为 `Protocol`(`shared/formats.py` → `shared/protocols.py`);CLI `rosetta chat --format` → `--protocol`
 > - `router.py` → `selector.py`;`translation/stream.py` → `translation/dispatcher.py` + `translation/sse.py`
 > - `service` 层引入 `ServiceError` domain exception,由 `controller` 层统一映射 HTTP
 >

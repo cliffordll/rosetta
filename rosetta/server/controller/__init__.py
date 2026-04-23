@@ -17,13 +17,13 @@ from __future__ import annotations
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from rosetta.server.controller import dataplane, logs, providers, runtime, stats
+from rosetta.server.controller import dataplane, logs, runtime, stats, upstreams
 from rosetta.server.controller.errors import rosetta_error
 from rosetta.server.service.exceptions import ServiceError
 
 admin_router = APIRouter()
 admin_router.include_router(runtime.router)
-admin_router.include_router(providers.router)
+admin_router.include_router(upstreams.router)
 admin_router.include_router(logs.router)
 admin_router.include_router(stats.router)
 

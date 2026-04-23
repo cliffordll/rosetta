@@ -8,34 +8,34 @@ from datetime import datetime
 from sqlalchemy import ColumnElement, and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rosetta.server.database.models import LogEntry, Provider
+from rosetta.server.database.models import LogEntry, Upstream
 
 
 class LogRepo:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def list_with_provider(
+    async def list_with_upstream(
         self,
         *,
         limit: int,
         offset: int,
-        provider_id: int | None = None,
+        upstream_id: int | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
-    ) -> Sequence[tuple[LogEntry, Provider | None]]:
-        """按条件查 log + outer-join provider name;死引用 provider 那侧返回 None。"""
+    ) -> Sequence[tuple[LogEntry, Upstream | None]]:
+        """按条件查 log + outer-join upstream name;死引用 upstream 那侧返回 None。"""
         filters: list[ColumnElement[bool]] = []
-        if provider_id is not None:
-            filters.append(LogEntry.provider_id == provider_id)
+        if upstream_id is not None:
+            filters.append(LogEntry.upstream_id == upstream_id)
         if since is not None:
             filters.append(LogEntry.created_at >= since)
         if until is not None:
             filters.append(LogEntry.created_at <= until)
 
         stmt = (
-            select(LogEntry, Provider)
-            .outerjoin(Provider, LogEntry.provider_id == Provider.id)
+            select(LogEntry, Upstream)
+            .outerjoin(Upstream, LogEntry.upstream_id == Upstream.id)
             .order_by(LogEntry.created_at.desc(), LogEntry.id.desc())
             .limit(limit)
             .offset(offset)

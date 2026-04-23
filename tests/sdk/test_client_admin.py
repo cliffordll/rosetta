@@ -1,7 +1,7 @@
 """ProxyClient admin 方法测试(4.1 · SDK)。
 
 用 `httpx.MockTransport` 拦截请求,覆盖:
-- list_providers / create_provider / delete_provider
+- list_upstreams / create_upstream / delete_upstream
 - list_logs
 - stats
 - shutdown
@@ -19,7 +19,7 @@ import pytest
 import pytest_asyncio
 
 from rosetta.sdk.client import ProxyClient
-from rosetta.server.controller.providers import ProviderCreate
+from rosetta.server.controller.upstreams import UpstreamCreate
 
 
 def _make_client_with_handler(
@@ -77,85 +77,91 @@ async def test_status(echo_client: tuple[ProxyClient, dict[str, Any]]) -> None:
     client, captured = echo_client
     captured["response"] = httpx.Response(
         200,
-        json={"version": "0.1.0", "uptime_ms": 12345, "providers_count": 2},
+        json={"version": "0.1.0", "uptime_ms": 12345, "upstreams_count": 2},
     )
     status = await client.status()
     assert status.version == "0.1.0"
     assert status.uptime_ms == 12345
-    assert status.providers_count == 2
+    assert status.upstreams_count == 2
     assert captured["request"].url.path == "/admin/status"
 
 
-# ---------- providers ----------
+# ---------- upstreams ----------
 
 
-async def test_list_providers(echo_client: tuple[ProxyClient, dict[str, Any]]) -> None:
+async def test_list_upstreams(echo_client: tuple[ProxyClient, dict[str, Any]]) -> None:
     client, captured = echo_client
     captured["response"] = httpx.Response(
         200,
         json=[
             {
-                "id": 1,
+                "id": "some-id",
                 "name": "ant",
-                "type": "anthropic",
-                "base_url": None,
+                "protocol": "messages",
+                "provider": "anthropic",
+                "base_url": "https://api.anthropic.com",
                 "enabled": True,
                 "created_at": datetime(2026, 4, 22, 10, 0, 0).isoformat(),
             }
         ],
     )
-    providers = await client.list_providers()
-    assert len(providers) == 1
-    assert providers[0].name == "ant"
+    upstreams = await client.list_upstreams()
+    assert len(upstreams) == 1
+    assert upstreams[0].name == "ant"
     assert captured["request"].method == "GET"
-    assert captured["request"].url.path == "/admin/providers"
+    assert captured["request"].url.path == "/admin/upstreams"
 
 
-async def test_create_provider(echo_client: tuple[ProxyClient, dict[str, Any]]) -> None:
+async def test_create_upstream(echo_client: tuple[ProxyClient, dict[str, Any]]) -> None:
     client, captured = echo_client
     captured["response"] = httpx.Response(
         201,
         json={
-            "id": 5,
+            "id": "new-id",
             "name": "ant-new",
-            "type": "anthropic",
-            "base_url": None,
+            "protocol": "messages",
+            "provider": "anthropic",
+            "base_url": "https://api.anthropic.com",
             "enabled": True,
             "created_at": "2026-04-22T10:00:00",
         },
     )
-    payload = ProviderCreate(
-        name="ant-new", type="anthropic", api_key="sk-xxx", base_url=None
+    payload = UpstreamCreate(
+        name="ant-new",
+        protocol="messages",
+        provider="anthropic",
+        api_key="sk-xxx",
+        base_url="https://api.anthropic.com",
     )
-    created = await client.create_provider(payload)
-    assert created.id == 5
+    created = await client.create_upstream(payload)
+    assert created.id == "new-id"
     req = captured["request"]
     assert req.method == "POST"
-    assert req.url.path == "/admin/providers"
+    assert req.url.path == "/admin/upstreams"
     import json as _json
     sent = _json.loads(req.content)
     assert sent["name"] == "ant-new"
     assert sent["api_key"] == "sk-xxx"
 
 
-async def test_delete_provider_on_204(
+async def test_delete_upstream_on_204(
     echo_client: tuple[ProxyClient, dict[str, Any]],
 ) -> None:
     client, captured = echo_client
     captured["response"] = httpx.Response(204)
-    await client.delete_provider(7)
+    await client.delete_upstream("some-id")
     req = captured["request"]
     assert req.method == "DELETE"
-    assert req.url.path == "/admin/providers/7"
+    assert req.url.path == "/admin/upstreams/some-id"
 
 
-async def test_delete_provider_not_found_raises(
+async def test_delete_upstream_not_found_raises(
     echo_client: tuple[ProxyClient, dict[str, Any]],
 ) -> None:
     client, captured = echo_client
     captured["response"] = httpx.Response(404, json={"detail": "not found"})
     with pytest.raises(httpx.HTTPStatusError):
-        await client.delete_provider(999)
+        await client.delete_upstream("ghost")
 
 
 # ---------- logs / stats / shutdown ----------
@@ -166,11 +172,11 @@ async def test_list_logs_with_filters(
 ) -> None:
     client, captured = echo_client
     captured["response"] = httpx.Response(200, json=[])
-    await client.list_logs(limit=5, offset=10, provider="ant")
+    await client.list_logs(limit=5, offset=10, upstream="ant")
     req = captured["request"]
     assert req.url.params["limit"] == "5"
     assert req.url.params["offset"] == "10"
-    assert req.url.params["provider"] == "ant"
+    assert req.url.params["upstream"] == "ant"
 
 
 async def test_stats(echo_client: tuple[ProxyClient, dict[str, Any]]) -> None:
@@ -217,7 +223,7 @@ async def test_direct_mode_blocks_admin_methods() -> None:
         for method_name in (
             "ping",
             "status",
-            "list_providers",
+            "list_upstreams",
             "shutdown",
         ):
             with pytest.raises(RuntimeError, match="direct 模式不支持 admin 操作"):

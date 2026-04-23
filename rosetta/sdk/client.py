@@ -25,10 +25,10 @@ import httpx
 
 from rosetta.sdk.discover import discover
 from rosetta.server.controller.logs import LogOut
-from rosetta.server.controller.providers import ProviderCreate, ProviderOut
 from rosetta.server.controller.runtime import StatusResponse
 from rosetta.server.controller.stats import Period, StatsOut
-from rosetta.shared.formats import UPSTREAM_PATH, Format
+from rosetta.server.controller.upstreams import UpstreamCreate, UpstreamOut
+from rosetta.shared.protocols import UPSTREAM_PATH, Protocol
 
 _DATA_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
 _ADMIN_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
@@ -45,7 +45,7 @@ class ProxyClient:
 
     # direct 模式专属:
     _direct_api_key: str | None = field(default=None, repr=False)
-    _direct_format: Format | None = None
+    _direct_format: Protocol | None = None
     _direct_model: str | None = None
 
     @classmethod
@@ -68,7 +68,7 @@ class ProxyClient:
         *,
         base_url: str,
         api_key: str,
-        format: Format,
+        format: Protocol,
         model: str,
     ) -> AsyncIterator[Self]:
         """direct 模式(DESIGN §8.6):绕 server 直连上游。"""
@@ -102,29 +102,29 @@ class ProxyClient:
         resp.raise_for_status()
         return StatusResponse.model_validate(resp.json())
 
-    async def list_providers(self) -> list[ProviderOut]:
-        self._require_server("list_providers")
-        resp = await self.http.get(f"{self.base_url}/admin/providers", timeout=_ADMIN_TIMEOUT)
+    async def list_upstreams(self) -> list[UpstreamOut]:
+        self._require_server("list_upstreams")
+        resp = await self.http.get(f"{self.base_url}/admin/upstreams", timeout=_ADMIN_TIMEOUT)
         resp.raise_for_status()
         items = resp.json()
         if not isinstance(items, list):
-            raise RuntimeError("GET /admin/providers 返回非 list")
-        return [ProviderOut.model_validate(item) for item in items]  # pyright: ignore[reportUnknownVariableType]
+            raise RuntimeError("GET /admin/upstreams 返回非 list")
+        return [UpstreamOut.model_validate(item) for item in items]  # pyright: ignore[reportUnknownVariableType]
 
-    async def create_provider(self, payload: ProviderCreate) -> ProviderOut:
-        self._require_server("create_provider")
+    async def create_upstream(self, payload: UpstreamCreate) -> UpstreamOut:
+        self._require_server("create_upstream")
         resp = await self.http.post(
-            f"{self.base_url}/admin/providers",
+            f"{self.base_url}/admin/upstreams",
             json=payload.model_dump(),
             timeout=_ADMIN_TIMEOUT,
         )
         resp.raise_for_status()
-        return ProviderOut.model_validate(resp.json())
+        return UpstreamOut.model_validate(resp.json())
 
-    async def delete_provider(self, provider_id: int) -> None:
-        self._require_server("delete_provider")
+    async def delete_upstream(self, upstream_id: str) -> None:
+        self._require_server("delete_upstream")
         resp = await self.http.delete(
-            f"{self.base_url}/admin/providers/{provider_id}",
+            f"{self.base_url}/admin/upstreams/{upstream_id}",
             timeout=_ADMIN_TIMEOUT,
         )
         resp.raise_for_status()
@@ -134,12 +134,12 @@ class ProxyClient:
         *,
         limit: int = 50,
         offset: int = 0,
-        provider: str | None = None,
+        upstream: str | None = None,
     ) -> list[LogOut]:
         self._require_server("list_logs")
         params: dict[str, str | int] = {"limit": limit, "offset": offset}
-        if provider:
-            params["provider"] = provider
+        if upstream:
+            params["upstream"] = upstream
         resp = await self.http.get(
             f"{self.base_url}/admin/logs", params=params, timeout=_ADMIN_TIMEOUT
         )
@@ -169,10 +169,10 @@ class ProxyClient:
 
     def _data_url_and_headers(
         self,
-        fmt: Format,
+        fmt: Protocol,
         *,
         override_api_key: str | None,
-        provider_header: str | None,
+        upstream_header: str | None,
     ) -> tuple[str, dict[str, str]]:
         """按 mode 拼数据面 URL + header。"""
         path = UPSTREAM_PATH[fmt]
@@ -181,18 +181,18 @@ class ProxyClient:
             headers: dict[str, str] = {"content-type": "application/json"}
             if override_api_key:
                 headers["x-api-key"] = override_api_key
-            if provider_header:
-                headers["x-rosetta-provider"] = provider_header
+            if upstream_header:
+                headers["x-rosetta-upstream"] = upstream_header
             return url, headers
 
         # direct:自填上游鉴权 header
         if self._direct_api_key is None:
             raise RuntimeError("direct 模式未设置 api_key")
-        if provider_header:
-            raise RuntimeError("direct 模式不支持 provider_header(DESIGN §8.6 互斥)")
+        if upstream_header:
+            raise RuntimeError("direct 模式不支持 upstream_header(DESIGN §8.6 互斥)")
         url = f"{self.base_url}{path}"
         headers = {"content-type": "application/json"}
-        if fmt is Format.MESSAGES:
+        if fmt is Protocol.MESSAGES:
             headers["x-api-key"] = self._direct_api_key
             headers["anthropic-version"] = "2023-06-01"
         else:
@@ -201,30 +201,30 @@ class ProxyClient:
 
     async def post_chat(
         self,
-        fmt: Format,
+        fmt: Protocol,
         body: dict[str, Any],
         *,
         override_api_key: str | None = None,
-        provider_header: str | None = None,
+        upstream_header: str | None = None,
     ) -> httpx.Response:
         """非流式数据面 POST;调用方拿到 Response 自己 `.json()`。"""
         url, headers = self._data_url_and_headers(
-            fmt, override_api_key=override_api_key, provider_header=provider_header
+            fmt, override_api_key=override_api_key, upstream_header=upstream_header
         )
         return await self.http.post(url, json=body, headers=headers)
 
     @asynccontextmanager
     async def stream_chat(
         self,
-        fmt: Format,
+        fmt: Protocol,
         body: dict[str, Any],
         *,
         override_api_key: str | None = None,
-        provider_header: str | None = None,
+        upstream_header: str | None = None,
     ) -> AsyncIterator[httpx.Response]:
         """流式数据面 POST;返回 async context,`resp.aiter_bytes()` 读流。"""
         url, headers = self._data_url_and_headers(
-            fmt, override_api_key=override_api_key, provider_header=provider_header
+            fmt, override_api_key=override_api_key, upstream_header=upstream_header
         )
         req = self.http.build_request("POST", url, json=body, headers=headers)
         resp = await self.http.send(req, stream=True)
@@ -234,7 +234,7 @@ class ProxyClient:
             await resp.aclose()
 
     @property
-    def direct_format(self) -> Format | None:
+    def direct_format(self) -> Protocol | None:
         return self._direct_format
 
     @property

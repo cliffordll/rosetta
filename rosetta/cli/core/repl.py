@@ -8,7 +8,7 @@
 
 状态持有
 --------
-会话状态(fmt / model / provider / api_key / max_tokens / messages)全部
+会话状态(fmt / model / upstream / api_key / max_tokens / messages)全部
 在 `ChatContext` 实例里。本类只负责"输入分派 + 打印"。
 
 格式切换安全性
@@ -24,7 +24,7 @@ from typing import ClassVar
 
 from rosetta.cli.core.context import DEFAULT_MODELS, ChatContext, ChatError
 from rosetta.cli.core.render import Renderer
-from rosetta.shared.formats import Format
+from rosetta.shared.protocols import Protocol
 
 
 @dataclass
@@ -83,7 +83,7 @@ class ChatRepl:
         Renderer.stream_newline()
         self.ctx.append_assistant(result.text)
         Renderer.meta_line(
-            provider=self.ctx.provider or "auto",
+            upstream=self.ctx.upstream or "auto",
             model=self.ctx.model,
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
@@ -119,7 +119,7 @@ class ChatRepl:
 
         if cmd == "/format":
             try:
-                new_fmt = Format(arg)
+                new_fmt = Protocol(arg)
             except ValueError:
                 Renderer.error_bubble(
                     f"format 必须是 messages/completions/responses,收到 {arg!r}"

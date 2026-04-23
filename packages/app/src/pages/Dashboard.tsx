@@ -59,7 +59,7 @@ export default function Dashboard() {
           <Stat label="status" value={<Badge>running</Badge>} />
           <Stat label="version" value={state.status.version} />
           <Stat label="uptime" value={formatUptime(state.status.uptime_ms)} />
-          <Stat label="providers" value={String(state.status.providers_count)} />
+          <Stat label="upstreams" value={String(state.status.upstreams_count)} />
         </div>
       )}
     </section>

@@ -12,17 +12,17 @@ CLI `chat` 流式渲染使用。与 `rosetta/server/translation/stream.py` 的 S
 
 文本抽取规则(v0.1)
 --------------------
-- `Format.MESSAGES`:`content_block_delta` + `delta.type == "text_delta"` → `delta.text`
-- `Format.CHAT_COMPLETIONS`:`choices[0].delta.content`(chunk `data:` 行,`[DONE]` 终止)
-- `Format.RESPONSES`:`type == "response.output_text.delta"` → `delta`(str)
+- `Protocol.MESSAGES`:`content_block_delta` + `delta.type == "text_delta"` → `delta.text`
+- `Protocol.CHAT_COMPLETIONS`:`choices[0].delta.content`(chunk `data:` 行,`[DONE]` 终止)
+- `Protocol.RESPONSES`:`type == "response.output_text.delta"` → `delta`(str)
 
 Usage 抽取规则(v0.1)
 ---------------------
-- `Format.MESSAGES`:`message_start.message.usage.input_tokens`(首)
+- `Protocol.MESSAGES`:`message_start.message.usage.input_tokens`(首)
   + `message_delta.usage.output_tokens`(累加式覆盖,上游会在 delta 里给累计值)
-- `Format.CHAT_COMPLETIONS`:最后一个 chunk 的 `usage` 字段(需在请求里
+- `Protocol.CHAT_COMPLETIONS`:最后一个 chunk 的 `usage` 字段(需在请求里
   `stream_options.include_usage=true`,CLI 会自动加)
-- `Format.RESPONSES`:`response.completed.response.usage.{input,output}_tokens`
+- `Protocol.RESPONSES`:`response.completed.response.usage.{input,output}_tokens`
 
 其余事件(工具调用 / 思考 / 错误等)**忽略**——CLI 只做文本回显;更完整的事件消费
 留给未来 v1+ 真正使用 ContentBlock 结构时再引入。
@@ -37,10 +37,10 @@ from typing import Any, cast
 
 import httpx
 
-from rosetta.shared.formats import Format
+from rosetta.shared.protocols import Protocol
 
 
-async def iter_text_deltas(resp: httpx.Response, fmt: Format) -> AsyncIterator[str]:
+async def iter_text_deltas(resp: httpx.Response, fmt: Protocol) -> AsyncIterator[str]:
     """解码 `resp` 的 SSE 流,按 `fmt` 产出文本增量。
 
     调用方负责确保 `resp` 是用 `stream=True` 发出的。本函数只读不关,由外层
@@ -58,13 +58,13 @@ class ChatStream:
 
     用法::
 
-        stream = ChatStream(fmt=Format.MESSAGES)
+        stream = ChatStream(fmt=Protocol.MESSAGES)
         async for tok in stream.text_deltas(resp):
             print(tok, end="", flush=True)
         # 流结束后 stream.input_tokens / stream.output_tokens 可用
     """
 
-    fmt: Format
+    fmt: Protocol
     input_tokens: int = field(default=0)
     output_tokens: int = field(default=0)
 
@@ -76,7 +76,7 @@ class ChatStream:
                 yield text
 
     def _update_usage(self, event_name: str | None, data: dict[str, Any]) -> None:
-        if self.fmt is Format.MESSAGES:
+        if self.fmt is Protocol.MESSAGES:
             etype = event_name or data.get("type")
             if etype == "message_start":
                 msg = data.get("message")
@@ -97,7 +97,7 @@ class ChatStream:
                         self.output_tokens = ot
             return
 
-        if self.fmt is Format.CHAT_COMPLETIONS:
+        if self.fmt is Protocol.CHAT_COMPLETIONS:
             u = data.get("usage")
             if isinstance(u, dict):
                 ud = cast(dict[str, Any], u)
@@ -105,7 +105,7 @@ class ChatStream:
                 self.output_tokens = int(ud.get("completion_tokens", 0) or 0)
             return
 
-        # Format.RESPONSES
+        # Protocol.RESPONSES
         etype = event_name or data.get("type")
         if etype == "response.completed":
             resp = data.get("response")
@@ -175,9 +175,9 @@ def _parse_frame(frame: bytes) -> tuple[str | None, dict[str, Any]] | None:
     return event_name, cast(dict[str, Any], parsed)
 
 
-def _extract_text(fmt: Format, event_name: str | None, data: dict[str, Any]) -> str:
+def _extract_text(fmt: Protocol, event_name: str | None, data: dict[str, Any]) -> str:
     """按 format 抽文本增量;非文本事件返回空字符串。"""
-    if fmt is Format.MESSAGES:
+    if fmt is Protocol.MESSAGES:
         etype = event_name or data.get("type")
         if etype != "content_block_delta":
             return ""
@@ -190,7 +190,7 @@ def _extract_text(fmt: Format, event_name: str | None, data: dict[str, Any]) -> 
         text = d.get("text", "")
         return text if isinstance(text, str) else ""
 
-    if fmt is Format.CHAT_COMPLETIONS:
+    if fmt is Protocol.CHAT_COMPLETIONS:
         choices = data.get("choices")
         if not isinstance(choices, list) or not choices:
             return ""
@@ -203,7 +203,7 @@ def _extract_text(fmt: Format, event_name: str | None, data: dict[str, Any]) -> 
         content = cast(dict[str, Any], delta).get("content")
         return content if isinstance(content, str) else ""
 
-    # Format.RESPONSES
+    # Protocol.RESPONSES
     etype = event_name or data.get("type")
     if etype != "response.output_text.delta":
         return ""
