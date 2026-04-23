@@ -18,12 +18,13 @@ use std::net::TcpStream;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, State, WindowEvent};
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_updater::UpdaterExt;
 
 /// sidecar 进程句柄;Drop 时不杀 child(依赖 server 的 parent-pid watcher 兜底)
 struct SidecarState(Mutex<Option<CommandChild>>);
@@ -43,6 +44,55 @@ fn read_endpoint_url() -> Option<String> {
 #[tauri::command]
 fn get_server_url() -> Result<String, String> {
     read_endpoint_url().ok_or_else(|| "无法读取 ~/.rosetta/endpoint.json(server 可能未启动)".into())
+}
+
+/// 前端 invoke 的 "Check for updates" 入口。
+///
+/// 成功路径:返回 `UpdateCheckResult { available, version?, notes? }`。
+/// 无新版本 → `available: false`。发现新版本但不自动下载,由前端展示信息,
+/// 用户点"立即更新"再走 `install_update` 命令(下载 + 应用 + 重启)。
+#[tauri::command]
+async fn check_for_update(app: AppHandle) -> Result<UpdateCheckResult, String> {
+    let updater = app.updater().map_err(|e| format!("updater 初始化失败:{e}"))?;
+    match updater.check().await {
+        Ok(Some(update)) => Ok(UpdateCheckResult {
+            available: true,
+            version: Some(update.version.clone()),
+            notes: update.body.clone(),
+        }),
+        Ok(None) => Ok(UpdateCheckResult {
+            available: false,
+            version: None,
+            notes: None,
+        }),
+        Err(e) => Err(format!("check 失败:{e}")),
+    }
+}
+
+/// 前端确认升级后调用:下载 + 应用 + 重启。
+/// 阻塞直到下载完成,失败时把错误返前端让用户看到。
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    let updater = app.updater().map_err(|e| format!("updater 初始化失败:{e}"))?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| format!("check 失败:{e}"))?
+        .ok_or_else(|| "当前已是最新版本,无需升级".to_string())?;
+
+    update
+        .download_and_install(|_chunk, _total| {}, || {})
+        .await
+        .map_err(|e| format!("下载/安装失败:{e}"))?;
+
+    app.restart()
+}
+
+#[derive(Serialize)]
+struct UpdateCheckResult {
+    available: bool,
+    version: Option<String>,
+    notes: Option<String>,
 }
 
 /// 用 std::net 直接发 HTTP POST,避免拉 ureq / reqwest 进 bundle。
@@ -101,6 +151,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(SidecarState(Mutex::new(None)))
         .setup(|app| {
             // --- sidecar ---
@@ -159,7 +210,11 @@ pub fn run() {
                 api.prevent_close();
             }
         })
-        .invoke_handler(tauri::generate_handler![get_server_url])
+        .invoke_handler(tauri::generate_handler![
+            get_server_url,
+            check_for_update,
+            install_update,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

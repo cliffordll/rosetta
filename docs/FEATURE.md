@@ -797,21 +797,40 @@
   - 3-4:Retry 回填输入框 + 清空末尾消息对,Send 后 UI 正常
 - **通过判据**:5 个场景均有可恢复 UI,不白屏、不卡死
 
-### 步骤 8.2 · 自动更新
+### 步骤 8.2 ✅ · 自动更新(代码就绪,pubkey 待填)
 
-- **目标**:`tauri-plugin-updater` 接入
-- **手动测试步骤**:
-  1. 本地搭 mock updater server(tauri-plugin-updater 文档有示例)
-  2. `updater.json` 指向 v0.1.0 的假"新版本"
-  3. app 里手动触发 check update(或启动自动 check)
-  4. 看"发现新版本"提示
-  5. 点"升级"
-  6. 等待下载 + 重启
-  7. 看版本号是否更新
+- **目标**:`tauri-plugin-updater` 接入,Dashboard 有 "Check for updates" 入口
+- **产出**:
+  - `Cargo.toml`:依赖 `tauri-plugin-updater = "2"`
+  - `src/lib.rs`:`.plugin(tauri_plugin_updater::Builder::new().build())` 注册;
+    暴露两个 tauri command:
+    · `check_for_update` → `{ available, version, notes }`
+    · `install_update` → 下载 + apply + `app.restart()`
+  - `capabilities/default.json`:加 `"updater:default"` 权限
+  - `tauri.conf.json`:`plugins.updater.endpoints` 指向 GitHub Release 的
+    `latest.json`;`pubkey` 目前是占位 `REPLACE_WITH_BASE64_PUBKEY_...`
+  - `packages/app/src/lib/updater.ts`:前端 invoke 封装;`isTauri()` 环境检测
+  - `packages/app/src/pages/Dashboard.tsx`:仅 Tauri 壳下显示 "Check for updates"
+    按钮;发现新版 → 显示版本 / release notes / Install 按钮
+- **用户需做的一次性配置**(才能真启用自动更新):
+  1. 生成 ed25519 密钥对:`cd packages/desktop/tauri && bun run tauri signer generate -w ~/.tauri/rosetta.key`
+  2. 私钥路径写入 GH secrets `TAURI_SIGNING_PRIVATE_KEY` + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+  3. 公钥 base64 替换 `tauri.conf.json` 里 `plugins.updater.pubkey` 的占位文字
+  4. `bun run tauri build` 时 Tauri 会用私钥签 installer 产物并生成 `latest.json`
+- **手动测试步骤**(配好 pubkey 后):
+  1. 本地搭 mock updater server(nginx 起一个静态服务),或把 `latest.json`
+     托管到 GitHub Release;`latest.json` 指向 v0.1.1 的签名 installer
+  2. 打开已安装的 v0.1.0 Rosetta 桌面端
+  3. Dashboard → 点 "Check for updates"
+  4. 看到"update available · v0.1.1 · release notes"卡片
+  5. 点 "Install and restart";等下载 + 重启
+  6. 重启后 Dashboard 的 version 字段应显示 0.1.1
 - **预期结果**:
-  - 步骤 4:弹窗提示
-  - 步骤 7:app 启动后版本号更新到 0.1.0
-- **通过判据**:整个升级链路走通
+  - 步骤 3:按钮变 "Checking…";成功后要么"已是最新版本",要么出现升级卡
+  - 步骤 6:版本号更新
+- **通过判据**:check → found → install → restart 链路全通
+- **让步**:pubkey 占位未替换前,`check_for_update` 在 Tauri 里会在 `updater()`
+  初始化时报错,前端展示"更新检查失败"—— 这是预期,提示用户先做一次性配置
 
 ### 步骤 8.3 · 代码签名 + 安装包 + 首个 Release
 

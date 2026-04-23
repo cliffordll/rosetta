@@ -3,6 +3,12 @@ import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api, type ApiError, type StatusResponse } from "@/lib/api";
+import {
+  checkForUpdate,
+  installUpdate,
+  isTauri,
+  type UpdateCheckResult,
+} from "@/lib/updater";
 
 type FetchState =
   | { kind: "loading" }
@@ -11,6 +17,14 @@ type FetchState =
 
 export default function Dashboard() {
   const [state, setState] = useState<FetchState>({ kind: "loading" });
+  const [updateState, setUpdateState] = useState<
+    | { kind: "idle" }
+    | { kind: "checking" }
+    | { kind: "up-to-date" }
+    | { kind: "found"; result: UpdateCheckResult }
+    | { kind: "installing" }
+    | { kind: "err"; message: string }
+  >({ kind: "idle" });
 
   const load = useCallback(async () => {
     setState({ kind: "loading" });
@@ -24,18 +38,88 @@ export default function Dashboard() {
     }
   }, []);
 
+  const runCheckUpdate = useCallback(async () => {
+    setUpdateState({ kind: "checking" });
+    try {
+      const result = await checkForUpdate();
+      setUpdateState(
+        result.available ? { kind: "found", result } : { kind: "up-to-date" },
+      );
+    } catch (e) {
+      setUpdateState({ kind: "err", message: e instanceof Error ? e.message : String(e) });
+    }
+  }, []);
+
+  const runInstall = useCallback(async () => {
+    setUpdateState({ kind: "installing" });
+    try {
+      await installUpdate();
+      // 成功时 Tauri 会触发 restart,这条 setState 不一定会被执行
+      setUpdateState({ kind: "idle" });
+    } catch (e) {
+      setUpdateState({ kind: "err", message: e instanceof Error ? e.message : String(e) });
+    }
+  }, []);
+
   useEffect(() => {
     void load();
   }, [load]);
+
+  const inTauri = isTauri();
+  const updateBtnDisabled =
+    updateState.kind === "checking" || updateState.kind === "installing";
 
   return (
     <section>
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <Button variant="outline" size="sm" onClick={() => void load()}>
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          {inTauri && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void runCheckUpdate()}
+              disabled={updateBtnDisabled}
+            >
+              {updateState.kind === "checking"
+                ? "Checking…"
+                : updateState.kind === "installing"
+                  ? "Installing…"
+                  : "Check for updates"}
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={() => void load()}>
+            Refresh
+          </Button>
+        </div>
       </div>
+
+      {updateState.kind === "up-to-date" && (
+        <div className="mb-4 rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+          已是最新版本。
+        </div>
+      )}
+      {updateState.kind === "err" && (
+        <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+          更新检查失败:{updateState.message}
+        </div>
+      )}
+      {updateState.kind === "found" && (
+        <div className="mb-4 rounded-md border border-border bg-muted/30 p-3 text-sm">
+          <div className="mb-2">
+            <Badge>update available</Badge>
+            <span className="ml-2 font-mono">v{updateState.result.version}</span>
+          </div>
+          {updateState.result.notes && (
+            <pre className="mb-2 max-h-32 overflow-auto whitespace-pre-wrap text-xs text-muted-foreground">
+              {updateState.result.notes}
+            </pre>
+          )}
+          <Button size="sm" onClick={() => void runInstall()}>
+            Install and restart
+          </Button>
+        </div>
+      )}
 
       {state.kind === "loading" && (
         <p className="text-sm text-muted-foreground">Loading…</p>

@@ -10,6 +10,7 @@
       "allow": [
         { "name": "binaries/rosetta-server", "sidecar": true, "args": true }
       ]
-    }
+    },
+    "updater:default"
   ]
 }
