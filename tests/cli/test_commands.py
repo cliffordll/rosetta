@@ -37,6 +37,9 @@ def _wide_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("COLUMNS", "200")
     monkeypatch.setenv("NO_COLOR", "1")
     monkeypatch.setenv("TERM", "dumb")
+    # Windows CI runner 默认 stdout 用 cp1252,中文 option help 编码失败崩
+    # 测试;Linux 默认 utf-8 不受影响。统一强制 utf-8。
+    monkeypatch.setenv("PYTHONIOENCODING", "utf-8")
 
 
 def test_root_help() -> None:
