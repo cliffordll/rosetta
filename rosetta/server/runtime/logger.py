@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import sys
@@ -24,7 +25,13 @@ def configure_logging() -> None:
         root.setLevel(level)
         return
 
-    handler = logging.StreamHandler(sys.stdout)
+    # Windows 默认 stdout 用 cp1252,中文日志会触发 UnicodeEncodeError;
+    # Python 3.7+ 支持 reconfigure,把 stdout 提升到 utf-8 兜底。某些 stream
+    # (pipe / pytest capture buffer)不支持 reconfigure,忽略异常即可
+    stream = sys.stdout
+    with contextlib.suppress(Exception):
+        stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    handler = logging.StreamHandler(stream)
     handler.setFormatter(
         logging.Formatter(
             fmt="%(asctime)s %(levelname)-5s [%(name)s] %(message)s",
