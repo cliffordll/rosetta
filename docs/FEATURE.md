@@ -609,24 +609,50 @@
 - **通过判据**:8 项全通
 - **风险**:切 format 后 tool_use / thinking 块要 toast 提示被丢弃
 
-### 步骤 5.4 🟡 · Logs 页(跳过 · 待后端 logger)
+### 步骤 5.4 ✅ · 日志(server logger + DB 流水 + CLI / UI 查询)
 
-- **目标**:日志列表 + 分页 + provider / 时间筛选
-- **产出**:`src/pages/Logs.tsx`
+- **目标**:server 端打日志 + 每请求一条落 `logs` 表;CLI / UI / SDK 统一从
+  `/admin/logs` 读;打包后不弹黑框(windowless)
+- **产出**:
+  - `rosetta/server/runtime/logger.py`:`configure_logging()` — stdout handler
+    + 接管 uvicorn logger;`ROSETTA_LOG_LEVEL` / `ROSETTA_ACCESS_LEVEL` 控级别
+  - `rosetta/server/service/log_writer.py`:`LogWriter` 类 + 单例,从
+    `session.get_session_maker()` 自取 session 后台写,失败不向上冒
+  - `rosetta/server/repository/log.py`:`LogRepo.create(...)`;`list_with_upstream`
+    的 `since` 改严格大于(polling 游标语义)
+  - `rosetta/server/service/forwarder.py`:`forward()` 主体 try/except,
+    成功 / ServiceError / 异常三路径都调 `log_writer.record`
+  - `rosetta/sdk/client.py`:`list_logs(since=...)` 透传游标
+  - `rosetta/cli/commands/logs.py`:`rosetta logs [-n N] [--upstream X] [-f/--follow]`;
+    follow 模式先 tail 后 1s polling
+  - `packages/app/src/lib/api.ts` + `src/pages/Logs.tsx`:LogOut 类型 + Logs
+    页(表格列 / upstream 过滤 / Prev-Next 分页 / Refresh 按钮 / EmptyState)
+  - `build/rosetta-server.spec`:`console=False`,Windows windowless 子系统 —
+    UI / CLI 启动 server 不再弹黑框
 - **手动测试步骤**:
-  1. 前提:DB 里有 30+ 条 log(可从前面步骤积累)
-  2. 打开 Logs 页,看默认视图
-  3. 点"下一页"
-  4. 选某 provider 筛选
-  5. 选时间段(如"今天")
-  6. 清筛选
+  1. `rm -f ~/.rosetta/rosetta.db`;`uv run rosetta chat "hi"`(默认 mock)
+  2. `uv run rosetta logs`:应能看到刚才那条(status=ok、upstream=mock、model、latency)
+  3. 再发 3-4 条不同协议的 chat(`--protocol completions` / `responses`)
+  4. `uv run rosetta logs --upstream mock`:过滤只留 mock;`--limit 2` 生效
+  5. `uv run rosetta logs -f`:开新终端,一边发 chat 一边看实时追加;Ctrl+C 正常退出
+  6. UI Logs 页:打开 → 默认显示刚才那批;下拉换 upstream 过滤 → 列表刷新;
+     Prev/Next 翻页(需要 >50 条才能 Next);Refresh 拉最新
+  7. 触发失败路径(例如 `curl -X POST http://<port>/v1/messages -d 'not-json'`):
+     Logs 页 / CLI 都能看到 status=error + error 字段填 `invalid_json_body: ...`
+  8. 打包后验证(可选,阶段 6):`./dist/rosetta.exe chat "hi"` 启动 server
+     时**不再弹黑框**,日志通过 `rosetta logs -f` / Logs 页均可见
 - **预期结果**:
-  - 步骤 2:按时间降序显示最近 20(或默认 page size)条
-  - 步骤 3:翻到下一批
-  - 步骤 4:列表只剩该 provider 的条目
-  - 步骤 5:列表只剩时间段内的条目
-  - 步骤 6:回到默认视图
-- **通过判据**:分页 + 两种筛选 + 清空都正确
+  - 步骤 2:表格一行 `status=ok`,`model=claude-haiku-4-5`,`upstream=mock`
+  - 步骤 4:结果行只剩 upstream=mock
+  - 步骤 5:每秒内新的 chat 请求在 follow 输出追加
+  - 步骤 7:Logs 页 error 列渲染非空,Badge 变 destructive
+  - 步骤 8:无黑框(console=False 生效)
+- **通过判据**:
+  - `pytest tests/server/test_dataplane.py -k log`:2 条通过(成功 / ServiceError 两条路径)
+  - `pytest tests/server/test_admin.py -k since`:1 条通过(since 严格大于)
+  - 端到端 smoke:步骤 1-7 全绿(步骤 8 打包后补)
+- **风险**:流式请求的 latency 仅含"请求分发到 Response 构造"的时长,不含流持续时长;
+  tokens 当前写 null(v1+ 在流尾 drain 时补);均已在 `Forwarder.forward` docstring 说明
 
 **=== 阶段 5 整体验收 ===**:浏览器里直连本地 server,四页全功能可用。
 

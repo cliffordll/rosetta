@@ -415,7 +415,10 @@ POST   /admin/upstreams/restore-mock?force=bool  幂等恢复内置 mock upstrea
 DELETE /admin/upstreams/{id}             删除
 (GET/PUT by id、连通性测试 /test 推迟到 v1+,见 FEATURE.md 附录 B)
 
-GET    /admin/logs?limit=50&offset=0     最近请求日志
+GET    /admin/logs                       最近请求日志
+                                         参数:limit(≤500)/ offset / upstream=<name>
+                                         / since=<ISO>(polling 游标,严格大于)
+                                         / until=<ISO>
 GET    /admin/stats?period=today         用量统计
 
 POST   /admin/shutdown                   优雅关停（GUI 退出时调）

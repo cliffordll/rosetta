@@ -81,6 +81,11 @@ uv run rosetta chat --base-url https://api.anthropic.com --api-key sk-ant-XXX --
 # 误删 mock 后恢复
 uv run rosetta upstream mock
 
+# 看请求日志
+uv run rosetta logs              # 最近 50 条表格
+uv run rosetta logs -f           # 实时 follow(Ctrl+C 退出)
+uv run rosetta logs --upstream mock --limit 20
+
 # 跑测试
 uv run pytest
 
