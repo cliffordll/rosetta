@@ -66,7 +66,11 @@ exe = EXE(
     upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,
+    # Windows windowed 子系统:spawn 时不弹黑框。stdout / stderr 被 OS 丢弃,
+    # 所以日志必须走 logger + logs 表(见 runtime/logger.py · service/log_writer.py);
+    # CLI 观察实时日志用 `rosetta logs -f`,UI 用 Logs 页。
+    # 开发模式 `python -m rosetta.server` 不走 exe,stdout 正常。
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

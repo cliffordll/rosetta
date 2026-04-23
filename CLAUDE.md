@@ -46,6 +46,12 @@
 - **非破坏优先**:重命名用 rename 而非"删旧建新";废弃文档打归档 banner 不删;代码删除前优先确认无引用
 - **识别 vs 自然语言**:批量重命名标识符时,不动中文散文里的自然描述(例:schema 里 `request_logs` → `logs`,但文档里"请求日志"这类描述词不改)
 
+## 实现原则
+
+- **优先面向对象**:新功能优先用类封装(参考项目现有风格:`Forwarder` / `MockResponder` / `Renderer` / `UpstreamRepo` / `ChatContext`)。类承载配置 + 状态,模块尾部暴露单例 `xxx = Xxx()` 供调用方直接 import 使用;纯无状态工具才散函数
+- **优先复用已有抽象**:动手前先扫一眼相邻层有无现成函数 / 类可用(翻译层 `_REQ_TO_IR` / `_IR_TO_RESP` / `_IR_TO_STREAM` / `encode_sse_stream`;SDK `ProxyClient.discover_session` / `direct_session`;Renderer / Repository 等)。重写一遍之前先问"能不能调用它",避免两套代码各自漂移
+- **例外**:一次性脚本 / 实验性验证可以散函数,但落入生产路径前要按上面两条重构
+
 ## 技术栈(已决策)
 
 - **语言**:Python 3.12+,单包布局(参见 `docs/DESIGN.md` §7)
