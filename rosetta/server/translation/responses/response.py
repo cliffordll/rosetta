@@ -427,11 +427,17 @@ def ir_to_responses_stream(
     tool_block_meta: dict[int, tuple[str, str]] = {}  # ir_idx → (call_id, name)
     next_output_idx = 0
     stop_reason_buf: StopReason | None = None
+    # usage 累计:MessageStart 给 input_tokens,MessageDelta 给累计 output_tokens;
+    # 最终塞进 response.completed 的快照(对齐非流路径的 usage 字段)
+    input_tokens_buf = 0
+    output_tokens_buf = 0
 
     for ev in events:
         if isinstance(ev, MessageStartEvent):
             last_id = ev.id
             last_model = ev.model
+            input_tokens_buf = ev.usage.input_tokens
+            output_tokens_buf = ev.usage.output_tokens
             yield {
                 "type": "response.created",
                 "response": _response_snapshot(last_id, last_model, output=[]),
@@ -520,13 +526,20 @@ def ir_to_responses_stream(
             else:
                 raise AssertionError(f"未覆盖的 item type: {itype!r}")
         elif isinstance(ev, MessageDeltaEvent):
-            # 缓存 stop_reason,等 MessageStop 时一并发 response.completed
+            # 缓存 stop_reason + usage(Anthropic 的 output_tokens 是累计值),
+            # 等 MessageStop 时一并塞进 response.completed 快照
             stop_reason_buf = ev.stop_reason or stop_reason_buf
-            # usage 不通过独立事件下发,包含在 response.completed 的快照里
+            if ev.usage is not None and ev.usage.output_tokens is not None:
+                output_tokens_buf = ev.usage.output_tokens
         elif isinstance(ev, MessageStopEvent):
             status, incomplete_details = _stop_reason_to_status(stop_reason_buf)
             resp = _response_snapshot(last_id, last_model, output=[])
             resp["status"] = status
+            resp["usage"] = {
+                "input_tokens": input_tokens_buf,
+                "output_tokens": output_tokens_buf,
+                "total_tokens": input_tokens_buf + output_tokens_buf,
+            }
             if incomplete_details is not None:
                 resp["incomplete_details"] = incomplete_details
             final_type = "response.completed" if status == "completed" else "response.incomplete"

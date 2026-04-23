@@ -54,12 +54,16 @@ export default function Upstreams() {
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [openAdd, setOpenAdd] = useState(false);
   const [toDelete, setToDelete] = useState<UpstreamOut | null>(null);
+  const [restoringMock, setRestoringMock] = useState(false);
+  // inline 反馈:mock 恢复成功 / 已存在;用户可见片刻后由下一次 load 覆盖
+  const [info, setInfo] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoadErr(null);
     try {
       const list = await api.listUpstreams();
-      setItems(list);
+      // 后端按 created_at 升序返回;UI 倒序让最新创建的排在最前
+      setItems([...list].reverse());
     } catch (e) {
       setLoadErr(e instanceof Error ? e.message : String(e));
       setItems([]);
@@ -81,12 +85,46 @@ export default function Upstreams() {
     }
   }
 
+  async function handleRestoreMock() {
+    setInfo(null);
+    setLoadErr(null);
+    setRestoringMock(true);
+    try {
+      const result = await api.restoreMockUpstream();
+      setInfo(
+        result.created
+          ? `mock upstream restored (id=${result.upstream.id})`
+          : `mock upstream already exists (id=${result.upstream.id})`,
+      );
+      await load();
+    } catch (e) {
+      setLoadErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRestoringMock(false);
+    }
+  }
+
   return (
     <section>
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Upstreams</h1>
-        <Button onClick={() => setOpenAdd(true)}>Add upstream</Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => void handleRestoreMock()}
+            disabled={restoringMock}
+          >
+            {restoringMock ? "Restoring…" : "Restore mock"}
+          </Button>
+          <Button onClick={() => setOpenAdd(true)}>Add upstream</Button>
+        </div>
       </div>
+
+      {info && (
+        <div className="mb-4 rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+          {info}
+        </div>
+      )}
 
       {loadErr && (
         <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
@@ -97,7 +135,11 @@ export default function Upstreams() {
       {items === null ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : items.length === 0 && !loadErr ? (
-        <EmptyState onAdd={() => setOpenAdd(true)} />
+        <EmptyState
+          onAdd={() => setOpenAdd(true)}
+          onRestoreMock={() => void handleRestoreMock()}
+          restoringMock={restoringMock}
+        />
       ) : (
         <div className="rounded-lg border border-border">
           <Table>
@@ -187,11 +229,24 @@ export default function Upstreams() {
   );
 }
 
-function EmptyState({ onAdd }: { onAdd: () => void }) {
+function EmptyState({
+  onAdd,
+  onRestoreMock,
+  restoringMock,
+}: {
+  onAdd: () => void;
+  onRestoreMock: () => void;
+  restoringMock: boolean;
+}) {
   return (
     <div className="rounded-lg border border-dashed border-border p-10 text-center">
       <p className="mb-3 text-sm text-muted-foreground">暂无 upstream</p>
-      <Button onClick={onAdd}>Add your first upstream</Button>
+      <div className="flex items-center justify-center gap-2">
+        <Button onClick={onAdd}>Add your first upstream</Button>
+        <Button variant="outline" onClick={onRestoreMock} disabled={restoringMock}>
+          {restoringMock ? "Restoring…" : "Restore built-in mock"}
+        </Button>
+      </div>
     </div>
   );
 }

@@ -27,7 +27,7 @@ from rosetta.sdk.discover import discover
 from rosetta.server.controller.logs import LogOut
 from rosetta.server.controller.runtime import StatusResponse
 from rosetta.server.controller.stats import Period, StatsOut
-from rosetta.server.controller.upstreams import UpstreamCreate, UpstreamOut
+from rosetta.server.controller.upstreams import RestoreMockOut, UpstreamCreate, UpstreamOut
 from rosetta.shared.protocols import UPSTREAM_PATH, Protocol
 
 _DATA_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
@@ -128,6 +128,17 @@ class ProxyClient:
             timeout=_ADMIN_TIMEOUT,
         )
         resp.raise_for_status()
+
+    async def restore_mock_upstream(self, *, force: bool = False) -> RestoreMockOut:
+        """幂等恢复内置 mock upstream;`force=True` 则先删后建。"""
+        self._require_server("restore_mock_upstream")
+        resp = await self.http.post(
+            f"{self.base_url}/admin/upstreams/restore-mock",
+            params={"force": "true" if force else "false"},
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return RestoreMockOut.model_validate(resp.json())
 
     async def list_logs(
         self,

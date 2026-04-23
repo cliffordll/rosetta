@@ -303,3 +303,211 @@ async def test_forward_without_open_raises() -> None:
             body=body,
             content_type="application/json",
             )
+
+
+# ---------- provider=mock 短路 ----------
+
+
+def _mock_upstream() -> Upstream:
+    return Upstream(
+        id="m" * 32,
+        name="mock",
+        protocol="any",  # mock 不发 HTTP,protocol 语义不适用
+        provider="mock",
+        api_key=None,
+        base_url="mock://",
+        enabled=True,
+    )
+
+
+async def _drain_stream(resp: Any) -> bytes:
+    """StreamingResponse.body_iterator 收完整流;mock 路径不打网络,瞬时返回。"""
+    buf = bytearray()
+    async for chunk in resp.body_iterator:
+        buf.extend(chunk if isinstance(chunk, bytes) else chunk.encode("utf-8"))
+    return bytes(buf)
+
+
+def _sse_data_payloads(raw: str) -> list[dict[str, Any]]:
+    """把 SSE 原始字节 decode 后按 `\\n\\n` 切帧,抽出每帧的 `data:` JSON。"""
+    payloads: list[dict[str, Any]] = []
+    for frame in raw.split("\n\n"):
+        data_lines = [
+            line[len("data:"):].lstrip()
+            for line in frame.splitlines()
+            if line.startswith("data:")
+        ]
+        if not data_lines:
+            continue
+        data_str = "\n".join(data_lines)
+        if data_str.strip() == "[DONE]":
+            continue
+        try:
+            parsed = json.loads(data_str)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            payloads.append(parsed)
+    return payloads
+
+
+def _concat_messages_text(raw: str) -> str:
+    """messages SSE:拼 `content_block_delta.delta.text`。"""
+    out = ""
+    for data in _sse_data_payloads(raw):
+        if data.get("type") == "content_block_delta":
+            delta = data.get("delta")
+            if isinstance(delta, dict) and delta.get("type") == "text_delta":
+                text = delta.get("text")
+                if isinstance(text, str):
+                    out += text
+    return out
+
+
+def _concat_completions_text(raw: str) -> str:
+    """completions SSE:拼 `choices[0].delta.content`。"""
+    out = ""
+    for data in _sse_data_payloads(raw):
+        choices = data.get("choices")
+        if not isinstance(choices, list) or not choices:
+            continue
+        first = choices[0]
+        if not isinstance(first, dict):
+            continue
+        delta = first.get("delta")
+        if isinstance(delta, dict):
+            content = delta.get("content")
+            if isinstance(content, str):
+                out += content
+    return out
+
+
+def _concat_responses_text(raw: str) -> str:
+    """responses SSE:拼 `response.output_text.delta.delta`。"""
+    out = ""
+    for data in _sse_data_payloads(raw):
+        if data.get("type") == "response.output_text.delta":
+            delta = data.get("delta")
+            if isinstance(delta, str):
+                out += delta
+    return out
+
+
+async def test_mock_provider_messages_stream_echoes_user_text() -> None:
+    """provider=mock + messages 流式:短路不发 HTTP,SSE 含 text_delta + message_delta usage。"""
+    body = json.dumps(
+        {
+            "model": "claude-haiku-4-5",
+            "max_tokens": 128,
+            "stream": True,
+            "messages": [{"role": "user", "content": "hello mock"}],
+        }
+    ).encode("utf-8")
+    resp = await forwarder.forward(
+        upstream=_mock_upstream(),
+        request_protocol=Protocol.MESSAGES,
+        body=body,
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+    assert resp.media_type == "text/event-stream"
+
+    raw = (await _drain_stream(resp)).decode("utf-8")
+    assert "event: message_start" in raw
+    assert "content_block_delta" in raw
+    assert "message_delta" in raw
+    assert "message_stop" in raw
+    # 拼回文本后断言 echo 前缀(含 protocol)+ 用户输入
+    reply = _concat_messages_text(raw)
+    assert reply.startswith("[mock:messages] echo:")
+    assert "hello mock" in reply
+
+
+async def test_mock_provider_completions_stream_has_usage_chunk() -> None:
+    """provider=mock + completions 流式:末尾含单独 usage chunk + data: [DONE]。"""
+    body = json.dumps(
+        {
+            "model": "gpt-4o-mini",
+            "stream": True,
+            "stream_options": {"include_usage": True},
+            "max_tokens": 64,
+            "messages": [{"role": "user", "content": "hi there"}],
+        }
+    ).encode("utf-8")
+    resp = await forwarder.forward(
+        upstream=_mock_upstream(),
+        request_protocol=Protocol.CHAT_COMPLETIONS,
+        body=body,
+        content_type="application/json",
+    )
+    raw = (await _drain_stream(resp)).decode("utf-8")
+    reply = _concat_completions_text(raw)
+    assert reply.startswith("[mock:completions] echo:")
+    assert "hi there" in reply
+    assert '"finish_reason": "stop"' in raw
+    assert '"prompt_tokens"' in raw and '"completion_tokens"' in raw
+    assert raw.rstrip().endswith("data: [DONE]")
+
+
+async def test_mock_provider_responses_stream_has_completed_usage() -> None:
+    """provider=mock + responses 流式:`response.output_text.delta` + `response.completed.usage`。"""
+    body = json.dumps(
+        {
+            "model": "gpt-4o-mini",
+            "stream": True,
+            "max_output_tokens": 64,
+            "input": [{"type": "message", "role": "user", "content": "ping"}],
+        }
+    ).encode("utf-8")
+    resp = await forwarder.forward(
+        upstream=_mock_upstream(),
+        request_protocol=Protocol.RESPONSES,
+        body=body,
+        content_type="application/json",
+    )
+    raw = (await _drain_stream(resp)).decode("utf-8")
+    assert "response.output_text.delta" in raw
+    assert "response.completed" in raw
+    assert '"input_tokens"' in raw and '"output_tokens"' in raw
+    reply = _concat_responses_text(raw)
+    assert reply.startswith("[mock:responses] echo:")
+    assert "ping" in reply
+
+
+async def test_mock_provider_messages_non_stream_returns_json() -> None:
+    """非流模式返回一个完整 messages JSON;usage + echo 文本都在。"""
+    body = json.dumps(
+        {
+            "model": "claude-haiku-4-5",
+            "max_tokens": 128,
+            "messages": [{"role": "user", "content": "hola"}],
+        }
+    ).encode("utf-8")
+    resp = await forwarder.forward(
+        upstream=_mock_upstream(),
+        request_protocol=Protocol.MESSAGES,
+        body=body,
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+    assert resp.media_type == "application/json"
+    data = json.loads(bytes(resp.body))
+    assert data["type"] == "message"
+    assert data["role"] == "assistant"
+    assert data["content"][0]["text"].endswith("hola")
+    assert data["content"][0]["text"].startswith("[mock:messages] echo:")
+    assert data["usage"]["input_tokens"] >= 1
+    assert data["usage"]["output_tokens"] >= 1
+
+
+async def test_mock_provider_bypasses_httpx_client() -> None:
+    """forwarder 未 open(no mock transport)时 mock 分支仍能工作——证明没打 HTTP。"""
+    assert forwarder._client is None
+    body = json.dumps({"model": "x", "max_tokens": 16, "messages": []}).encode("utf-8")
+    resp = await forwarder.forward(
+        upstream=_mock_upstream(),
+        request_protocol=Protocol.MESSAGES,
+        body=body,
+        content_type="application/json",
+    )
+    assert resp.status_code == 200

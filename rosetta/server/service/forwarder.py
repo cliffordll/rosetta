@@ -26,6 +26,7 @@ from fastapi.responses import Response, StreamingResponse
 
 from rosetta.server.database.models import Upstream
 from rosetta.server.service.exceptions import ServiceError
+from rosetta.server.service.mock import mock_responder
 from rosetta.server.translation.degradation import (
     StatefulNotTranslatableError,
     degrade_responses_request,
@@ -188,6 +189,12 @@ class Forwarder:
         """
         body_dict = self._parse_body(body)
         is_stream = body_dict.get("stream") is True
+
+        # provider=mock 短路:不发 HTTP,本地 echo 生成响应
+        if upstream.provider == "mock":
+            resp = await mock_responder.respond(request_protocol, body_dict, stream=is_stream)
+            return self._with_extra_headers(resp, extra_response_headers)
+
         upstream_protocol = Protocol(upstream.protocol)
         url = self._base_url_for(upstream) + UPSTREAM_PATH[upstream_protocol]
         headers = {

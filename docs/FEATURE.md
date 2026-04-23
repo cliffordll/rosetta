@@ -482,27 +482,62 @@
 - **通过判据**:6 个场景全部符合
 - **风险**:Windows terminal 的 ANSI 颜色;typer 对多词 positional 的处理
 
-### 步骤 4.4 ⏸️ · direct 模式 + 互斥校验(暂缓)
+### 步骤 4.4 ✅ · direct 模式 + 默认兜底
 
-- **目标**:`--base-url` 触发 direct;与 `--provider` 互斥
+- **目标**:`--base-url` 触发 direct 绕 server;`--upstream` 未给时默认 `mock`;两者同给时 `--upstream` 自动失效并打 warn
 - **产出**:
-  - `rosetta/cli/commands/chat.py` 参数解析分支
-  - direct 模式走 `ProxyClient.direct()`,绕 server
+  - `rosetta/cli/commands/chat.py` 参数分支:server / direct 两条路径
+  - direct 走 `ProxyClient.direct_session(base_url, api_key, format=protocol, model)`
+  - server 模式 `--upstream` 未给默认 `mock`(依赖步骤 4.5 的内置 mock 上游)
+- **参数规则**:
+  - `--base-url` 给 → direct 模式;**必须**配 `--api-key` + `--model`(缺一 die);`--upstream` 给了就打 warn 并忽略
+  - `--base-url` 不给 → server 模式;`--upstream` 缺省 `mock`;`--model` 缺省按 protocol 取
 - **手动测试步骤**:
   1. 记下当前 `~/.rosetta/endpoint.json` mtime 和 logs 表最大 id
-  2. `uv run rosetta chat --base-url https://api.anthropic.com --api-key sk-ant-XXX --format messages --model claude-haiku-4-5 "hi"`
+  2. `uv run rosetta chat --base-url https://api.anthropic.com --api-key sk-ant-XXX --protocol messages --model claude-haiku-4-5 "hi"`
   3. 再检 endpoint.json mtime(应不变)和 logs 最大 id(应不变)
-  4. `uv run rosetta chat --base-url https://api.anthropic.com --provider foo "hi"`
-  5. `uv run rosetta chat --base-url https://api.openai.com --api-key sk-XXX --format messages --model gpt-4o-mini "hi"`(format 不匹配上游方言)
+  4. `uv run rosetta chat --base-url https://api.anthropic.com` (缺 api-key / model)
+  5. `uv run rosetta chat --base-url https://x --upstream mock --api-key sk-X --model foo "hi"`(两者同给,观察 warn)
 - **预期结果**:
-  - 步骤 2:返回 Claude 回复,meta 行前缀是 `[direct · api.anthropic.com · ...]`
-  - 步骤 3:endpoint.json mtime 未变,logs 表无新增
-  - 步骤 4:stderr 提示"--base-url 与 --provider 互斥",exit 2
-  - 步骤 5:stderr 提示"format 和上游方言不一致",exit 2(若无法检测则至少上游返回 4xx 时 CLI 报错清晰)
-- **通过判据**:direct 真未经 server;两个互斥校验正确拦截
-- **风险**:direct 时如果 server 恰好在跑,要确保代码路径**真的**没向 localhost 发请求(关键看日志)
+  - 步骤 2:返回 Claude 回复;endpoint.json mtime 未变,logs 表无新增
+  - 步骤 4:stderr 提示 `--base-url 模式下 --api-key 必填` 或 `--model 必填`,exit 1
+  - 步骤 5:stderr 多一行 `warn: --base-url 已指定,--upstream='mock' 自动失效(走 direct 模式)`,继续走 direct
+- **通过判据**:direct 真未经 server(endpoint.json 不变、logs 无新增);warn 行正确打印;缺参数时报错清晰
+- **风险**:direct 时如果 server 恰好在跑,要确保代码路径**真的**没向 localhost 发请求(关键看 SDK mode=direct 分支)
 
-**=== 阶段 4 整体验收 ===**:按 `DESIGN.md` §10 "CLI 完整使用 demo" 跑 step 1~8 全通。
+### 步骤 4.5 ✅ · 内置 mock 上游 + 恢复命令
+
+- **目标**:无真实 API key 也能开箱即用;`rosetta chat "hi"` 即刻返回流式 echo 响应
+- **产出**:
+  - `rosetta/server/service/mock.py`:`MockResponder` 类 + 模块单例 `mock_responder`;**全链路走 IR**(请求 `_REQ_TO_IR` 严格 Pydantic 校验 → 构造 IR `ResponseIR` / `StreamEvent` → 按客户端 fmt 经 `_IR_TO_RESP` / `_IR_TO_STREAM` + `encode_sse_stream` 出口),三协议共用一条流水。echo 前缀 `[mock:{protocol}] echo: `,词级切片 + 20ms/帧节奏,usage 按字符数 ÷4 粗估
+  - `Forwarder.forward` 入口:`upstream.provider == "mock"` 短路,不发 HTTP
+  - `rosetta/server/database/migrations/001_init.sql`:seed 一条 `(id=0×32, name=mock, protocol=any, provider=mock, base_url='mock://')`;`any` 是 protocol 的保留占位值(Literal 分层:DB/ORM 4 值,管理 API 3 值,用户不可创建 any)
+  - `rosetta/server/repository/upstream.py`:`MOCK_UPSTREAM_FIELDS` 常量 + `restore_mock(force)` 方法
+  - `POST /admin/upstreams/restore-mock[?force=true]` + SDK `restore_mock_upstream(force)`
+  - CLI `rosetta upstream mock [--force]`
+  - 前端 `Upstreams` 页 header + EmptyState 两处 `Restore mock` 按钮,inline info 提示
+  - `UpstreamProvider` 枚举(Python Literal + TS enum)加 `"mock"` 值
+- **幂等语义**:`rosetta upstream mock` 查 name=mock 是否存在 → 存在跳过返 `already exists`;不存在才插入返 `restored`;`--force` 则先 delete 再 insert(id 固定 0×32,logs.upstream_id 引用不断)
+- **手动测试步骤**:
+  1. **首启 smoke**:全新 DB(删 `~/.rosetta/rosetta.db`),`uv run rosetta chat "你好"` —— 应流式打印 `[mock] echo: 你好`,meta 行 upstream=mock,token 粗估合理
+  2. **三协议**:分别 `--protocol messages` / `--protocol completions` / `--protocol responses` 各跑一次 `"ping"`,都能拿到 `[mock] echo: ping` 流
+  3. **非流 smoke**:`rosetta upstream list` 能看到 name=mock 那行,provider 列显示 mock
+  4. **误删 + 恢复**:`rosetta upstream remove 00000000000000000000000000000000` → `rosetta chat "hi"` 应 404 → `rosetta upstream mock` 打印 `mock upstream restored (id=0000…)` → 再 `rosetta chat "hi"` 恢复正常
+  5. **幂等**:连跑两次 `rosetta upstream mock`,第二次打印 `mock upstream already exists`;DB 里 mock 依然只有 1 条
+  6. **强制重建**:`rosetta upstream mock --force` 不管存在与否都打 `restored`;id 仍是 0×32
+  7. **UI**:桌面端 Upstreams 页顶部按 `Restore mock`,页面出现蓝色 info 条 `mock upstream already exists (id=...)`;删除 mock 那行后 EmptyState 的 `Restore built-in mock` 按钮可恢复
+  8. **direct 模式旁路**:`rosetta chat --base-url https://api.anthropic.com --api-key sk-... --model claude-haiku-4-5 "hi"` 不应触发 mock,而是真连 Anthropic
+- **预期结果**:
+  - 步骤 1-3:echo 内容含用户输入的最后一句(长度 > 200 截断),token 数 = 字符 // 4 至少 1
+  - 步骤 4:remove 后 `/v1/messages` 带 `x-rosetta-upstream: mock` 命中 `upstream_not_found`(400);restore 后恢复
+  - 步骤 5-6:DB `SELECT COUNT(*) FROM upstreams WHERE name='mock'` 始终 ≤1
+  - 步骤 7:UI 反馈条 2s 后不会自动消失,但下一次刷新列表会覆盖;按钮 loading 态显示 `Restoring…`
+- **通过判据**:
+  - `pytest tests/server/test_dataplane.py -k mock`:5 条 mock 分支测试全过(三协议流 + 非流 JSON + 不打 HTTP 断言)
+  - `pytest tests/server/test_admin.py -k mock`:3 条 restore 测试全过(幂等 / 删后恢复 / force 重建)
+  - 端到端 smoke:步骤 1-8 全绿
+
+**=== 阶段 4 整体验收 ===**:按 `DESIGN.md` §10 "CLI 完整使用 demo" 跑 step 1~8 全通;mock 路径允许演示不依赖外部 key。
 
 ---
 

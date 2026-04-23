@@ -13,10 +13,10 @@ import typer
 
 from rosetta.cli.core.render import Renderer
 from rosetta.sdk.client import ProxyClient
-from rosetta.server.controller.upstreams import UpstreamCreate
-from rosetta.server.database.models import UpstreamProtocol, UpstreamProvider
+from rosetta.server.controller.upstreams import UpstreamCreate, UpstreamProtocolCreatable
+from rosetta.server.database.models import UpstreamProvider
 
-_ALLOWED_PROTOCOLS = get_args(UpstreamProtocol)
+_ALLOWED_PROTOCOLS = get_args(UpstreamProtocolCreatable)
 _ALLOWED_PROVIDERS = get_args(UpstreamProvider)
 
 app = typer.Typer(
@@ -125,6 +125,31 @@ async def _remove(upstream_id: str) -> None:
         Renderer.die(f"server 未就绪: {e}")
         return
     Renderer.out(f"upstream id={upstream_id} removed")
+
+
+@app.command("mock")
+def mock_cmd(
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="mock 已存在时先删除再重建(默认幂等跳过)"),
+    ] = False,
+) -> None:
+    """恢复内置 mock upstream(误删 / 重置出厂配置用)。"""
+    asyncio.run(_restore_mock(force))
+
+
+async def _restore_mock(force: bool) -> None:
+    try:
+        async with ProxyClient.discover_session(spawn_if_missing=False) as client:
+            result = await client.restore_mock_upstream(force=force)
+    except httpx.HTTPStatusError as e:
+        Renderer.die(f"恢复失败: {e.response.status_code} {e.response.text}")
+        return
+    except RuntimeError as e:
+        Renderer.die(f"server 未就绪: {e}")
+        return
+    verb = "restored" if result.created else "already exists"
+    Renderer.out(f"mock upstream {verb} (id={result.upstream.id})")
 
 
 def register(app_root: typer.Typer) -> None:

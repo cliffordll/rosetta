@@ -68,11 +68,18 @@ uv sync
 # 起 server
 uv run python -m rosetta.server
 
-# 添 upstream
-uv run rosetta upstream add --name anthropic-main --protocol messages --api-key sk-ant-XXX
+# 开箱即用:内置 mock upstream 无需任何 key,直接 echo 回复
+uv run rosetta chat "hello"
 
-# 跑 chat(必须指定 upstream)
+# 想配真实上游:添 upstream 后按 name 选
+uv run rosetta upstream add --name anthropic-main --protocol messages --api-key sk-ant-XXX --base-url https://api.anthropic.com
 uv run rosetta chat --upstream anthropic-main --model claude-haiku-4-5 "hello"
+
+# 绕 server 直连(direct 模式)
+uv run rosetta chat --base-url https://api.anthropic.com --api-key sk-ant-XXX --model claude-haiku-4-5 "hello"
+
+# 误删 mock 后恢复
+uv run rosetta upstream mock
 
 # 跑测试
 uv run pytest

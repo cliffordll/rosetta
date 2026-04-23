@@ -17,7 +17,9 @@ export type Protocol = (typeof Protocol)[keyof typeof Protocol];
 
 export type UpstreamProtocol = Protocol;
 
-/** 厂商标识(对齐 `rosetta.server.database.models.UpstreamProvider`)。 */
+/** 厂商标识(对齐 `rosetta.server.database.models.UpstreamProvider`)。
+ *  `MOCK` 是内置假上游,由 server 端 seed 在 DB 里;不出现在 Add 下拉,
+ *  但 Upstreams 列表展示时需要识别此值。 */
 export const UpstreamProvider = {
   ANTHROPIC: "anthropic",
   OPENAI: "openai",
@@ -26,9 +28,11 @@ export const UpstreamProvider = {
   OLLAMA: "ollama",
   VLLM: "vllm",
   CUSTOM: "custom",
+  MOCK: "mock",
 } as const;
 export type UpstreamProvider = (typeof UpstreamProvider)[keyof typeof UpstreamProvider];
 
+/** Add 对话框下拉候选;不含 MOCK(由 server seed,不鼓励用户手动建)。 */
 export const UPSTREAM_PROVIDERS: UpstreamProvider[] = [
   UpstreamProvider.ANTHROPIC,
   UpstreamProvider.OPENAI,
@@ -77,6 +81,12 @@ export interface UpstreamCreate {
   enabled?: boolean;
 }
 
+/** `POST /admin/upstreams/restore-mock` 返回;`created` 表本次是否真插入。 */
+export interface RestoreMockResult {
+  created: boolean;
+  upstream: UpstreamOut;
+}
+
 export class ApiError extends Error {
   status: number;
   body: string;
@@ -120,5 +130,11 @@ export const api = {
   },
   deleteUpstream(id: string): Promise<void> {
     return request(`/admin/upstreams/${id}`, { method: "DELETE" });
+  },
+  restoreMockUpstream(force = false): Promise<RestoreMockResult> {
+    return request(
+      `/admin/upstreams/restore-mock?force=${force ? "true" : "false"}`,
+      { method: "POST" },
+    );
   },
 };

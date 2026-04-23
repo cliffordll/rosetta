@@ -117,17 +117,24 @@ function buildBody(
     return { model, max_tokens: maxTokens, stream: true, messages };
   }
   if (fmt === Protocol.CHAT_COMPLETIONS) {
+    // rosetta 翻译层 adapter 要求 max_tokens 必填;沿用 messages 的 maxTokens 一次给齐
     return {
       model,
       stream: true,
       stream_options: { include_usage: true },
+      max_tokens: maxTokens,
       messages,
     };
   }
-  // RESPONSES
+  // RESPONSES:字段名是 max_output_tokens,input item 需带 type="message"
   return {
     model,
     stream: true,
-    input: messages.map((m) => ({ role: m.role, content: m.content })),
+    max_output_tokens: maxTokens,
+    input: messages.map((m) => ({
+      type: "message",
+      role: m.role,
+      content: m.content,
+    })),
   };
 }
