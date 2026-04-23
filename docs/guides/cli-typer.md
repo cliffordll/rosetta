@@ -42,7 +42,7 @@ app = typer.Typer(
     pretty_exceptions_show_locals=False,
 )
 
-for mod in (status_mod, start_mod, stop_mod, provider_mod, route_mod,
+for mod in (status_mod, start_mod, stop_mod, upstream_mod,
             logs_mod, stats_mod, chat_mod):
     mod.register(app)
 
@@ -82,25 +82,25 @@ def register(app: typer.Typer) -> None:
 
 ### 3.2 二级子命令(分组)
 
-例:`rosetta provider list` / `rosetta provider add ...`
+例:`rosetta upstream list` / `rosetta upstream add ...`
 
 ```python
-# rosetta/cli/commands/provider.py
+# rosetta/cli/commands/upstream.py
 import typer
 
-provider_app = typer.Typer(help="管理 providers")
+upstream_app = typer.Typer(help="管理 upstreams")
 
-@provider_app.command("list")
-def provider_list() -> None: ...
+@upstream_app.command("list")
+def list_cmd() -> None: ...
 
-@provider_app.command("add")
-def provider_add(
-    name: Annotated[str, typer.Option("--name", help="provider 名字")],
+@upstream_app.command("add")
+def add_cmd(
+    name: Annotated[str, typer.Option("--name", help="upstream 名字")],
     ...
 ) -> None: ...
 
-def register(app: typer.Typer) -> None:
-    app.add_typer(provider_app, name="provider")
+def register(app_root: typer.Typer) -> None:
+    app_root.add_typer(upstream_app, name="upstream")
 ```
 
 关键点:
@@ -127,8 +127,8 @@ def chat_cmd(
 ### 4.2 选项参数
 
 ```python
-format: Annotated[str, typer.Option("--format", help="messages | completions | responses")] = "messages",
-model: Annotated[str | None, typer.Option("--model", help="模型 id;未传按 format 取默认")] = None,
+protocol: Annotated[str, typer.Option("--protocol", help="messages | completions | responses")] = "messages",
+model: Annotated[str | None, typer.Option("--model", help="模型 id;未传按 protocol 取默认")] = None,
 api_key: Annotated[str | None, typer.Option("--api-key", help="...")] = None,
 ```
 
@@ -137,13 +137,15 @@ api_key: Annotated[str | None, typer.Option("--api-key", help="...")] = None,
 
 ### 4.3 enum 限定值
 
-`--format messages|completions|responses` 这类有限枚举,用 Python Enum 或运行时校验:
+`--protocol messages|completions|responses` 这类有限枚举,用 Python Enum(`rosetta.shared.protocols.Protocol`)或运行时校验:
 
 ```python
+from rosetta.shared.protocols import Protocol
+
 try:
-    fmt = Format(format)
+    fmt = Protocol(protocol)
 except ValueError:
-    die(f"--format 必须是 messages/completions/responses,收到 {format!r}")
+    die(f"--protocol 必须是 messages/completions/responses,收到 {protocol!r}")
 ```
 
 也可以用 `Enum` 类型让 typer 自动限制,但项目沿用显式 `die()` 渲染中文错误。
@@ -207,8 +209,8 @@ def test_root_help() -> None:
 | 新命令不出现 在 `--help` | 忘了 `register(app)` 或 `__main__.py` 没把模块加到 import list | 检查 `__main__.py` 的 import + for 循环 |
 | 参数提示不支持中文 | typer 默认用 Rich,Windows 老终端 GBK 会乱码 | 确保控制台用 UTF-8 或切到 Windows Terminal |
 | 运行报错泄 `api_key` 值 | `pretty_exceptions_show_locals=True` 在 locals 印变量 | 保持 `False`(项目默认);真要调试用单独 flag 控 |
-| `--format bogus` 不报错就继续跑 | 没做显式 enum 校验 | 用 `try: Format(format)` 早失败 |
-| REPL 里 typer 命令对 `/reset` 无效 | REPL 是项目自己的 input 循环,不走 typer | REPL 命令在 `cli/repl.py` 单独解析,不通过 `app()` |
+| `--protocol bogus` 不报错就继续跑 | 没做显式 enum 校验 | 用 `try: Protocol(protocol)` 早失败 |
+| REPL 里 typer 命令对 `/reset` 无效 | REPL 是项目自己的 input 循环,不走 typer | REPL 命令在 `cli/core/repl.py` 单独解析,不通过 `app()` |
 
 ---
 

@@ -913,27 +913,6 @@
 
 ---
 
-## 附录 B · v1+ 后续方向(v0 不做,记着)
+## 附录 B · v1+ 后续方向
 
-### 数据面体验
-- **Chat 会话持久化** —— 新增 `conversations` / `messages` 表 + `/admin/conversations/*` 端点 + GUI 侧栏会话列表、历史翻阅、会话导出。v0 Chat 页只在内存保留,v1 升级为真的能翻旧对话。
-- **Chat 原始请求/响应预览面板** —— Chat 页可折叠 JSON 面板,显示每轮请求体 + 响应体(含 SSE 完整事件序列)。翻译器 / 状态机 bug 的最快排查工具。
-- **CLI Chat 增强** —— 多会话文件(`rosetta chat --session foo`,`~/.rosetta/sessions/*.json`)、会话导入导出、tools 交互(显示 tool_use、允许手填 tool_result 继续)。
-
-### 翻译与协议
-- 翻译层健壮性打磨(多模态 / 罕见 `tool_choice` 组合 / 边缘字段回写)
-- Responses API 有状态特性完整支持(`previous_response_id` 跨翻译、background jobs)
-- 模型别名 / 虚拟模型(把 `gpt-5` 别名到 Anthropic 上游的 `claude-4.5`)
-
-### 管理面体验
-- 实时日志流(WebSocket)
-- Provider PUT / DELETE + connectivity test
-- 路由规则拖拽排序
-- 用量统计(按 key / provider / model 切分,时间序列图)
-
-### 运维 / 扩展
-- 配置导入导出(`rosetta config export/import`,便于多机同步)
-- 请求日志 TTL 清理策略
-- 多用户账户(多台机器共享一个 server 实例)
-- 多语言(i18n)
-- 跨平台打包(macOS / Linux)
+已迁移到独立文档:[`docs/ROADMAP.md`](./ROADMAP.md)。v0 验收后不再与本任务清单混写。

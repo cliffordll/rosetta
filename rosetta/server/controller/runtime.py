@@ -45,16 +45,24 @@ class StatusResponse(BaseModel):
     version: str
     uptime_ms: int
     upstreams_count: int
+    url: str  # 客户端抵达 server 的 base URL(含 scheme + host + port)
 
 
 @router.get("/status", response_model=StatusResponse)
-async def status() -> StatusResponse:
+async def status(request: Request) -> StatusResponse:
     uptime_ms = int((time.monotonic() - _START_MONO) * 1000)
     upstreams_count = await count_upstreams()
+    # 直接从 ASGI scope["server"] = (host, port) 拿 bind 的地址;避开 base_url
+    # 依赖 Host header(vite proxy 会改 host,某些代理链路会让 base_url 为空)。
+    # rosetta loopback-only 固定 http,不担心 scheme 推错
+    scope_server = request.scope.get("server") or (None, None)
+    host, port = scope_server
+    url = f"http://{host}:{port}" if host and port else str(request.base_url).rstrip("/")
     return StatusResponse(
         version=__version__,
         uptime_ms=uptime_ms,
         upstreams_count=upstreams_count,
+        url=url,
     )
 
 

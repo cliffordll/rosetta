@@ -120,10 +120,10 @@ upstreams = result.scalars().all()         # Sequence[Upstream]
 ### 4.2 按条件过滤
 
 ```python
-# SELECT * FROM upstreams WHERE protocol = 'anthropic' AND enabled = 1
+# SELECT * FROM upstreams WHERE provider = 'anthropic' AND enabled = 1
 result = await session.execute(
     select(Upstream)
-    .where(Upstream.protocol == "anthropic")
+    .where(Upstream.provider == "anthropic")
     .where(Upstream.enabled.is_(True))
 )
 rows = result.scalars().all()
@@ -134,11 +134,11 @@ rows = result.scalars().all()
 ```python
 from sqlalchemy import and_, or_
 
-# (type = 'openai' AND enabled) OR type = 'custom'
+# (provider = 'openai' AND enabled) OR provider = 'custom'
 stmt = select(Upstream).where(
     or_(
-        and_(Upstream.protocol == "openai", Upstream.enabled.is_(True)),
-        Upstream.protocol == "custom",
+        and_(Upstream.provider == "openai", Upstream.enabled.is_(True)),
+        Upstream.provider == "custom",
     )
 )
 ```
@@ -146,7 +146,8 @@ stmt = select(Upstream).where(
 ### 4.3 按主键
 
 ```python
-upstream = await session.get(Upstream, 1)   # Upstream | None
+# v0 起 Upstream.id 是 32 字符 UUID4 hex(TEXT),不是自增 INTEGER
+upstream = await session.get(Upstream, "00000000000000000000000000000000")
 if upstream is None:
     raise HTTPException(404, "not found")
 ```
@@ -204,8 +205,8 @@ logs = result.scalars().all()
 from sqlalchemy import text
 
 result = await session.execute(
-    text("SELECT name FROM upstreams WHERE protocol = :t"),
-    {"t": "anthropic"},
+    text("SELECT name FROM upstreams WHERE provider = :p"),
+    {"p": "anthropic"},
 )
 names = [row[0] for row in result]
 ```
@@ -221,13 +222,15 @@ names = [row[0] for row in result]
 ```python
 upstream = Upstream(
     name="my-upstream",
-    protocol="messages",
-    api_key="sk-x",
+    protocol="messages",      # messages / completions / responses
+    provider="anthropic",     # anthropic / openai / openrouter / ... / custom / mock
+    base_url="https://api.anthropic.com",  # v0 必填,不再按 provider 取默认
+    api_key="sk-x",           # 可选:留 None 表示客户端自带 x-api-key 透传
 )
 session.add(upstream)
 await session.commit()           # 必须 commit,否则不落盘
 await session.refresh(upstream)  # 拿回 DB 生成的 id 和 created_at
-print(upstream.id)               # 1
+print(upstream.id)               # 32 字符 UUID4 hex(ORM default= uuid4().hex)
 ```
 
 **批量插入**:
@@ -242,7 +245,7 @@ await session.commit()
 **方式 A · ORM(先加载再改)**:
 
 ```python
-upstream = await session.get(Upstream, 1)
+upstream = await session.get(Upstream, "00000000000000000000000000000000")
 if upstream is None:
     raise HTTPException(404)
 
@@ -258,7 +261,7 @@ from sqlalchemy import update
 
 stmt = (
     update(Upstream)
-    .where(Upstream.protocol == "custom")
+    .where(Upstream.provider == "custom")
     .values(enabled=False)
 )
 result = await session.execute(stmt)
@@ -274,14 +277,15 @@ print(result.rowcount)          # 被影响的行数
 
 ```python
 # ORM
-upstream = await session.get(Upstream, 1)
+upstream_id = "00000000000000000000000000000000"
+upstream = await session.get(Upstream, upstream_id)
 if upstream:
     await session.delete(upstream)
     await session.commit()
 
 # Core
 from sqlalchemy import delete
-await session.execute(delete(Upstream).where(Upstream.id == 1))
+await session.execute(delete(Upstream).where(Upstream.id == upstream_id))
 await session.commit()
 ```
 
@@ -391,8 +395,9 @@ uv run python -m rosetta.server
 
 ```sql
 -- 003_add_conversations.sql
+-- 项目惯例:id 用 TEXT UUID4 hex(ORM default=uuid4().hex),不用 AUTOINCREMENT
 CREATE TABLE conversations (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    id         TEXT    PRIMARY KEY,
     title      TEXT    NOT NULL,
     created_at TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -405,8 +410,8 @@ PRAGMA user_version = 3;
 #### 加索引
 
 ```sql
--- 004_add_provider_enabled_index.sql
-CREATE INDEX idx_providers_enabled ON upstreams(enabled);
+-- 004_add_upstreams_enabled_index.sql
+CREATE INDEX idx_upstreams_enabled ON upstreams(enabled);
 
 PRAGMA user_version = 4;
 ```
@@ -416,8 +421,8 @@ PRAGMA user_version = 4;
 SQLite 3.35+(rosetta 运行环境都够):
 
 ```sql
--- 005_rename_type_to_provider_type.sql
-ALTER TABLE upstreams RENAME COLUMN type TO provider_type;
+-- 005_rename_base_url_to_endpoint.sql(假设某次真要改)
+ALTER TABLE upstreams RENAME COLUMN base_url TO endpoint;
 
 PRAGMA user_version = 5;
 ```
