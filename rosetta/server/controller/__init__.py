@@ -31,15 +31,26 @@ dataplane_router = APIRouter()
 dataplane_router.include_router(dataplane.router)
 
 
-def register_exception_handlers(app: FastAPI) -> None:
-    """把 service 层的 `ServiceError` 映射成统一的 rosetta_error HTTP 响应。"""
+async def _handle_service_error(_request: Request, exc: Exception) -> JSONResponse:
+    """`ServiceError` → rosetta_error HTTP 响应(由 register_exception_handlers 注册)。
 
-    @app.exception_handler(ServiceError)
-    async def _handle_service_error(_request: Request, exc: ServiceError) -> JSONResponse:
-        return JSONResponse(
-            status_code=exc.status,
-            content=rosetta_error(exc.code, exc.message, **exc.extra),
-        )
+    签名参数用 `Exception` 对齐 Starlette 的 `ExceptionHandler` 协议;
+    `add_exception_handler(ServiceError, ...)` 保证实参一定是 `ServiceError`。
+    """
+    assert isinstance(exc, ServiceError)
+    return JSONResponse(
+        status_code=exc.status,
+        content=rosetta_error(exc.code, exc.message, **exc.extra),
+    )
+
+
+def register_exception_handlers(app: FastAPI) -> None:
+    """把 service 层的 `ServiceError` 映射成统一的 rosetta_error HTTP 响应。
+
+    用显式 `add_exception_handler` 而非 `@app.exception_handler` 装饰器,
+    避免 pyright 因装饰器副作用把函数判成 unused。
+    """
+    app.add_exception_handler(ServiceError, _handle_service_error)
 
 
 __all__ = ["admin_router", "dataplane_router", "register_exception_handlers"]
