@@ -17,6 +17,13 @@ from rosetta.cli.__main__ import app
 runner = CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def _wide_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """rich 在 CI 窄终端会把 `--quiet` 这类 option 名换行拆开,substring 断言就挂。
+    统一强制 200 列,避免测试依赖运行环境宽度。"""
+    monkeypatch.setenv("COLUMNS", "200")
+
+
 def test_root_help() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
