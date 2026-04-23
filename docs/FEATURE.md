@@ -682,22 +682,32 @@
 - **通过判据**:无 uv/venv 环境下 exe 独立运行全链路成功
 - **风险**:httpx / aiosqlite 的 hidden imports 要在 spec 里声明;SSL 证书打包路径
 
-### 步骤 6.2 · CI 产 artifact
+### 步骤 6.2 · CI 产 artifact(已就绪,待 tag 验证)
 
 - **目标**:打 tag 时 CI 自动产 exe 并 attach 到 Release
-- **产出**:`.github/workflows/release.yml`
+- **产出**:
+  - `.github/workflows/release.yml`:触发 `push tags: v*`;Windows runner
+    跑 `scripts/build.py` 打两个 exe;上传 workflow artifact 同时走
+    `softprops/action-gh-release@v2` 创建 Release(含自动生成 release notes;
+    tag 带 `-` 自动标 prerelease)
+  - release 前兜底一次 `ruff check` + `pytest -q`,避免打了坏 exe
 - **手动测试步骤**:
-  1. `git tag v0.0.1-test && git push origin v0.0.1-test`
-  2. 去 GitHub Actions 页面看 release workflow 触发
-  3. 等跑完(5-15 分钟),去 Releases 页
-  4. 下载 release asset
-  5. 本地双击运行验证
-  6. 收尾:`git tag -d v0.0.1-test && git push --delete origin v0.0.1-test`;GitHub Releases 页手动删该 Release
+  1. 本地 dry-run:`uv sync --group build && uv run python scripts/build.py`
+     生成 `dist/rosetta.exe` + `dist/rosetta-server.exe`,确认都可跑
+  2. `git tag v0.0.1-test && git push origin v0.0.1-test`
+  3. 去 GitHub Actions → Release workflow,看跑是否通过
+  4. 等跑完(5-15 分钟),去 Releases 页
+  5. 下载 release asset,本地双击 / 命令行跑验证
+  6. 收尾:`git tag -d v0.0.1-test && git push --delete origin v0.0.1-test`;
+     GitHub Releases 页手动删该 Release(或在 Actions 里 re-run 时自动覆盖)
 - **预期结果**:
-  - 步骤 2:看到 release job 跑
-  - 步骤 3:Releases 页有 `v0.0.1-test` 发布,附件含 exe
-  - 步骤 5:exe 能跑
+  - 步骤 3:看到 Release workflow 被触发并跑完
+  - 步骤 4:Releases 页有 `v0.0.1-test` 发布,附件含两个 exe
+  - 步骤 5:exe 能跑;`rosetta chat "hi"` 默认走 mock,无黑框(console=False 生效)
 - **通过判据**:从 tag 到可下载 exe 全链路打通
+- **风险**:
+  - Windows runner 打包耗时 5-10 分钟;`uv sync --group build` 下载 PyInstaller 首次较慢
+  - `softprops/action-gh-release@v2` 默认 draft=false;测试 tag 要记得删
 
 ---
 
