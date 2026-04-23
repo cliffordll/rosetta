@@ -87,6 +87,27 @@ export interface RestoreMockResult {
   upstream: UpstreamOut;
 }
 
+/** `GET /admin/logs` 单条。对齐 `rosetta.server.controller.logs.LogOut`。 */
+export interface LogOut {
+  id: string;
+  created_at: string;
+  upstream: string | null;
+  model: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  latency_ms: number | null;
+  status: string;
+  error: string | null;
+}
+
+export interface ListLogsParams {
+  limit?: number;
+  offset?: number;
+  upstream?: string;
+  /** polling 游标:只取 `created_at > since` 的记录(ISO 8601)。 */
+  since?: string;
+}
+
 export class ApiError extends Error {
   status: number;
   body: string;
@@ -130,6 +151,15 @@ export const api = {
   },
   deleteUpstream(id: string): Promise<void> {
     return request(`/admin/upstreams/${id}`, { method: "DELETE" });
+  },
+  listLogs(params: ListLogsParams = {}): Promise<LogOut[]> {
+    const q = new URLSearchParams();
+    if (params.limit !== undefined) q.set("limit", String(params.limit));
+    if (params.offset !== undefined) q.set("offset", String(params.offset));
+    if (params.upstream) q.set("upstream", params.upstream);
+    if (params.since) q.set("since", params.since);
+    const qs = q.toString();
+    return request(`/admin/logs${qs ? "?" + qs : ""}`);
   },
   restoreMockUpstream(force = false): Promise<RestoreMockResult> {
     return request(
