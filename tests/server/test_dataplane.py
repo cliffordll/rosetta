@@ -21,7 +21,7 @@ import pytest
 import pytest_asyncio
 
 from rosetta.server.database.models import Provider
-from rosetta.server.dataplane import forwarder
+from rosetta.server.service.forwarder import forwarder
 from rosetta.shared.formats import Format
 
 RequestHandler = Callable[[httpx.Request], httpx.Response]
@@ -31,6 +31,9 @@ RequestHandler = Callable[[httpx.Request], httpx.Response]
 async def mock_client() -> AsyncIterator[dict[str, Any]]:
     """暴露一个 captured dict:测试里 set `captured["handler"]` 定义响应,
     每次 handler 被调都会把最后一次 request 写到 `captured["request"]`。
+
+    fixture 把模块级 `forwarder` 的 httpx client monkey-patch 成 mock transport,
+    teardown 时 reset 回 None,保证测试间不串 state。
     """
     captured: dict[str, Any] = {"request": None, "handler": None}
 
@@ -102,7 +105,6 @@ async def test_anthropic_passthrough_url_and_headers(
         request_format=Format.MESSAGES,
         body=body,
         content_type="application/json",
-        is_stream=False,
     )
     assert resp.status_code == 200
 
@@ -141,7 +143,6 @@ async def test_openai_passthrough_url_and_headers(
         request_format=Format.CHAT_COMPLETIONS,
         body=body,
         content_type="application/json",
-        is_stream=False,
     )
     assert resp.status_code == 200
 
@@ -164,7 +165,6 @@ async def test_client_api_key_overrides_db(mock_client: dict[str, Any]) -> None:
         request_format=Format.MESSAGES,
         body=body,
         content_type="application/json",
-        is_stream=False,
         client_api_key="sk-CLIENT-override",
     )
     req = mock_client["request"]
@@ -180,7 +180,6 @@ async def test_client_none_falls_back_to_db(mock_client: dict[str, Any]) -> None
         request_format=Format.CHAT_COMPLETIONS,
         body=body,
         content_type="application/json",
-        is_stream=False,
         client_api_key=None,
     )
     req = mock_client["request"]
@@ -199,7 +198,6 @@ async def test_custom_base_url_used(mock_client: dict[str, Any]) -> None:
         request_format=Format.MESSAGES,
         body=body,
         content_type="application/json",
-        is_stream=False,
     )
     req = mock_client["request"]
     # 尾部 / 被 rstrip,上游路径拼到 base_url 末尾
@@ -260,7 +258,6 @@ async def test_cross_format_messages_to_completions(
         request_format=Format.MESSAGES,  # 客户端发的是 messages 格式
         body=client_body,
         content_type="application/json",
-        is_stream=False,
     )
     assert resp.status_code == 200
     # 返给客户端的是 messages 格式(type=message,content 数组)
@@ -285,7 +282,6 @@ async def test_extra_response_headers_injected(mock_client: dict[str, Any]) -> N
         request_format=Format.MESSAGES,
         body=body,
         content_type="application/json",
-        is_stream=False,
         extra_response_headers={"x-rosetta-warnings": "store_ignored"},
     )
     assert resp.headers.get("x-rosetta-warnings") == "store_ignored"
@@ -294,8 +290,8 @@ async def test_extra_response_headers_injected(mock_client: dict[str, Any]) -> N
 # ---------- 未初始化 client 的防御 ----------
 
 
-async def test_forward_without_init_client_raises() -> None:
-    """init_client 未调 / 调 dispose 后,forward 必须抛明确错误而不是默许 None."""
+async def test_forward_without_open_raises() -> None:
+    """模块级 forwarder 未 open(mock_client fixture 没注入)时,必须抛明确错误而不是默许 None。"""
     assert forwarder._client is None
     body = json.dumps({"model": "claude-haiku-4-5"}).encode("utf-8")
     with pytest.raises(RuntimeError, match="httpx client 未初始化"):
@@ -304,5 +300,4 @@ async def test_forward_without_init_client_raises() -> None:
             request_format=Format.MESSAGES,
             body=body,
             content_type="application/json",
-            is_stream=False,
-        )
+            )

@@ -31,15 +31,6 @@ class Provider(Base):
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
 
 
-class Route(Base):
-    __tablename__ = "routes"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    model_glob: Mapped[str]
-    provider_id: Mapped[int] = mapped_column(ForeignKey("providers.id"))
-    priority: Mapped[int] = mapped_column(default=0)
-
-
 class LogEntry(Base):
     __tablename__ = "logs"
 

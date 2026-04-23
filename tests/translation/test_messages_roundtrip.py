@@ -79,6 +79,28 @@ def test_request_roundtrip(fixture_name: str) -> None:
     assert _strip_nones(body) == _strip_nones(body_back), f"{fixture_name}: 归一化 JSON 不等价"
 
 
+def test_request_str_content_shorthand() -> None:
+    """Anthropic API 允许 `content: "..."` 的 str shorthand,IR 只收 list,
+    adapter 入口应把 str 规范化成 `[{"type":"text","text":...}]`。"""
+    body = {
+        "model": "claude-sonnet-4-5",
+        "max_tokens": 16,
+        "messages": [
+            {"role": "user", "content": "你好"},
+            {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
+            {"role": "user", "content": "再说一遍"},
+        ],
+    }
+
+    ir = messages_to_ir(body)
+
+    assert len(ir.messages) == 3
+    assert ir.messages[0].content[0].type == "text"
+    assert ir.messages[0].content[0].text == "你好"  # type: ignore[union-attr]
+    assert ir.messages[1].content[0].text == "hi"  # type: ignore[union-attr]
+    assert ir.messages[2].content[0].text == "再说一遍"  # type: ignore[union-attr]
+
+
 @pytest.mark.parametrize("fixture_name", NONSTREAM_FIXTURES)
 def test_response_nonstream_roundtrip(fixture_name: str) -> None:
     body = _load_fixture(fixture_name)["response_nonstream"]

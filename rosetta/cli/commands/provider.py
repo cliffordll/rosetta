@@ -13,7 +13,7 @@ import typer
 
 from rosetta.cli.core.render import Renderer
 from rosetta.sdk.client import ProxyClient
-from rosetta.server.admin.providers import ProviderCreate, ProviderType
+from rosetta.server.controller.providers import ProviderCreate, ProviderType
 
 _ALLOWED_TYPES = get_args(ProviderType)
 

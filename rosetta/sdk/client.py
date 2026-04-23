@@ -10,7 +10,7 @@
 
 Pydantic 模型复用
 ----------------
-admin 相关的 request / response schema 直接从 `rosetta.server.admin.*` import
+admin 相关的 request / response schema 直接从 `rosetta.server.controller.*` import
 (DESIGN §9 单包结构允许);不在 SDK 这边手写第二份。
 """
 
@@ -24,11 +24,10 @@ from typing import Any, Literal, Self
 import httpx
 
 from rosetta.sdk.discover import discover
-from rosetta.server.admin.health import StatusResponse
-from rosetta.server.admin.logs import LogOut
-from rosetta.server.admin.providers import ProviderCreate, ProviderOut
-from rosetta.server.admin.routes import RouteIn, RouteOut
-from rosetta.server.admin.stats import Period, StatsOut
+from rosetta.server.controller.logs import LogOut
+from rosetta.server.controller.providers import ProviderCreate, ProviderOut
+from rosetta.server.controller.runtime import StatusResponse
+from rosetta.server.controller.stats import Period, StatsOut
 from rosetta.shared.formats import UPSTREAM_PATH, Format
 
 _DATA_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
@@ -123,35 +122,12 @@ class ProxyClient:
         return ProviderOut.model_validate(resp.json())
 
     async def delete_provider(self, provider_id: int) -> None:
-        """删 provider;server 级联删引用它的 route。"""
         self._require_server("delete_provider")
         resp = await self.http.delete(
             f"{self.base_url}/admin/providers/{provider_id}",
             timeout=_ADMIN_TIMEOUT,
         )
         resp.raise_for_status()
-
-    async def list_routes(self) -> list[RouteOut]:
-        self._require_server("list_routes")
-        resp = await self.http.get(f"{self.base_url}/admin/routes", timeout=_ADMIN_TIMEOUT)
-        resp.raise_for_status()
-        items = resp.json()
-        if not isinstance(items, list):
-            raise RuntimeError("GET /admin/routes 返回非 list")
-        return [RouteOut.model_validate(item) for item in items]  # pyright: ignore[reportUnknownVariableType]
-
-    async def replace_routes(self, payload: list[RouteIn]) -> list[RouteOut]:
-        self._require_server("replace_routes")
-        resp = await self.http.put(
-            f"{self.base_url}/admin/routes",
-            json=[r.model_dump() for r in payload],
-            timeout=_ADMIN_TIMEOUT,
-        )
-        resp.raise_for_status()
-        items = resp.json()
-        if not isinstance(items, list):
-            raise RuntimeError("PUT /admin/routes 返回非 list")
-        return [RouteOut.model_validate(item) for item in items]  # pyright: ignore[reportUnknownVariableType]
 
     async def list_logs(
         self,

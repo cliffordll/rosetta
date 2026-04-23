@@ -70,7 +70,7 @@
 - `endpoint.json` 的 spawn 并发保护:`spawn.lock` 独占创建 + `.tmp` → `rename` 原子写入(`DESIGN.md` §6)
 - watcher 优雅关闭:5 步流程,不硬杀(`DESIGN.md` §6)
 - 流式错误传播:200 已发后靠断 TCP,不伪造事件(`DESIGN.md` §8.3)
-- 路由回退到异格式 provider 时自动走 IR 翻译(`DESIGN.md` §8.4 rule 2/4/5 脚注)
+- 跨格式 provider(入口 format 与 provider.type 对应的 format 不一致)自动走 IR 翻译(`DESIGN.md` §8.4 末段)
 - `--base-url` 与 `--provider` / `x-rosetta-provider` 互斥,CLI 阶段校验(`DESIGN.md` §8.6)
 - `logs.created_at` 索引 + `PRAGMA user_version` 迁移机制(`DESIGN.md` §8.2)
 

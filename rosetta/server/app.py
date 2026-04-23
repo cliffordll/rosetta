@@ -8,20 +8,23 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from rosetta import __version__
-from rosetta.server.admin import admin_router
+from rosetta.server.controller import (
+    admin_router,
+    dataplane_router,
+    register_exception_handlers,
+)
 from rosetta.server.database.session import dispose_db, init_db
-from rosetta.server.dataplane import dataplane_router
-from rosetta.server.dataplane.forwarder import dispose_client, init_client
+from rosetta.server.service.forwarder import forwarder
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await init_db()
-    await init_client()
+    await forwarder.open()
     try:
         yield
     finally:
-        await dispose_client()
+        await forwarder.close()
         await dispose_db()
 
 
@@ -32,6 +35,7 @@ def create_app() -> FastAPI:
         description="本地 LLM API 格式转换中枢(admin + data plane)",
         lifespan=lifespan,
     )
+    register_exception_handlers(app)
     app.include_router(admin_router, prefix="/admin")
     app.include_router(dataplane_router)
     return app
