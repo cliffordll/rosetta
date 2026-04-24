@@ -149,6 +149,11 @@ fn request_exit(app: &AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // single-instance 必须**最先**注册:第二个 Tauri 实例启动时,此 plugin 会
+        // 拦截并把参数转交给主实例的回调,然后立即退出,从而避免双进程双 sidecar。
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main(app);
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::new().build())

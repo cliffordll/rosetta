@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import subprocess
 import sys
 from pathlib import Path
@@ -84,6 +85,11 @@ def _sync_sidecar() -> None:
 
 
 def main() -> int:
+    # Windows 默认 stdout/stderr 是 cp1252,中文输出会 UnicodeEncodeError;reconfigure 兜底
+    for stream in (sys.stdout, sys.stderr):
+        with contextlib.suppress(Exception):
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+
     parser = argparse.ArgumentParser(description="PyInstaller 打包驱动")
     parser.add_argument(
         "--target",

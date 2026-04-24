@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.rosetta.desktop",
   "build": {
-    "beforeDevCommand": "bun --filter=@rosetta/app dev",
-    "beforeBuildCommand": "bun --filter=@rosetta/app build",
+    "beforeDevCommand": "bun run --filter=@rosetta/app dev",
+    "beforeBuildCommand": "bun run --filter=@rosetta/app build",
     "devUrl": "http://localhost:5173",
     "frontendDist": "../../app/dist"
   },

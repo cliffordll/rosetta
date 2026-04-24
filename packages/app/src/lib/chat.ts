@@ -7,7 +7,7 @@
  * - 返回 `(assistantText, inputTokens, outputTokens, latencyMs)`;非 2xx 抛 `ChatError`
  */
 
-import { Protocol } from "@/lib/api";
+import { apiBase, Protocol } from "@/lib/api";
 import { ChatStream } from "@/lib/streams";
 
 export interface ChatTurnMsg {
@@ -61,10 +61,11 @@ export async function runTurn(
   if (opts.upstreamName) headers["x-rosetta-upstream"] = opts.upstreamName;
   if (opts.overrideApiKey) headers["x-api-key"] = opts.overrideApiKey;
 
+  const base = await apiBase();
   const t0 = performance.now();
   let resp: Response;
   try {
-    resp = await fetch(URL_BY_PROTOCOL[opts.fmt], {
+    resp = await fetch(base + URL_BY_PROTOCOL[opts.fmt], {
       method: "POST",
       headers,
       body: JSON.stringify(body),
