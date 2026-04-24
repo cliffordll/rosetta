@@ -4,7 +4,7 @@
 - 读用户输入(`input()`)
 - `/` 开头分派 slash 命令,否则作为新一轮 user message
 - 每轮调 `ctx.run_turn()` 流式打印 assistant + meta 行
-- slash 命令:`/exit` / `/reset` / `/model <name>` / `/format <m|c|r>` / `/help`
+- slash 命令:`/exit`(`/quit` 别名) / `/reset` / `/model <name>` / `/format <m|c|r>` / `/help`
 
 状态持有
 --------
@@ -38,7 +38,7 @@ class ChatRepl:
 
     _HELP: ClassVar[str] = (
         "slash 命令:\n"
-        "  /exit                    退出 REPL\n"
+        "  /exit, /quit             退出 REPL\n"
         "  /reset                   清空对话历史\n"
         "  /model <name>            切换模型\n"
         "  /format messages|completions|responses  切换 API 格式\n"
@@ -46,7 +46,10 @@ class ChatRepl:
     )
 
     async def run(self) -> None:
-        """主循环:读输入 → 分派 slash / 发请求 → 打印 meta 行。Ctrl+C / EOF / `/exit` 退出。"""
+        """主循环:读输入 → 分派 slash / 发请求 → 打印 meta 行。
+
+        Ctrl+C / EOF / `/exit` / `/quit` 退出。
+        """
         Renderer.out(
             f"rosetta chat · format={self.ctx.fmt.value} · model={self.ctx.model} · /help 查看命令"
         )
@@ -97,7 +100,7 @@ class ChatRepl:
         cmd = parts[0].lower()
         arg = parts[1].strip() if len(parts) > 1 else ""
 
-        if cmd == "/exit":
+        if cmd in ("/exit", "/quit"):
             return True
 
         if cmd == "/help":

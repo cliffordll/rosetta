@@ -1,11 +1,14 @@
 /**
  * rosetta server admin API 薄封装。
  *
- * - 路径用相对(`/admin/*`),dev 靠 vite.config proxy 转到 server,prod(Tauri 内)
- *   同 origin 直通
- * - 类型手写,对齐 `rosetta/server/controller/*.py` 的 Pydantic schema;endpoints 少
- *   (status + 3 upstream 操作),5.2 不引 OpenAPI codegen
+ * - 浏览器 / vite dev:相对路径 `/admin/*` + vite.config proxy 转到 server
+ * - Tauri 壳内:webview origin 是 `https://tauri.localhost`,与 server 的
+ *   `http://127.0.0.1:<port>` 跨 origin → 启动时 invoke `get_server_url`
+ *   拿 base URL,之后所有 fetch 都 prepend
+ * - 类型手写,对齐 `rosetta/server/controller/*.py` 的 Pydantic schema
  */
+
+import { invoke } from "@tauri-apps/api/core";
 
 /** 客户端侧 API 协议;与 `rosetta.shared.protocols.Protocol` 的 str 值严格一致。 */
 export const Protocol = {
@@ -122,8 +125,31 @@ export class ApiError extends Error {
   }
 }
 
+/** Tauri 壳内 true / vite dev 浏览器 false。 */
+function inTauri(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+let basePromise: Promise<string> | null = null;
+
+/** 解析 server base URL。Tauri 内 invoke `get_server_url`;浏览器返 ""(走 vite proxy)。
+ *  失败(endpoint.json 未写)会抛,调用方照常展示错误。 */
+export async function apiBase(): Promise<string> {
+  if (!inTauri()) return "";
+  if (!basePromise) {
+    basePromise = invoke<string>("get_server_url")
+      .then((url) => url.replace(/\/$/, ""))
+      .catch((e) => {
+        basePromise = null; // 失败不缓存,允许重试
+        throw e;
+      });
+  }
+  return basePromise;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(path, {
+  const base = await apiBase();
+  const resp = await fetch(base + path, {
     ...init,
     headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
   });

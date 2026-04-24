@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from rosetta import __version__
 from rosetta.server.controller import (
@@ -41,6 +42,16 @@ def create_app() -> FastAPI:
         version=__version__,
         description="本地 LLM API 格式转换中枢(admin + data plane)",
         lifespan=lifespan,
+    )
+    # Tauri webview 的 origin 是 `https://tauri.localhost`(Win)/ `tauri://localhost`(mac),
+    # 与 server 的 `http://127.0.0.1:<port>` 跨 origin + 带 x-api-key / x-rosetta-upstream
+    # 等自定义 header 会触发 preflight。server 只绑 localhost,外网打不到,allow_origins=["*"]
+    # 不引入攻击面。不用 credentials,所以允许 "*" 合法。
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
     register_exception_handlers(app)
     app.include_router(admin_router, prefix="/admin")

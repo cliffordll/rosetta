@@ -96,6 +96,10 @@ jobs:
       - name: Build Tauri installer
         uses: tauri-apps/tauri-action@v0
         env:
+          # tauri-action 内部走 GitHub Releases API 创建 / 上传 asset,必须显式注入
+          # token;顶层 permissions: contents: write 已授权,这里把 GITHUB_TOKEN
+          # 传进环境即可
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # 以下 secrets 需要用户自行在 repo settings → Secrets 配置;
           # 未配置时 tauri-action 会跳过签名(SmartScreen 会警告但能装)
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
