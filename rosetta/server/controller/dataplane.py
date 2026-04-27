@@ -54,7 +54,7 @@ def _extract_client_api_key(request: Request) -> str | None:
 
 @dataclass(frozen=True)
 class RequestCtx:
-    """dataplane 端点的请求门面:原始 body + 需要的 headers。
+    """dataplane 端点的请求门面:原始 body + 需要的 headers + 客户端地址。
 
     body 是黑盒,routes 不解读;model / stream 等字段由 `pick_upstream` / `forwarder`
     内部按需解析。端点第一步 `ctx = await parse_request(request)`。
@@ -64,6 +64,15 @@ class RequestCtx:
     rosetta_upstream: str | None
     content_type: str
     client_api_key: str | None
+    client_addr: str | None
+
+
+def _extract_client_addr(request: Request) -> str | None:
+    """FastAPI request.client 的 'host:port' 字符串;ASGI / HTTP/2 / 反代下可能是 None。"""
+    client = request.client
+    if client is None:
+        return None
+    return f"{client.host}:{client.port}"
 
 
 async def parse_request(request: Request) -> RequestCtx:
@@ -73,6 +82,7 @@ async def parse_request(request: Request) -> RequestCtx:
         rosetta_upstream=request.headers.get("x-rosetta-upstream"),
         content_type=request.headers.get("content-type", "application/json"),
         client_api_key=_extract_client_api_key(request),
+        client_addr=_extract_client_addr(request),
     )
 
 
@@ -91,6 +101,7 @@ async def messages(request: Request, session: SessionDep) -> Response:
         body=ctx.body,
         content_type=ctx.content_type,
         client_api_key=ctx.client_api_key,
+        client_addr=ctx.client_addr,
     )
 
 
@@ -109,6 +120,7 @@ async def chat_completions(request: Request, session: SessionDep) -> Response:
         body=ctx.body,
         content_type=ctx.content_type,
         client_api_key=ctx.client_api_key,
+        client_addr=ctx.client_addr,
     )
 
 
@@ -127,4 +139,5 @@ async def responses_endpoint(request: Request, session: SessionDep) -> Response:
         body=ctx.body,
         content_type=ctx.content_type,
         client_api_key=ctx.client_api_key,
+        client_addr=ctx.client_addr,
     )

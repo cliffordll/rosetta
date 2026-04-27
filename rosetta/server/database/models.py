@@ -75,6 +75,11 @@ class LogEntry(Base):
     latency_ms: Mapped[int | None] = mapped_column(default=None)
     status: Mapped[str]
     error: Mapped[str | None] = mapped_column(default=None)
+    # 客户端 "host:port"(FastAPI request.client);本机回环也记
+    client_addr: Mapped[str | None] = mapped_column(default=None)
+    # upstream.base_url 快照(mock 路径写 'mock://');不与 upstream 外键联动,
+    # 后续编辑 upstream.base_url 不影响历史 log
+    upstream_url: Mapped[str | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
 
     __table_args__ = (Index("idx_logs_created_at", "created_at"),)

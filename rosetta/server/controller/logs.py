@@ -38,6 +38,8 @@ class LogOut(BaseModel):
     latency_ms: int | None
     status: str
     error: str | None
+    client_addr: str | None
+    upstream_url: str | None
 
 
 class LogListResponse(BaseModel):
@@ -88,6 +90,8 @@ async def list_logs(
             latency_ms=entry.latency_ms,
             status=entry.status,
             error=entry.error,
+            client_addr=entry.client_addr,
+            upstream_url=entry.upstream_url,
         )
         for entry, u in rows
     ]

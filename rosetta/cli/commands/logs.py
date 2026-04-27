@@ -82,7 +82,17 @@ def _print_batch(items: list[LogOut], *, header: bool, follow: bool = False) -> 
             Renderer.out(_fmt_line(entry))
     else:
         Renderer.table(
-            ["id", "created_at", "upstream", "model", "in→out", "ms", "status"],
+            [
+                "id",
+                "created_at",
+                "upstream",
+                "model",
+                "in→out",
+                "ms",
+                "status",
+                "client_addr",
+                "upstream_url",
+            ],
             [
                 [
                     entry.id[:8] + "…",
@@ -92,6 +102,8 @@ def _print_batch(items: list[LogOut], *, header: bool, follow: bool = False) -> 
                     f"{entry.input_tokens or 0}→{entry.output_tokens or 0}",
                     entry.latency_ms if entry.latency_ms is not None else "-",
                     entry.status,
+                    entry.client_addr or "-",
+                    entry.upstream_url or "-",
                 ]
                 for entry in items
             ],
@@ -110,8 +122,10 @@ def _fmt_line(entry: LogOut) -> str:
     model = entry.model or "-"
     latency = f"{entry.latency_ms}ms" if entry.latency_ms is not None else "-"
     tokens = f"{entry.input_tokens or 0}→{entry.output_tokens or 0}"
+    addr = f" client={entry.client_addr}" if entry.client_addr else ""
+    url = f" url={entry.upstream_url}" if entry.upstream_url else ""
     tail = f" err={entry.error}" if entry.error else ""
-    return f"{ts} {status} upstream={up} model={model} {latency} tokens={tokens}{tail}"
+    return f"{ts} {status} upstream={up} model={model} {latency} tokens={tokens}{addr}{url}{tail}"
 
 
 def register(app: typer.Typer) -> None:

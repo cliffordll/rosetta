@@ -41,6 +41,8 @@ class LogWriter:
         output_tokens: int | None = None,
         latency_ms: int | None = None,
         error: str | None = None,
+        client_addr: str | None = None,
+        upstream_url: str | None = None,
     ) -> None:
         """写一条 log。DB 未初始化 / 写失败只打 logger,不抛。"""
         session_maker = get_session_maker()
@@ -57,6 +59,8 @@ class LogWriter:
                     output_tokens=output_tokens,
                     latency_ms=latency_ms,
                     error=error,
+                    client_addr=client_addr,
+                    upstream_url=upstream_url,
                 )
         except Exception as e:
             _log.warning(
