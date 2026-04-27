@@ -1,7 +1,9 @@
 """数据面 upstream 选择测试。
 
-pick_upstream 简化成"强制 header":客户端必须通过 `x-rosetta-upstream` header
-显式指定 upstream。没 header / upstream 不存在 / 被禁用都抛 `ServiceError(status=400, ...)`。
+pick_upstream 两段策略(显式优先 + protocol default fallback):
+- header 有值 → 按 name 精确匹配(不存在 / 禁用 各自 400)
+- header 缺失 → 按 request_protocol 找 enabled 的 default(没 default 400)
+- 严格同 protocol:fallback 不允许跨协议借用
 """
 
 from __future__ import annotations
@@ -12,10 +14,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from rosetta.server.database.models import Upstream
 from rosetta.server.service.exceptions import ServiceError
 from rosetta.server.service.selector import pick_upstream
+from rosetta.shared.protocols import Protocol
 
 
 async def _insert_upstream(
-    session: AsyncSession, *, name: str, protocol: str = "messages", enabled: bool = True
+    session: AsyncSession,
+    *,
+    name: str,
+    protocol: str = "messages",
+    enabled: bool = True,
+    is_default: bool = False,
 ) -> Upstream:
     u = Upstream(
         name=name,
@@ -24,6 +32,7 @@ async def _insert_upstream(
         base_url="https://example.com",
         api_key="sk-fake",
         enabled=enabled,
+        is_default=is_default,
     )
     session.add(u)
     await session.commit()
@@ -35,33 +44,75 @@ class TestHeaderUpstream:
     async def test_header_exact_match(self, session: AsyncSession) -> None:
         u1 = await _insert_upstream(session, name="ant-a")
         _ = await _insert_upstream(session, name="ant-b")
-        picked = await pick_upstream(session, header_upstream="ant-a")
+        picked = await pick_upstream(
+            session, header_upstream="ant-a", request_protocol=Protocol.MESSAGES
+        )
         assert picked.id == u1.id
 
-    async def test_header_missing_400(self, session: AsyncSession) -> None:
-        await _insert_upstream(session, name="ant-a")
-        with pytest.raises(ServiceError) as exc:
-            await pick_upstream(session, header_upstream=None)
-        assert exc.value.status == 400
-        assert exc.value.code == "missing_rosetta_upstream"
-
-    async def test_header_empty_400(self, session: AsyncSession) -> None:
-        await _insert_upstream(session, name="ant-a")
-        with pytest.raises(ServiceError) as exc:
-            await pick_upstream(session, header_upstream="")
-        assert exc.value.status == 400
-        assert exc.value.code == "missing_rosetta_upstream"
+    async def test_header_takes_precedence_over_default(self, session: AsyncSession) -> None:
+        """header 显式指定时,即使有同 protocol 的 default,也以 header 为准。"""
+        await _insert_upstream(session, name="dft", is_default=True)
+        u = await _insert_upstream(session, name="explicit")
+        picked = await pick_upstream(
+            session, header_upstream="explicit", request_protocol=Protocol.MESSAGES
+        )
+        assert picked.id == u.id
 
     async def test_header_not_found_400(self, session: AsyncSession) -> None:
         await _insert_upstream(session, name="ant-a")
         with pytest.raises(ServiceError) as exc:
-            await pick_upstream(session, header_upstream="ghost")
+            await pick_upstream(
+                session, header_upstream="ghost", request_protocol=Protocol.MESSAGES
+            )
         assert exc.value.status == 400
         assert exc.value.code == "upstream_not_found"
 
     async def test_header_disabled_400(self, session: AsyncSession) -> None:
         await _insert_upstream(session, name="ant-a", enabled=False)
         with pytest.raises(ServiceError) as exc:
-            await pick_upstream(session, header_upstream="ant-a")
+            await pick_upstream(
+                session, header_upstream="ant-a", request_protocol=Protocol.MESSAGES
+            )
         assert exc.value.status == 400
         assert exc.value.code == "upstream_disabled"
+
+
+class TestDefaultFallback:
+    async def test_no_header_uses_protocol_default(self, session: AsyncSession) -> None:
+        u = await _insert_upstream(session, name="ant-a", protocol="messages", is_default=True)
+        picked = await pick_upstream(
+            session, header_upstream=None, request_protocol=Protocol.MESSAGES
+        )
+        assert picked.id == u.id
+
+    async def test_empty_header_treated_as_missing(self, session: AsyncSession) -> None:
+        u = await _insert_upstream(session, name="ant-a", is_default=True)
+        picked = await pick_upstream(
+            session, header_upstream="", request_protocol=Protocol.MESSAGES
+        )
+        assert picked.id == u.id
+
+    async def test_no_header_no_default_400(self, session: AsyncSession) -> None:
+        await _insert_upstream(session, name="ant-a", is_default=False)
+        with pytest.raises(ServiceError) as exc:
+            await pick_upstream(session, header_upstream=None, request_protocol=Protocol.MESSAGES)
+        assert exc.value.status == 400
+        assert exc.value.code == "missing_rosetta_upstream"
+
+    async def test_default_disabled_falls_back_to_400(self, session: AsyncSession) -> None:
+        """default 行被禁用 → 视为没 default,400(不静默兜底到其他行)。"""
+        await _insert_upstream(session, name="ant-a", enabled=False, is_default=True)
+        with pytest.raises(ServiceError) as exc:
+            await pick_upstream(session, header_upstream=None, request_protocol=Protocol.MESSAGES)
+        assert exc.value.status == 400
+        assert exc.value.code == "missing_rosetta_upstream"
+
+    async def test_default_strict_per_protocol(self, session: AsyncSession) -> None:
+        """打 /v1/chat/completions,但 default 在 messages protocol 上 → 400(不跨协议借用)。"""
+        await _insert_upstream(session, name="ant-a", protocol="messages", is_default=True)
+        with pytest.raises(ServiceError) as exc:
+            await pick_upstream(
+                session, header_upstream=None, request_protocol=Protocol.CHAT_COMPLETIONS
+            )
+        assert exc.value.status == 400
+        assert exc.value.code == "missing_rosetta_upstream"

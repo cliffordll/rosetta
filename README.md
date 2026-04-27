@@ -9,7 +9,7 @@
 ## 能做什么
 
 - **跨生态调用**:客户端用任一主流 API 格式写,上游可以是任一主流 LLM 服务,中间格式差异由代理透明翻译
-- **多 upstream 集中管理**:一个地方管所有 key / 用量统计;客户端通过 `x-rosetta-upstream` header 显式选择上游
+- **多 upstream 集中管理**:一个地方管所有 key / 用量统计;客户端通过 `x-rosetta-upstream` header 显式选,或按入口 protocol 走 default upstream(每协议至多一个 default,`rosetta upstream set-default <name>` 配置)
 - **开箱即用**:CLI 一次性对话、REPL 多轮、桌面 GUI 三种交互,SSE 流式全程原生转发
 
 **类比**:cc-switch 的"AI 配置管家"概念 + 自研的格式翻译引擎。cc-switch 切的是配置文件,本项目切的是运行时流量并做格式转换。
@@ -75,11 +75,15 @@ uv run rosetta chat "hello"
 uv run rosetta upstream add --name anthropic-main --protocol messages --api-key sk-ant-XXX --base-url https://api.anthropic.com
 uv run rosetta chat --upstream anthropic-main --model claude-haiku-4-5 "hello"
 
+# 设为 messages 协议的默认上游;之后 chat 不传 --upstream 也能跑
+uv run rosetta upstream set-default anthropic-main
+uv run rosetta chat --model claude-haiku-4-5 "hello"
+
 # 绕 server 直连(direct 模式)
 uv run rosetta chat --base-url https://api.anthropic.com --api-key sk-ant-XXX --model claude-haiku-4-5 "hello"
 
 # 误删 mock 后恢复
-uv run rosetta upstream mock
+uv run rosetta upstream restore-mock
 
 # 看请求日志
 uv run rosetta logs              # 最近 50 条表格

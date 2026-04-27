@@ -38,6 +38,7 @@ class UpstreamOut(BaseModel):
     provider: str
     base_url: str
     enabled: bool
+    is_default: bool
     created_at: datetime
 
 
@@ -83,6 +84,22 @@ async def restore_mock_upstream(repo: UpstreamRepoDep, force: bool = False) -> R
         created=created,
         upstream=UpstreamOut.model_validate(upstream),
     )
+
+
+@router.put("/upstreams/{name}/default", response_model=UpstreamOut)
+async def set_default_upstream(name: str, repo: UpstreamRepoDep) -> Upstream:
+    """把 `name` 设为其 protocol 的 default(同 protocol 旧 default 自动清零)。
+
+    路径用 `name` 而非 `id`:CLI / GUI 的"设为默认"是按名字操作的高频动作,绕
+    `id` 反而多一步翻译;name 有 UNIQUE 约束,语义无歧义。
+    """
+    try:
+        return await repo.set_default(name)
+    except LookupError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"upstream name='{name}' 不存在",
+        ) from e
 
 
 @router.delete("/upstreams/{upstream_id}", status_code=status.HTTP_204_NO_CONTENT)

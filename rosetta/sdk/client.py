@@ -130,6 +130,16 @@ class ProxyClient:
         )
         resp.raise_for_status()
 
+    async def set_default_upstream(self, name: str) -> UpstreamOut:
+        """把 `name` 设为其 protocol 的 default;同 protocol 旧 default 自动清零。"""
+        self._require_server("set_default_upstream")
+        resp = await self.http.put(
+            f"{self.base_url}/admin/upstreams/{name}/default",
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return UpstreamOut.model_validate(resp.json())
+
     async def restore_mock_upstream(self, *, force: bool = False) -> RestoreMockOut:
         """幂等恢复内置 mock upstream;`force=True` 则先删后建。"""
         self._require_server("restore_mock_upstream")

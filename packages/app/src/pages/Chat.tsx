@@ -72,6 +72,8 @@ export default function Chat() {
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
+  // mount-only 拉取 upstreams 列表;切 protocol 时的预选由 onProtocolChange 接手,
+  // 避免重新 fetch 覆盖用户已经手选的 upstreamChoice
   useEffect(() => {
     (async () => {
       try {
@@ -79,9 +81,13 @@ export default function Chat() {
         // 后端按 created_at 升序返回;UI 倒序让最新创建的排在最前
         const sorted = [...list].reverse();
         setUpstreams(sorted);
-        // 默认选最新的一条,减少用户点击
-        if (sorted.length > 0) {
-          setUpstreamChoice(String(sorted[0].id));
+        // 优先选当前 protocol(初始 MESSAGES)的 default(enabled);没有则
+        // 保留 NO_UPSTREAM_SELECTED(用户可手选,或不选直接发让 server fallback)
+        const dft = sorted.find(
+          (u) => u.protocol === Protocol.MESSAGES && u.is_default && u.enabled,
+        );
+        if (dft) {
+          setUpstreamChoice(String(dft.id));
         }
       } catch (e) {
         setUpstreamsErr(extractErr(e));
@@ -89,12 +95,25 @@ export default function Chat() {
     })();
   }, []);
 
-  // 切 protocol:把 model 重置为该 protocol 的默认首选,并关掉自定义
-  const onProtocolChange = useCallback((next: Protocol) => {
-    setProtocol(next);
-    setModel(DEFAULT_MODELS[next]);
-    setUseCustomModel(false);
-  }, []);
+  // 切 protocol:重置 model 默认 + 关自定义 + 重选当前 protocol 的 default upstream
+  const onProtocolChange = useCallback(
+    (next: Protocol) => {
+      setProtocol(next);
+      setModel(DEFAULT_MODELS[next]);
+      setUseCustomModel(false);
+      const dft = upstreams.find(
+        (u) => u.protocol === next && u.is_default && u.enabled,
+      );
+      setUpstreamChoice(dft ? String(dft.id) : NO_UPSTREAM_SELECTED);
+    },
+    [upstreams],
+  );
+
+  // 当前 protocol 是否在 server 端配了 default(用于"未选 upstream 仍可发送"的判断)
+  const hasDefaultForProtocol = useMemo(
+    () => upstreams.some((u) => u.protocol === protocol && u.is_default && u.enabled),
+    [upstreams, protocol],
+  );
 
   // auto-scroll to bottom unless user is scrolled up
   useEffect(() => {
@@ -117,15 +136,18 @@ export default function Chat() {
     return upstreamById.get(upstreamChoice) ?? null;
   }, [upstreamChoice, upstreamById]);
 
+  // 显式选了一行 → 发送 OK
+  // 没选(NO_UPSTREAM_SELECTED)→ 仅当当前 protocol 有 default 时允许,走 server fallback
   const canSend =
     !inFlight &&
     input.trim().length > 0 &&
     model.trim().length > 0 &&
-    resolvedUpstream !== null;
+    (resolvedUpstream !== null || hasDefaultForProtocol);
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!text || inFlight || !resolvedUpstream) return;
+    if (!text || inFlight) return;
+    if (!resolvedUpstream && !hasDefaultForProtocol) return;
     setInput("");
 
     const nextMsgs: DisplayMsg[] = [
@@ -151,9 +173,12 @@ export default function Chat() {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
-    const upstreamName = resolvedUpstream.name;
-    const upstreamLabel = resolvedUpstream.name;
-    const pathLabel = computePathLabel(protocol, resolvedUpstream);
+    // 没选 upstream → 不传 header,server 按 protocol default fallback
+    const upstreamName = resolvedUpstream ? resolvedUpstream.name : null;
+    const upstreamLabel = resolvedUpstream ? resolvedUpstream.name : "default";
+    const pathLabel = resolvedUpstream
+      ? computePathLabel(protocol, resolvedUpstream)
+      : protocol;
 
     try {
       const result = await runTurn(history, {
@@ -210,7 +235,16 @@ export default function Chat() {
       setInFlight(false);
       abortRef.current = null;
     }
-  }, [input, inFlight, messages, protocol, model, resolvedUpstream, overrideKey]);
+  }, [
+    input,
+    inFlight,
+    messages,
+    protocol,
+    model,
+    resolvedUpstream,
+    hasDefaultForProtocol,
+    overrideKey,
+  ]);
 
   const handleStop = useCallback(() => {
     abortRef.current?.abort();
@@ -315,6 +349,22 @@ export default function Chat() {
               还没有 upstream,先去 Upstreams 页面添加。
             </p>
           )}
+          {!upstreamsErr &&
+            upstreams.length > 0 &&
+            !resolvedUpstream &&
+            hasDefaultForProtocol && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                未选 upstream → 走 protocol={protocol} 的 default(server 端 fallback)。
+              </p>
+            )}
+          {!upstreamsErr &&
+            upstreams.length > 0 &&
+            !resolvedUpstream &&
+            !hasDefaultForProtocol && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                protocol={protocol} 无 default upstream;选一行,或去 Upstreams 页"Set default"。
+              </p>
+            )}
         </div>
 
         <div>
@@ -372,9 +422,9 @@ export default function Chat() {
       >
         {messages.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            {resolvedUpstream
+            {resolvedUpstream || hasDefaultForProtocol
               ? "输入消息开始对话;流式逐 token 渲染。"
-              : "先在上方选一个 upstream,再开始对话。"}
+              : "先在上方选一个 upstream(或去 Upstreams 设 default),再开始对话。"}
           </p>
         ) : (
           <ul className="space-y-4">
@@ -398,7 +448,9 @@ export default function Chat() {
         <Textarea
           value={input}
           placeholder={
-            resolvedUpstream ? "发消息…(Enter 发送,Shift+Enter 换行)" : "请先选择 upstream"
+            resolvedUpstream || hasDefaultForProtocol
+              ? "发消息…(Enter 发送,Shift+Enter 换行)"
+              : "请先选择 upstream(或去 Upstreams 设 default)"
           }
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
@@ -407,7 +459,7 @@ export default function Chat() {
               if (canSend) void handleSend();
             }
           }}
-          disabled={inFlight || !resolvedUpstream}
+          disabled={inFlight || (!resolvedUpstream && !hasDefaultForProtocol)}
           className="min-h-20 flex-1"
         />
         {inFlight ? (

@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +25,7 @@ MOCK_UPSTREAM_FIELDS: dict[str, Any] = {
     "base_url": "mock://",
     "api_key": None,
     "enabled": True,
+    "is_default": False,  # mock 不参与协议默认路由
 }
 
 
@@ -80,6 +81,49 @@ class UpstreamRepo:
     async def delete(self, upstream: Upstream) -> None:
         await self.session.delete(upstream)
         await self.session.commit()
+
+    async def get_default(self, protocol: str) -> Upstream | None:
+        """按 protocol 查 enabled 的 default upstream(没设 / 被禁 / 不存在 → None)。
+
+        DB 层有 partial unique index `(protocol) WHERE is_default=1` 兜底唯一,
+        所以这里 `scalar_one_or_none()` 安全;命中行若 enabled=False,视为没 default。
+        """
+        result = await self.session.execute(
+            select(Upstream).where(
+                Upstream.protocol == protocol,
+                Upstream.is_default.is_(True),
+                Upstream.enabled.is_(True),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def set_default(self, name: str) -> Upstream:
+        """把 `name` 设为其 protocol 的 default;同 protocol 的旧 default 自动清零。
+
+        两步发 SQL(同事务):
+          1. UPDATE upstreams SET is_default=0 WHERE protocol=<target> AND id != <target.id>
+          2. UPDATE upstreams SET is_default=1 WHERE id = <target.id>
+        SQLite 默认 immediate 约束,partial unique index 在每条 statement 后检查,
+        先清零再 set 不会瞬时冲突。
+
+        - name 不存在 → `LookupError`(调用方转 404)
+        - mock 行(protocol='any')也允许设,但 selector 不会查 'any';无副作用
+        """
+        target = await self.get_by_name(name)
+        if target is None:
+            raise LookupError(f"upstream name={name!r} 不存在")
+
+        await self.session.execute(
+            update(Upstream)
+            .where(Upstream.protocol == target.protocol, Upstream.id != target.id)
+            .values(is_default=False)
+        )
+        await self.session.execute(
+            update(Upstream).where(Upstream.id == target.id).values(is_default=True)
+        )
+        await self.session.commit()
+        await self.session.refresh(target)
+        return target
 
     async def restore_mock(self, *, force: bool) -> tuple[bool, Upstream]:
         """恢复内置 mock 上游。幂等:存在则按 `force` 决定行为。

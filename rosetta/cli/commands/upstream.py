@@ -1,4 +1,4 @@
-"""`rosetta upstream` — upstream 的 add / list / remove。
+"""`rosetta upstream` — upstream 的 add / list / remove / set-default / restore-mock。
 
 update / test 留到 v1+(FEATURE 附录 B)。
 """
@@ -44,8 +44,11 @@ async def _list() -> None:
         Renderer.out("no upstreams yet")
         return
     Renderer.table(
-        ["id", "name", "protocol", "provider", "base_url", "enabled"],
-        [[u.id, u.name, u.protocol, u.provider, u.base_url, u.enabled] for u in items],
+        ["id", "name", "protocol", "provider", "base_url", "enabled", "default"],
+        [
+            [u.id, u.name, u.protocol, u.provider, u.base_url, u.enabled, u.is_default]
+            for u in items
+        ],
     )
 
 
@@ -118,8 +121,29 @@ async def _remove(upstream_id: str) -> None:
     Renderer.out(f"upstream id={upstream_id} removed")
 
 
-@app.command("mock")
-def mock_cmd(
+@app.command("set-default")
+def set_default_cmd(
+    name: Annotated[str, typer.Argument(help="要设为该协议默认的 upstream name")],
+) -> None:
+    """把 upstream 设为其 protocol 的默认上游(`x-rosetta-upstream` header 缺失时回退用)。"""
+    asyncio.run(_set_default(name))
+
+
+async def _set_default(name: str) -> None:
+    try:
+        async with ProxyClient.discover_session(spawn_if_missing=False) as client:
+            updated = await client.set_default_upstream(name)
+    except httpx.HTTPStatusError as e:
+        Renderer.die(f"设默认失败: {e.response.status_code} {e.response.text}")
+        return
+    except RuntimeError as e:
+        Renderer.die(f"server 未就绪: {e}")
+        return
+    Renderer.out(f"upstream '{updated.name}' is now default for protocol={updated.protocol}")
+
+
+@app.command("restore-mock")
+def restore_mock_cmd(
     force: Annotated[
         bool,
         typer.Option("--force", help="mock 已存在时先删除再重建(默认幂等跳过)"),
