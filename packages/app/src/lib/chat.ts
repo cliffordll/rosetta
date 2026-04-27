@@ -17,7 +17,8 @@ export interface ChatTurnMsg {
 
 export interface ChatTurnOpts {
   fmt: Protocol;
-  model: string;
+  /** 留空(null/"")则不发 body.model,server forwarder 用 upstream.model 兜底 */
+  model: string | null;
   upstreamName: string | null;
   overrideApiKey: string | null;
   maxTokens: number;
@@ -111,16 +112,18 @@ export async function runTurn(
 function buildBody(
   fmt: Protocol,
   messages: ChatTurnMsg[],
-  model: string,
+  model: string | null,
   maxTokens: number,
 ): Record<string, unknown> {
+  // model 留空 → 不发字段,让 forwarder 兜底到 upstream.model
+  const modelField: Record<string, unknown> = model ? { model } : {};
   if (fmt === Protocol.MESSAGES) {
-    return { model, max_tokens: maxTokens, stream: true, messages };
+    return { ...modelField, max_tokens: maxTokens, stream: true, messages };
   }
   if (fmt === Protocol.CHAT_COMPLETIONS) {
     // rosetta 翻译层 adapter 要求 max_tokens 必填;沿用 messages 的 maxTokens 一次给齐
     return {
-      model,
+      ...modelField,
       stream: true,
       stream_options: { include_usage: true },
       max_tokens: maxTokens,
@@ -129,7 +132,7 @@ function buildBody(
   }
   // RESPONSES:字段名是 max_output_tokens,input item 需带 type="message"
   return {
-    model,
+    ...modelField,
     stream: true,
     max_output_tokens: maxTokens,
     input: messages.map((m) => ({

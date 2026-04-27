@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   AlertDialog,
@@ -45,17 +45,23 @@ import {
   type UpstreamOut,
   type UpstreamProtocol,
   type UpstreamProvider,
+  type UpstreamUpdate,
 } from "@/lib/api";
 
 const PROTOCOLS: UpstreamProtocol[] = ["messages", "completions", "responses"];
+
+// 分组渲染顺序;`any` 是 mock 占位,放最后
+const GROUP_ORDER: string[] = ["messages", "completions", "responses", "any"];
+
+const COLUMN_COUNT = 9;
 
 export default function Upstreams() {
   const [items, setItems] = useState<UpstreamOut[] | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [openAdd, setOpenAdd] = useState(false);
+  const [toEdit, setToEdit] = useState<UpstreamOut | null>(null);
   const [toDelete, setToDelete] = useState<UpstreamOut | null>(null);
   const [restoringMock, setRestoringMock] = useState(false);
-  // inline 反馈:mock 恢复成功 / 已存在;用户可见片刻后由下一次 load 覆盖
   const [info, setInfo] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -73,6 +79,21 @@ export default function Upstreams() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // 按 protocol 分组(messages → completions → responses → any),空组不渲染
+  const grouped = useMemo(() => {
+    if (!items) return [] as Array<{ protocol: string; rows: UpstreamOut[] }>;
+    const buckets = new Map<string, UpstreamOut[]>();
+    for (const u of items) {
+      const arr = buckets.get(u.protocol) ?? [];
+      arr.push(u);
+      buckets.set(u.protocol, arr);
+    }
+    return GROUP_ORDER.filter((p) => buckets.has(p)).map((p) => ({
+      protocol: p,
+      rows: buckets.get(p) ?? [],
+    }));
+  }, [items]);
 
   async function handleDelete(id: string) {
     try {
@@ -159,72 +180,48 @@ export default function Upstreams() {
               <TableRow>
                 <TableHead className="w-24">id</TableHead>
                 <TableHead>name</TableHead>
-                <TableHead>protocol</TableHead>
                 <TableHead>provider</TableHead>
+                <TableHead>model</TableHead>
                 <TableHead>base_url</TableHead>
                 <TableHead className="w-24">enabled</TableHead>
                 <TableHead className="w-24">default</TableHead>
                 <TableHead className="w-40">created_at</TableHead>
-                <TableHead className="w-40 text-right">actions</TableHead>
+                <TableHead className="w-48 text-right">actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.map((u) => (
-                <TableRow key={u.id}>
-                  <TableCell className="font-mono text-xs">{u.id.slice(0, 8)}…</TableCell>
-                  <TableCell className="font-medium">{u.name}</TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{u.protocol}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{u.provider}</Badge>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {u.base_url}
-                  </TableCell>
-                  <TableCell>
-                    {u.enabled ? (
-                      <Badge>enabled</Badge>
-                    ) : (
-                      <Badge variant="outline">disabled</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {u.is_default ? <Badge>default</Badge> : null}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
-                    {formatDate(u.created_at)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {!u.is_default && u.protocol !== "any" && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => void handleSetDefault(u.name)}
-                      >
-                        Set default
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setToDelete(u)}
-                    >
-                      Delete
-                    </Button>
-                  </TableCell>
-                </TableRow>
+              {grouped.map((group) => (
+                <GroupSection
+                  key={group.protocol}
+                  protocol={group.protocol}
+                  rows={group.rows}
+                  onSetDefault={(u) => void handleSetDefault(u.name)}
+                  onEdit={(u) => setToEdit(u)}
+                  onDelete={(u) => setToDelete(u)}
+                />
               ))}
             </TableBody>
           </Table>
         </div>
       )}
 
-      <AddUpstreamDialog
+      <UpstreamFormDialog
+        mode="add"
         open={openAdd}
         onOpenChange={setOpenAdd}
-        onCreated={async () => {
+        onSubmitted={async () => {
           setOpenAdd(false);
+          await load();
+        }}
+      />
+
+      <UpstreamFormDialog
+        mode="edit"
+        initial={toEdit}
+        open={toEdit !== null}
+        onOpenChange={(o) => !o && setToEdit(null)}
+        onSubmitted={async () => {
+          setToEdit(null);
           await load();
         }}
       />
@@ -254,6 +251,68 @@ export default function Upstreams() {
   );
 }
 
+function GroupSection({
+  protocol,
+  rows,
+  onSetDefault,
+  onEdit,
+  onDelete,
+}: {
+  protocol: string;
+  rows: UpstreamOut[];
+  onSetDefault: (u: UpstreamOut) => void;
+  onEdit: (u: UpstreamOut) => void;
+  onDelete: (u: UpstreamOut) => void;
+}) {
+  return (
+    <>
+      <TableRow className="bg-muted/40 hover:bg-muted/40">
+        <TableCell
+          colSpan={COLUMN_COUNT}
+          className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+        >
+          {protocol} <span className="text-muted-foreground/70">· {rows.length}</span>
+        </TableCell>
+      </TableRow>
+      {rows.map((u) => (
+        <TableRow key={u.id}>
+          <TableCell className="font-mono text-xs">{u.id.slice(0, 8)}…</TableCell>
+          <TableCell className="font-medium">{u.name}</TableCell>
+          <TableCell>
+            <Badge variant="outline">{u.provider}</Badge>
+          </TableCell>
+          <TableCell className="font-mono text-xs text-muted-foreground">
+            {u.model ?? "-"}
+          </TableCell>
+          <TableCell className="text-muted-foreground">{u.base_url}</TableCell>
+          <TableCell>
+            {u.enabled ? <Badge>enabled</Badge> : <Badge variant="outline">disabled</Badge>}
+          </TableCell>
+          <TableCell>{u.is_default ? <Badge>default</Badge> : null}</TableCell>
+          <TableCell className="font-mono text-xs text-muted-foreground">
+            {formatDate(u.created_at)}
+          </TableCell>
+          <TableCell className="text-right">
+            {!u.is_default && u.protocol !== "any" && (
+              <Button variant="ghost" size="sm" onClick={() => onSetDefault(u)}>
+                Set default
+              </Button>
+            )}
+            {u.provider !== "mock" && (
+              <Button variant="ghost" size="sm" onClick={() => onEdit(u)}>
+                Edit
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={() => onDelete(u)}>
+              Delete
+            </Button>
+          </TableCell>
+        </TableRow>
+      ))}
+    </>
+  );
+}
+
 function EmptyState({
   onAdd,
   onRestoreMock,
@@ -276,51 +335,104 @@ function EmptyState({
   );
 }
 
-function AddUpstreamDialog({
+type FormMode = "add" | "edit";
+
+/**
+ * Add / Edit 共用对话框。`mode="add"` 提交 createUpstream;`mode="edit"` 提交
+ * updateUpstream(只发改过的字段;protocol 变化时 server 自动清 is_default)。
+ */
+function UpstreamFormDialog({
+  mode,
+  initial,
   open,
   onOpenChange,
-  onCreated,
+  onSubmitted,
 }: {
+  mode: FormMode;
+  initial?: UpstreamOut | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreated: () => void | Promise<void>;
+  onSubmitted: () => void | Promise<void>;
 }) {
   const [name, setName] = useState("");
   const [protocol, setProtocol] = useState<UpstreamProtocol>("messages");
   const [provider, setProvider] = useState<UpstreamProvider>("custom");
   const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
+  const [enabled, setEnabled] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  function reset() {
-    setName("");
-    setProtocol("messages");
-    setProvider("custom");
-    setApiKey("");
-    setBaseUrl("");
+  // open 翻 true 时按 initial 填表;关闭时 reset
+  useEffect(() => {
+    if (!open) return;
     setErr(null);
-  }
+    if (mode === "edit" && initial) {
+      setName(initial.name);
+      // initial.protocol 可能是 "any"(mock),但 mock 不让编辑,这里保险下
+      setProtocol(
+        (PROTOCOLS as readonly string[]).includes(initial.protocol)
+          ? (initial.protocol as UpstreamProtocol)
+          : "messages",
+      );
+      setProvider(initial.provider as UpstreamProvider);
+      setApiKey(""); // api_key 不回填;留空 = 不动,填值 = 更新
+      setModel(initial.model ?? "");
+      setBaseUrl(initial.base_url);
+      setEnabled(initial.enabled);
+    } else {
+      setName("");
+      setProtocol("messages");
+      setProvider("custom");
+      setApiKey("");
+      setModel("");
+      setBaseUrl("");
+      setEnabled(true);
+    }
+  }, [open, mode, initial]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
     if (!name.trim() || !baseUrl.trim()) {
-      setErr("name 和 base_url 必填;api_key 可选(留空则由客户端透传)");
+      setErr("name 和 base_url 必填");
       return;
     }
-    const payload: UpstreamCreate = {
-      name: name.trim(),
-      protocol,
-      provider,
-      api_key: apiKey.trim() || undefined,
-      base_url: baseUrl.trim(),
-    };
     setSubmitting(true);
     try {
-      await api.createUpstream(payload);
-      reset();
-      await onCreated();
+      if (mode === "add") {
+        const payload: UpstreamCreate = {
+          name: name.trim(),
+          protocol,
+          provider,
+          api_key: apiKey.trim() || undefined,
+          model: model.trim() || undefined,
+          base_url: baseUrl.trim(),
+        };
+        await api.createUpstream(payload);
+      } else if (initial) {
+        // 只发与原值不同的字段;api_key 留空表示不动(不发字段)
+        const payload: UpstreamUpdate = {};
+        if (name.trim() !== initial.name) payload.name = name.trim();
+        if (protocol !== initial.protocol) payload.protocol = protocol;
+        if (provider !== initial.provider) payload.provider = provider;
+        if (baseUrl.trim() !== initial.base_url) payload.base_url = baseUrl.trim();
+        if (enabled !== initial.enabled) payload.enabled = enabled;
+        if (apiKey.trim()) payload.api_key = apiKey.trim();
+        const trimmedModel = model.trim();
+        const initialModel = initial.model ?? "";
+        if (trimmedModel !== initialModel) {
+          payload.model = trimmedModel || null;
+        }
+        if (Object.keys(payload).length === 0) {
+          // 没改动,直接关
+          await onSubmitted();
+          return;
+        }
+        await api.updateUpstream(initial.id, payload);
+      }
+      await onSubmitted();
     } catch (e) {
       if (e instanceof ApiError) {
         setErr(`HTTP ${e.status}: ${e.body.slice(0, 300)}`);
@@ -332,19 +444,17 @@ function AddUpstreamDialog({
     }
   }
 
+  const isEdit = mode === "edit";
+
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(o) => {
-        onOpenChange(o);
-        if (!o) reset();
-      }}
-    >
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add upstream</DialogTitle>
+          <DialogTitle>{isEdit ? "Edit upstream" : "Add upstream"}</DialogTitle>
           <DialogDescription>
-            新建上游 upstream。base_url 留空会按 protocol 取官方地址。
+            {isEdit
+              ? "修改字段后保存;api_key 留空 = 不动,填值 = 更新。改 protocol 时如果该行是 default,会自动清掉。"
+              : "新建上游 upstream;model 留空时,客户端必须自带 body.model。"}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={(e) => void submit(e)} className="space-y-4">
@@ -375,10 +485,7 @@ function AddUpstreamDialog({
           </div>
           <div className="space-y-2">
             <Label htmlFor="u-provider">provider</Label>
-            <Select
-              value={provider}
-              onValueChange={(v) => setProvider(v as UpstreamProvider)}
-            >
+            <Select value={provider} onValueChange={(v) => setProvider(v as UpstreamProvider)}>
               <SelectTrigger id="u-provider">
                 <SelectValue />
               </SelectTrigger>
@@ -392,13 +499,29 @@ function AddUpstreamDialog({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="u-key">api_key <span className="text-xs text-muted-foreground">(可选)</span></Label>
+            <Label htmlFor="u-key">
+              api_key{" "}
+              <span className="text-xs text-muted-foreground">
+                {isEdit ? "(留空 = 不动)" : "(可选)"}
+              </span>
+            </Label>
             <Input
               id="u-key"
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               placeholder="sk-..."
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="u-model">
+              model <span className="text-xs text-muted-foreground">(可选 · 默认模型)</span>
+            </Label>
+            <Input
+              id="u-model"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="e.g. claude-haiku-4-5"
             />
           </div>
           <div className="space-y-2">
@@ -410,6 +533,20 @@ function AddUpstreamDialog({
               placeholder="https://api.example.com"
             />
           </div>
+          {isEdit && (
+            <div className="flex items-center gap-2">
+              <input
+                id="u-enabled"
+                type="checkbox"
+                checked={enabled}
+                onChange={(e) => setEnabled(e.target.checked)}
+                className="h-4 w-4"
+              />
+              <Label htmlFor="u-enabled" className="cursor-pointer">
+                enabled
+              </Label>
+            </div>
+          )}
           {err && (
             <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
               {err}
@@ -425,7 +562,7 @@ function AddUpstreamDialog({
               Cancel
             </Button>
             <Button type="submit" disabled={submitting}>
-              {submitting ? "Creating…" : "Create"}
+              {submitting ? (isEdit ? "Saving…" : "Creating…") : isEdit ? "Save" : "Create"}
             </Button>
           </DialogFooter>
         </form>

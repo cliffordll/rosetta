@@ -32,7 +32,7 @@ class ChatOnce:
         Renderer.stream_newline()
         Renderer.meta_line(
             upstream=self.ctx.upstream or "auto",
-            model=self.ctx.model,
+            model=self.ctx.model or "auto",
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
             latency_ms=result.latency_ms,

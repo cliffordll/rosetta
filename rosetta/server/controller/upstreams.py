@@ -1,4 +1,4 @@
-"""/admin/upstreams 管理端点(v0 最小集:GET list、POST create、DELETE by id)。"""
+"""/admin/upstreams 管理端点:list / create / update / delete / set-default / restore-mock。"""
 
 from __future__ import annotations
 
@@ -20,23 +20,48 @@ UpstreamProtocolCreatable = Literal["messages", "completions", "responses"]
 
 
 class UpstreamCreate(BaseModel):
+    # `model` 字段名与 Pydantic v2 内部 `model_*` 命名空间无前缀冲突,
+    # 但要显式关掉 protected_namespaces 抑制 warning
+    model_config = ConfigDict(protected_namespaces=())
+
     name: str
     protocol: UpstreamProtocolCreatable
     provider: UpstreamProvider = "custom"
     base_url: str
     api_key: str | None = None
+    model: str | None = None
     enabled: bool = True
+
+
+class UpstreamUpdate(BaseModel):
+    """部分更新:所有字段 Optional;`exclude_unset=True` 区分"未传"和"传 null"。
+
+    - 任何字段未传 → 不动
+    - `api_key` / `model` 显式传 `null` → 清空该字段
+    - `protocol` 改了且原行 is_default=True → repository 层会自动清 is_default
+    """
+
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
+
+    name: str | None = None
+    protocol: UpstreamProtocolCreatable | None = None
+    provider: UpstreamProvider | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    model: str | None = None
+    enabled: bool | None = None
 
 
 class UpstreamOut(BaseModel):
     # 不暴露 api_key 字段
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
 
     id: str
     name: str
     protocol: str
     provider: str
     base_url: str
+    model: str | None
     enabled: bool
     is_default: bool
     created_at: datetime
@@ -63,12 +88,54 @@ async def create_upstream(payload: UpstreamCreate, repo: UpstreamRepoDep) -> Ups
             provider=payload.provider,
             base_url=payload.base_url,
             api_key=payload.api_key,
+            model=payload.model,
             enabled=payload.enabled,
         )
     except IntegrityError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"upstream name '{payload.name}' 已存在",
+        ) from e
+
+
+@router.put("/upstreams/{upstream_id}", response_model=UpstreamOut)
+async def update_upstream(
+    upstream_id: str, payload: UpstreamUpdate, repo: UpstreamRepoDep
+) -> Upstream:
+    """部分更新 upstream;未传字段不动,`api_key`/`model` 传 null 显式清空。
+
+    `protocol` 改了且原行是该协议的 default → repo 自动清 is_default
+    (避免"messages 的 default 突然变成 completions 的"隐式语义跳变)。
+    """
+    fields = payload.model_dump(exclude_unset=True)
+    if not fields:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="UpstreamUpdate 必须至少提供一个字段",
+        )
+    # api_key / model 要区分"未传(保留)"和"传 null(清空)";其他字段用 None=未传
+    api_key_arg = fields.get("api_key", ...)
+    model_arg = fields.get("model", ...)
+    try:
+        return await repo.update(
+            upstream_id,
+            name=fields.get("name"),
+            protocol=fields.get("protocol"),
+            provider=fields.get("provider"),
+            base_url=fields.get("base_url"),
+            api_key=api_key_arg,  # type: ignore[arg-type]
+            model=model_arg,  # type: ignore[arg-type]
+            enabled=fields.get("enabled"),
+        )
+    except LookupError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"upstream id={upstream_id} 不存在",
+        ) from e
+    except IntegrityError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"upstream name '{fields.get('name')}' 已存在",
         ) from e
 
 

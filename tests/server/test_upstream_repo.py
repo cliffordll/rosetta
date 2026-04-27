@@ -99,3 +99,62 @@ class TestSetDefault:
         repo = UpstreamRepo(session)
         again = await repo.set_default("a")
         assert again.is_default is True
+
+
+class TestUpdate:
+    async def test_update_single_field(self, session: AsyncSession) -> None:
+        a = await _insert(session, name="a", protocol="messages")
+        repo = UpstreamRepo(session)
+        result = await repo.update(a.id, base_url="https://new.example.com")
+        assert result.base_url == "https://new.example.com"
+        assert result.name == "a"  # 其他字段不动
+
+    async def test_update_unknown_id_raises(self, session: AsyncSession) -> None:
+        repo = UpstreamRepo(session)
+        with pytest.raises(LookupError):
+            # mock seed 占了 "0"*32,用 "f"*32 一定不存在
+            await repo.update("f" * 32, name="ghost")
+
+    async def test_update_name_conflict(self, session: AsyncSession) -> None:
+        await _insert(session, name="a", protocol="messages")
+        b = await _insert(session, name="b", protocol="messages")
+        repo = UpstreamRepo(session)
+        from sqlalchemy.exc import IntegrityError
+
+        with pytest.raises(IntegrityError):
+            await repo.update(b.id, name="a")
+
+    async def test_update_protocol_clears_is_default(self, session: AsyncSession) -> None:
+        """改 protocol 时,如果该行原来是 default,应自动清掉(避免跨协议占槽)。"""
+        a = await _insert(session, name="a", protocol="messages", is_default=True)
+        repo = UpstreamRepo(session)
+        result = await repo.update(a.id, protocol="completions")
+        assert result.protocol == "completions"
+        assert result.is_default is False
+
+    async def test_update_protocol_unchanged_keeps_is_default(self, session: AsyncSession) -> None:
+        """同 protocol(等值改)不应清 is_default。"""
+        a = await _insert(session, name="a", protocol="messages", is_default=True)
+        repo = UpstreamRepo(session)
+        result = await repo.update(a.id, protocol="messages")
+        assert result.is_default is True
+
+    async def test_update_clear_api_key(self, session: AsyncSession) -> None:
+        """显式传 None 清 api_key;不传字段保持原值。"""
+        a = await _insert(session, name="a")
+        assert a.api_key == "sk-fake"
+        repo = UpstreamRepo(session)
+        result = await repo.update(a.id, api_key=None)
+        assert result.api_key is None
+
+    async def test_update_omit_api_key_keeps_original(self, session: AsyncSession) -> None:
+        a = await _insert(session, name="a")
+        repo = UpstreamRepo(session)
+        result = await repo.update(a.id, base_url="https://x")
+        assert result.api_key == "sk-fake"
+
+    async def test_update_set_model(self, session: AsyncSession) -> None:
+        a = await _insert(session, name="a")
+        repo = UpstreamRepo(session)
+        result = await repo.update(a.id, model="claude-sonnet-4-5")
+        assert result.model == "claude-sonnet-4-5"

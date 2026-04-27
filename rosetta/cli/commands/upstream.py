@@ -1,6 +1,6 @@
-"""`rosetta upstream` — upstream 的 add / list / remove / set-default / restore-mock。
+"""`rosetta upstream` — upstream 的 add / list / update / remove / set-default / restore-mock。
 
-update / test 留到 v1+(FEATURE 附录 B)。
+`test` 留到 v1+(FEATURE 附录 B)。
 """
 
 from __future__ import annotations
@@ -13,7 +13,11 @@ import typer
 
 from rosetta.cli.core.render import Renderer
 from rosetta.sdk.client import ProxyClient
-from rosetta.server.controller.upstreams import UpstreamCreate, UpstreamProtocolCreatable
+from rosetta.server.controller.upstreams import (
+    UpstreamCreate,
+    UpstreamProtocolCreatable,
+    UpstreamUpdate,
+)
 from rosetta.server.database.models import UpstreamProvider
 
 _ALLOWED_PROTOCOLS = get_args(UpstreamProtocolCreatable)
@@ -44,9 +48,18 @@ async def _list() -> None:
         Renderer.out("no upstreams yet")
         return
     Renderer.table(
-        ["id", "name", "protocol", "provider", "base_url", "enabled", "default"],
+        ["id", "name", "protocol", "provider", "model", "base_url", "enabled", "default"],
         [
-            [u.id, u.name, u.protocol, u.provider, u.base_url, u.enabled, u.is_default]
+            [
+                u.id,
+                u.name,
+                u.protocol,
+                u.provider,
+                u.model or "-",
+                u.base_url,
+                u.enabled,
+                u.is_default,
+            ]
             for u in items
         ],
     )
@@ -61,6 +74,13 @@ def add_cmd(
         typer.Option("--protocol", help="messages | completions | responses(默认 messages)"),
     ] = "messages",
     api_key: Annotated[str | None, typer.Option("--api-key", help="上游 api key(可选)")] = None,
+    model: Annotated[
+        str | None,
+        typer.Option(
+            "--model",
+            help="该 upstream 的默认模型(可选);body 不传 model 时 server fallback 到这个",
+        ),
+    ] = None,
     provider: Annotated[
         str,
         typer.Option(
@@ -81,6 +101,7 @@ def add_cmd(
         protocol=protocol,  # type: ignore[arg-type]
         provider=provider,  # type: ignore[arg-type]
         api_key=api_key,
+        model=model,
         base_url=base_url,
     )
     asyncio.run(_create(payload))
@@ -99,6 +120,74 @@ async def _create(payload: UpstreamCreate) -> None:
     Renderer.out(
         f"upstream '{created.name}' created "
         f"(id={created.id}, protocol={created.protocol}, enabled={created.enabled})"
+    )
+
+
+@app.command("update")
+def update_cmd(
+    upstream_id: Annotated[str, typer.Argument(help="要更新的 upstream id")],
+    name: Annotated[str | None, typer.Option("--name", help="新 name")] = None,
+    base_url: Annotated[str | None, typer.Option("--base-url", help="新 base_url")] = None,
+    protocol: Annotated[
+        str | None,
+        typer.Option("--protocol", help="新 protocol(改了且原行是 default 会自动清 default)"),
+    ] = None,
+    provider: Annotated[str | None, typer.Option("--provider", help="新 provider")] = None,
+    api_key: Annotated[
+        str | None, typer.Option("--api-key", help="新 api key(传值更新,留空不动)")
+    ] = None,
+    model: Annotated[
+        str | None,
+        typer.Option("--model", help="新 default model(传值更新,留空不动)"),
+    ] = None,
+    enabled: Annotated[
+        bool | None, typer.Option("--enabled/--disabled", help="启用 / 禁用 upstream")
+    ] = None,
+) -> None:
+    """部分更新 upstream;只改传入的字段。要清空 api_key / model 请走 GUI。"""
+    if protocol is not None and protocol not in _ALLOWED_PROTOCOLS:
+        Renderer.die(f"--protocol 必须是 messages/completions/responses,收到 {protocol!r}")
+        return
+    if provider is not None and provider not in _ALLOWED_PROVIDERS:
+        Renderer.die(f"--provider 必须是 {'/'.join(_ALLOWED_PROVIDERS)},收到 {provider!r}")
+        return
+
+    fields: dict[str, object] = {}
+    if name is not None:
+        fields["name"] = name
+    if base_url is not None:
+        fields["base_url"] = base_url
+    if protocol is not None:
+        fields["protocol"] = protocol
+    if provider is not None:
+        fields["provider"] = provider
+    if api_key is not None:
+        fields["api_key"] = api_key
+    if model is not None:
+        fields["model"] = model
+    if enabled is not None:
+        fields["enabled"] = enabled
+    if not fields:
+        Renderer.die("update 至少要传一个字段;`-h` 看可选项")
+        return
+
+    payload = UpstreamUpdate.model_validate(fields)
+    asyncio.run(_update(upstream_id, payload))
+
+
+async def _update(upstream_id: str, payload: UpstreamUpdate) -> None:
+    try:
+        async with ProxyClient.discover_session(spawn_if_missing=False) as client:
+            updated = await client.update_upstream(upstream_id, payload)
+    except httpx.HTTPStatusError as e:
+        Renderer.die(f"更新失败: {e.response.status_code} {e.response.text}")
+        return
+    except RuntimeError as e:
+        Renderer.die(f"server 未就绪: {e}")
+        return
+    Renderer.out(
+        f"upstream '{updated.name}' updated "
+        f"(id={updated.id}, protocol={updated.protocol}, model={updated.model or '-'})"
     )
 
 

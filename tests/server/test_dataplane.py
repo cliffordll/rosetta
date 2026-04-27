@@ -64,6 +64,7 @@ def _anthropic_upstream(**overrides: Any) -> Upstream:
         "provider": "anthropic",
         "api_key": "sk-ant-dbkey",
         "base_url": "https://api.anthropic.com",
+        "model": None,
         "enabled": True,
     }
     base.update(overrides)
@@ -78,6 +79,7 @@ def _openai_upstream(**overrides: Any) -> Upstream:
         "provider": "openai",
         "api_key": "sk-oai-dbkey",
         "base_url": "https://api.openai.com",
+        "model": None,
         "enabled": True,
     }
     base.update(overrides)
@@ -267,6 +269,73 @@ async def test_cross_format_messages_to_completions(
     assert response_body["type"] == "message"
     assert response_body["role"] == "assistant"
     assert any(b.get("type") == "text" and b.get("text") == "yes" for b in response_body["content"])
+
+
+# ---------- model fallback ----------
+
+
+async def test_model_fallback_when_body_missing(mock_client: dict[str, Any]) -> None:
+    """body 没 model + upstream.model 有值 → forwarder 注入 upstream.model。"""
+    mock_client["handler"] = lambda req: httpx.Response(200, json={})
+
+    body = json.dumps({"messages": []}).encode("utf-8")
+    await forwarder.forward(
+        upstream=_anthropic_upstream(model="claude-haiku-4-5"),
+        request_protocol=Protocol.MESSAGES,
+        body=body,
+        content_type="application/json",
+    )
+    sent = json.loads(mock_client["request"].content)
+    assert sent["model"] == "claude-haiku-4-5"
+
+
+async def test_model_fallback_when_body_empty_string(mock_client: dict[str, Any]) -> None:
+    """body 传 model="" 也算"无 model",同样兜底。"""
+    mock_client["handler"] = lambda req: httpx.Response(200, json={})
+
+    body = json.dumps({"model": "", "messages": []}).encode("utf-8")
+    await forwarder.forward(
+        upstream=_anthropic_upstream(model="claude-sonnet-4-5"),
+        request_protocol=Protocol.MESSAGES,
+        body=body,
+        content_type="application/json",
+    )
+    sent = json.loads(mock_client["request"].content)
+    assert sent["model"] == "claude-sonnet-4-5"
+
+
+async def test_model_explicit_overrides_upstream_default(
+    mock_client: dict[str, Any],
+) -> None:
+    """body 显式有 model → 不动,client 的优先级高于 upstream.model。"""
+    mock_client["handler"] = lambda req: httpx.Response(200, json={})
+
+    body = json.dumps({"model": "claude-opus-4-5", "messages": []}).encode("utf-8")
+    await forwarder.forward(
+        upstream=_anthropic_upstream(model="claude-haiku-4-5"),
+        request_protocol=Protocol.MESSAGES,
+        body=body,
+        content_type="application/json",
+    )
+    sent = json.loads(mock_client["request"].content)
+    assert sent["model"] == "claude-opus-4-5"
+
+
+async def test_model_no_fallback_when_upstream_has_no_model(
+    mock_client: dict[str, Any],
+) -> None:
+    """body 无 model + upstream 也无 model → 维持原样(让上游自己 4xx)。"""
+    mock_client["handler"] = lambda req: httpx.Response(200, json={})
+
+    body = json.dumps({"messages": []}).encode("utf-8")
+    await forwarder.forward(
+        upstream=_anthropic_upstream(model=None),
+        request_protocol=Protocol.MESSAGES,
+        body=body,
+        content_type="application/json",
+    )
+    sent = json.loads(mock_client["request"].content)
+    assert "model" not in sent
 
 
 # ---------- extra_response_headers ----------

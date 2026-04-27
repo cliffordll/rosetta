@@ -920,6 +920,52 @@
   - GUI 没有显式 "(auto)" SelectItem;用户从已选切回"由 server 决定"需要刷新页或换 protocol 触发重选 — UX 局限,留 v1+
   - server 没在响应头返回"实际 resolved 的 upstream";meta 行 fallback 时显示字面量 "default",看不到具体落到哪个 upstream — 留 v1+ 加 `X-Rosetta-Resolved-Upstream`
 
+### 步骤 9.2 ✅ · upstream 编辑 + model 默认值 + 列表分组
+
+- **目标**:`upstreams` 加 `model` 字段(默认模型,与 `api_key` 语义对齐);提供 update endpoint 让用户改字段;Upstreams GUI 列表按 protocol 分组展示
+- **产出**:
+  - `migrations/003_upstream_model.sql`:`upstreams ADD COLUMN model TEXT` + bump `user_version=3`
+  - `database/models.py`:`Upstream.model: str | None`
+  - `repository/upstream.py`:
+    - `MOCK_UPSTREAM_FIELDS` 加 `model: None`
+    - `create` 加 `model` 参数
+    - `update(upstream_id, *, name?, protocol?, ..., api_key=..., model=...)`:`api_key`/`model` 用 sentinel `Ellipsis` 区分"未传"/"传 None";改 protocol 且原行 is_default=True 自动清 is_default
+  - `controller/upstreams.py`:
+    - `UpstreamCreate` / `UpstreamOut` 加 `model`
+    - 新 `UpstreamUpdate`(全 Optional + `extra=forbid` + `protected_namespaces=()`)
+    - 新 `PUT /admin/upstreams/{id}`:`exclude_unset=True` 拿 set 字段;404 / 409 / 400 兜底
+  - `service/forwarder.py`:body 解析后,model 缺/空 + upstream.model 有值 → 写入 body_dict + 重新序列化 bytes(同格式直通 / 跨格式翻译两条路径都受益)
+  - `sdk/client.py`:`ProxyClient.update_upstream(id, payload)`
+  - `cli/commands/upstream.py`:
+    - `add` 加 `--model` 选项
+    - 新 `rosetta upstream update <id>` 子命令(部分字段更新)
+    - `list` 表头加 `model` 列
+  - `packages/app/src/lib/api.ts`:`UpstreamOut.model` + `UpstreamUpdate` interface + `api.updateUpstream(id, payload)`
+  - `packages/app/src/pages/Upstreams.tsx`:
+    - `AddUpstreamDialog` → `UpstreamFormDialog` 复用(mode=add/edit)
+    - actions 列加 "Edit" 按钮(provider="mock" 不显示)
+    - 表格按 protocol 分组(GROUP_ORDER `messages → completions → responses → any`),每组一个 section row 显示协议名 + 计数
+    - 表头加 `model` 列
+  - tests:
+    - `test_upstream_repo.py` 加 8 个 `TestUpdate` 用例(单字段 / 不存在 / name 冲突 / 改 protocol 清 default / 同 protocol 不清 / 显式清 api_key / 不传保留 / set model)
+    - `test_admin.py` 加 6 个 update endpoint 用例(部分更新 / 清 api_key / 改 protocol 清 default / 不存在 / name 冲突 / 空 body)
+    - `test_dataplane.py` 加 4 个 model fallback 用例(body 缺 / body 空字符串 / body 显式优先 / 两边都没)
+    - `test_client_admin.py` 加 update_upstream 用例 + 旧 fixture JSON 全部加 `model: None`
+- **手动测试步骤**:
+  1. `rosetta upstream add --name a1 --protocol messages --base-url https://api.example.com --model claude-haiku-4-5`
+  2. `rosetta upstream list` → 应看到 model 列显示 claude-haiku-4-5
+  3. `rosetta upstream update <a1-id> --model claude-sonnet-4-5` → 提示 updated;再 list 验证 model 变了
+  4. `rosetta upstream update <a1-id> --protocol completions` → 改 protocol 成功(若是 default 行自动清 default)
+  5. `rosetta chat --upstream a1` 不传 `--model` → forwarder 用 upstream.model 兜底(可在 logs 表看到 model 字段 = upstream.model 值)
+  6. GUI Upstreams 页:列表按 messages/completions/responses 分组渲染;model 列显示
+  7. GUI 点 Edit → 对话框预填字段;改 model + 保存 → 列表刷新;api_key 留空 = 不动
+  8. GUI mock 行无 Edit 按钮(provider=mock 排除);Set default 按钮也按 protocol="any" 排除
+- **预期结果**:每步对照清单
+- **通过判据**:8 步全过 + `pytest -q` 174+ pass + `bun run typecheck` 全过
+- **让步**:
+  - CLI `upstream update` 不支持显式清空 `api_key`/`model`(传值更新,留空不动);要清空走 GUI(传 null 触发 server 清空)
+  - GUI Edit 对话框对 mock 行不开放(provider="mock" 没 Edit 按钮);要重置 mock 走 "Restore mock"
+
 ---
 
 ## 预估与节奏

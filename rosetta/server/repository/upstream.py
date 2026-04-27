@@ -24,6 +24,7 @@ MOCK_UPSTREAM_FIELDS: dict[str, Any] = {
     "provider": "mock",
     "base_url": "mock://",
     "api_key": None,
+    "model": None,  # mock 路径不走 forwarder model fallback;client 自带
     "enabled": True,
     "is_default": False,  # mock 不参与协议默认路由
 }
@@ -58,6 +59,7 @@ class UpstreamRepo:
         provider: str,
         base_url: str,
         api_key: str | None,
+        model: str | None,
         enabled: bool,
     ) -> Upstream:
         """创建 upstream;name 冲突时 rollback 并抛 `IntegrityError`(调用方转 409)。"""
@@ -67,6 +69,7 @@ class UpstreamRepo:
             provider=provider,
             base_url=base_url,
             api_key=api_key,
+            model=model,
             enabled=enabled,
         )
         self.session.add(upstream)
@@ -77,6 +80,57 @@ class UpstreamRepo:
             raise
         await self.session.refresh(upstream)
         return upstream
+
+    async def update(
+        self,
+        upstream_id: str,
+        *,
+        name: str | None = None,
+        protocol: str | None = None,
+        provider: str | None = None,
+        base_url: str | None = None,
+        api_key: str | None = ...,  # type: ignore[assignment]
+        model: str | None = ...,  # type: ignore[assignment]
+        enabled: bool | None = None,
+    ) -> Upstream:
+        """部分更新 upstream;只改传入的字段。
+
+        - id 不存在 → `LookupError`(调用方转 404)
+        - name 冲突 → `IntegrityError`(调用方转 409)
+        - protocol 改了且原行 `is_default=True` → 自动清掉 is_default(原 protocol
+          的 default 槽位空缺),避免"messages 的 default 突然变成 completions 的"
+          这种隐式语义跳变;调用方应在 UI 提示用户重新 set-default
+        - api_key / model 用 sentinel `...`(Ellipsis) 区分"传 None 显式清空"和
+          "未传保持原值";其他字段用 None 即"未传"
+        """
+        target = await self.get_by_id(upstream_id)
+        if target is None:
+            raise LookupError(f"upstream id={upstream_id!r} 不存在")
+
+        if name is not None:
+            target.name = name
+        if provider is not None:
+            target.provider = provider
+        if base_url is not None:
+            target.base_url = base_url
+        if api_key is not ...:
+            target.api_key = api_key
+        if model is not ...:
+            target.model = model
+        if enabled is not None:
+            target.enabled = enabled
+        if protocol is not None and protocol != target.protocol:
+            target.protocol = protocol
+            # 旧 protocol 的 default 槽位被该行占用过的话,改 protocol 后清掉
+            target.is_default = False
+
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            await self.session.rollback()
+            raise
+        await self.session.refresh(target)
+        return target
 
     async def delete(self, upstream: Upstream) -> None:
         await self.session.delete(upstream)

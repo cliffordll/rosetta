@@ -89,7 +89,14 @@ class MockResponder:
         *,
         stream: bool,
     ) -> Response:
-        """按 fmt + stream 产出 mock 响应。body 必须是合规的 client 请求。"""
+        """按 fmt + stream 产出 mock 响应。body 必须是合规的 client 请求。
+
+        client 没传 `model` + 上游又没在 `upstream.model` 配 → forwarder 不会注入,
+        body 到这里仍然没 model;mock 自己兜个占位避免 IR Pydantic 校验失败,因为
+        mock 的 echo 响应本来就不依赖具体 model 值。
+        """
+        if not isinstance(body.get("model"), str) or not body["model"].strip():
+            body = {**body, "model": "mock-default"}
         req = self._request_to_ir(fmt, body)
         user_text = self._extract_last_user_text(req)
         reply = self._build_reply(fmt, user_text)

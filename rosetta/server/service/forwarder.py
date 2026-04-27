@@ -198,6 +198,17 @@ class Forwarder:
         try:
             body_dict = self._parse_body(body)
             raw_model = body_dict.get("model")
+
+            # model fallback:body 缺 / 空 model + upstream.model 有值 → 写入 body_dict
+            # 同格式直通走原始 bytes,fallback 命中需要重新序列化
+            needs_model_fallback = (
+                not isinstance(raw_model, str) or not raw_model.strip()
+            ) and upstream.model
+            if needs_model_fallback:
+                body_dict["model"] = upstream.model
+                body = json.dumps(body_dict, ensure_ascii=False).encode("utf-8")
+                raw_model = upstream.model
+
             if isinstance(raw_model, str):
                 model = raw_model
             is_stream = body_dict.get("stream") is True

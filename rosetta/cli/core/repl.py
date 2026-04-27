@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
-from rosetta.cli.core.context import DEFAULT_MODELS, ChatContext, ChatError
+from rosetta.cli.core.context import ChatContext, ChatError
 from rosetta.cli.core.render import Renderer
 from rosetta.shared.protocols import Protocol
 
@@ -40,7 +40,7 @@ class ChatRepl:
         "slash 命令:\n"
         "  /exit, /quit             退出 REPL\n"
         "  /reset                   清空对话历史\n"
-        "  /model <name>            切换模型\n"
+        "  /model <name>            切换模型;空参数 = auto(走 upstream.model 兜底)\n"
         "  /format messages|completions|responses  切换 API 格式\n"
         "  /help                    本说明"
     )
@@ -51,7 +51,8 @@ class ChatRepl:
         Ctrl+C / EOF / `/exit` / `/quit` 退出。
         """
         Renderer.out(
-            f"rosetta chat · format={self.ctx.fmt.value} · model={self.ctx.model} · /help 查看命令"
+            f"rosetta chat · format={self.ctx.fmt.value} · "
+            f"model={self.ctx.model or 'auto'} · /help 查看命令"
         )
 
         while True:
@@ -87,7 +88,7 @@ class ChatRepl:
         self.ctx.append_assistant(result.text)
         Renderer.meta_line(
             upstream=self.ctx.upstream or "auto",
-            model=self.ctx.model,
+            model=self.ctx.model or "auto",
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
             latency_ms=result.latency_ms,
@@ -113,8 +114,10 @@ class ChatRepl:
             return False
 
         if cmd == "/model":
+            # /model 空参数 → 切回 auto(走 upstream.model 兜底)
             if not arg:
-                Renderer.error_bubble("用法:/model <name>")
+                self.ctx.set_model(None)
+                Renderer.out("model → auto(用 upstream.model 兜底)")
                 return False
             self.ctx.set_model(arg)
             Renderer.out(f"model → {self.ctx.model}")
@@ -127,13 +130,7 @@ class ChatRepl:
                 Renderer.error_bubble(f"format 必须是 messages/completions/responses,收到 {arg!r}")
                 return False
             self.ctx.set_fmt(new_fmt)
-            # 切格式时如果当前 model 是别的 format 的默认值,同步到新 format 的默认
-            default_for_new = DEFAULT_MODELS[new_fmt]
-            if self.ctx.model in DEFAULT_MODELS.values() and self.ctx.model != default_for_new:
-                self.ctx.set_model(default_for_new)
-                Renderer.out(f"format → {new_fmt.value} · model → {self.ctx.model}")
-            else:
-                Renderer.out(f"format → {new_fmt.value}")
+            Renderer.out(f"format → {new_fmt.value}")
             return False
 
         Renderer.error_bubble(f"未知命令 {cmd!r};/help 查看可用命令")

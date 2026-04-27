@@ -19,7 +19,7 @@ import pytest
 import pytest_asyncio
 
 from rosetta.sdk.client import ProxyClient
-from rosetta.server.controller.upstreams import UpstreamCreate
+from rosetta.server.controller.upstreams import UpstreamCreate, UpstreamUpdate
 
 
 def _make_client_with_handler(
@@ -108,6 +108,7 @@ async def test_list_upstreams(echo_client: tuple[ProxyClient, dict[str, Any]]) -
                 "base_url": "https://api.anthropic.com",
                 "enabled": True,
                 "is_default": False,
+                "model": None,
                 "created_at": datetime(2026, 4, 22, 10, 0, 0).isoformat(),
             }
         ],
@@ -131,6 +132,7 @@ async def test_create_upstream(echo_client: tuple[ProxyClient, dict[str, Any]]) 
             "base_url": "https://api.anthropic.com",
             "enabled": True,
             "is_default": False,
+            "model": None,
             "created_at": "2026-04-22T10:00:00",
         },
     )
@@ -173,6 +175,35 @@ async def test_delete_upstream_not_found_raises(
         await client.delete_upstream("ghost")
 
 
+async def test_update_upstream(echo_client: tuple[ProxyClient, dict[str, Any]]) -> None:
+    client, captured = echo_client
+    captured["response"] = httpx.Response(
+        200,
+        json={
+            "id": "p1-id",
+            "name": "renamed",
+            "protocol": "messages",
+            "provider": "anthropic",
+            "base_url": "https://api.anthropic.com",
+            "enabled": True,
+            "is_default": False,
+            "model": "claude-sonnet-4-5",
+            "created_at": "2026-04-22T10:00:00",
+        },
+    )
+    payload = UpstreamUpdate(name="renamed", model="claude-sonnet-4-5")
+    updated = await client.update_upstream("p1-id", payload)
+    assert updated.name == "renamed"
+    req = captured["request"]
+    assert req.method == "PUT"
+    assert req.url.path == "/admin/upstreams/p1-id"
+    import json as _json
+
+    sent = _json.loads(req.content)
+    # exclude_unset:只发用户传的字段(name + model),不发其他
+    assert set(sent.keys()) == {"name", "model"}
+
+
 async def test_set_default_upstream(
     echo_client: tuple[ProxyClient, dict[str, Any]],
 ) -> None:
@@ -187,6 +218,7 @@ async def test_set_default_upstream(
             "base_url": "https://api.anthropic.com",
             "enabled": True,
             "is_default": True,
+            "model": None,
             "created_at": "2026-04-22T10:00:00",
         },
     )

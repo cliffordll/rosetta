@@ -6,6 +6,8 @@
   未给则不传 `x-rosetta-upstream` header,server 按入口 protocol 选 default upstream
   (DESIGN §8.4 fallback);该 protocol 没有 default 时 server 返 400,提示去
   `rosetta upstream set-default <name>` 设一个。
+  `--model` 同样可选,留空时不发 `body.model`,server forwarder 用 `upstream.model`
+  兜底(与 `--api-key` 行为对称)。
 - direct 模式:`--base-url` 给上游根地址,绕过 server 直连;必须同时传
   `--api-key` + `--model`。`--base-url` 一旦给出,`--upstream` 自动失效。
 """
@@ -19,7 +21,7 @@ from typing import Annotated
 
 import typer
 
-from rosetta.cli.core.context import DEFAULT_MODELS, ChatContext
+from rosetta.cli.core.context import ChatContext
 from rosetta.cli.core.render import Renderer
 from rosetta.sdk.client import ProxyClient
 from rosetta.shared.protocols import Protocol
@@ -51,7 +53,7 @@ def chat_cmd(
         str | None,
         typer.Option(
             "--model",
-            help="模型 id;server 模式按 protocol 取默认,direct 模式必填",
+            help="模型 id;server 模式可留空(走 upstream.model 兜底),direct 模式必填",
         ),
     ] = None,
     api_key: Annotated[
@@ -80,12 +82,13 @@ def chat_cmd(
         if not model:
             Renderer.die("--base-url 模式下 --model 必填")
             return
-        effective_model = model
+        effective_model: str | None = model
         effective_upstream: str | None = None
     else:
-        # server 模式:--upstream 不缺省;None 让 server 走 protocol default fallback
+        # server 模式:--upstream / --model 都不缺省;None 让 server 走 fallback
+        # (--upstream 走 protocol default;--model 走 upstream.model)
         effective_upstream = upstream
-        effective_model = model or DEFAULT_MODELS[fmt]
+        effective_model = model
 
     asyncio.run(
         _run(
@@ -104,14 +107,15 @@ def chat_cmd(
 async def _session(
     *,
     fmt: Protocol,
-    model: str,
+    model: str | None,
     api_key: str | None,
     base_url: str | None,
 ) -> AsyncIterator[ProxyClient]:
     """按 base_url 是否给,选 direct / server session。"""
     if base_url is not None:
-        # chat_cmd 已 gate,这里 api_key 必非空
+        # chat_cmd 已 gate,这里 api_key / model 必非空
         assert api_key is not None
+        assert model is not None
         async with ProxyClient.direct_session(
             base_url=base_url,
             api_key=api_key,
@@ -128,7 +132,7 @@ async def _run(
     *,
     text: str | None,
     fmt: Protocol,
-    model: str,
+    model: str | None,
     upstream: str | None,
     api_key: str | None,
     base_url: str | None,
