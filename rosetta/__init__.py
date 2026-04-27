@@ -1,3 +1,3 @@
 """Rosetta — 本地 LLM API 格式转换中枢."""
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
