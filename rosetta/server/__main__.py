@@ -44,6 +44,22 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="父进程 PID;父死后本 server 自动优雅退出",
     )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help=(
+            "绑定地址(默认 127.0.0.1 仅本机回环)。"
+            "改 0.0.0.0 暴露局域网前请知道:server 没有 auth 层,"
+            "局域网任何机器都能用你配的 api_key 替你消费上游"
+        ),
+    )
+    parser.add_argument(
+        "-p",
+        "--port",
+        type=int,
+        default=0,
+        help="绑定端口(默认 0 = 系统分配,客户端从 endpoint.json 读)",
+    )
     return parser.parse_args()
 
 
@@ -61,11 +77,19 @@ async def _wait_started(server: uvicorn.Server, serve_task: asyncio.Task[None]) 
 
 
 def _read_bound_url(server: uvicorn.Server) -> str:
-    """从 server.servers 读出已 bind 的 127.0.0.1 地址。"""
+    """从 server.servers 读出已 bind 的 host:port,组装成同机可访问的 URL。
+
+    bind 在 `0.0.0.0` / `::` 时,sockaddr 拿到的 host 字面量同名;但 Windows / 浏览器
+    不允许把这俩当 destination 连(只能作为 listen-on-any)。endpoint.json 服务的是
+    **同机** 的 CLI / 桌面端发现 server,所以这里替换成 127.0.0.1。局域网客户端不读
+    endpoint.json,自己拿真实 server IP:port 用。
+    """
     sockets = server.servers[0].sockets
     sockaddr = sockets[0].getsockname()
     host = str(sockaddr[0])
     port = int(sockaddr[1])
+    if host in ("0.0.0.0", "::"):
+        host = "127.0.0.1"
     return f"http://{host}:{port}"
 
 
@@ -92,8 +116,8 @@ async def _amain(args: argparse.Namespace) -> int:
     app = create_app()
     config = uvicorn.Config(
         app,
-        host="127.0.0.1",
-        port=0,
+        host=args.host,
+        port=args.port,
         # logger 由 configure_logging() 托管,uvicorn 不自己装;access_log 关,
         # dataplane 请求改为由 forwarder 走 logger + logs 表双通道
         log_config=None,

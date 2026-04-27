@@ -65,8 +65,12 @@
 # 装依赖
 uv sync
 
-# 起 server
+# 起 server(默认 127.0.0.1 + 系统分配端口,客户端从 endpoint.json 发现)
 uv run python -m rosetta.server
+
+# 暴露给局域网 / 固定端口(⚠️ server 没有 auth 层,0.0.0.0 后局域网任何机器
+# 都能用你配的 api_key 替你消费上游;请只在受信任网络下用)
+uv run python -m rosetta.server --host 0.0.0.0 -p 8090
 
 # 开箱即用:内置 mock upstream 无需任何 key,直接 echo 回复
 uv run rosetta chat "hello"
