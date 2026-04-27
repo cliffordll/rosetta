@@ -46,19 +46,6 @@ export const UPSTREAM_PROVIDERS: UpstreamProvider[] = [
   UpstreamProvider.CUSTOM,
 ];
 
-/** 三协议各自的默认模型 + 下拉候选(5.3 硬编码;v1+ 再引入动态发现)。 */
-export const DEFAULT_MODELS: Record<Protocol, string> = {
-  [Protocol.MESSAGES]: "claude-haiku-4-5",
-  [Protocol.CHAT_COMPLETIONS]: "gpt-4o-mini",
-  [Protocol.RESPONSES]: "gpt-4o-mini",
-};
-
-export const MODEL_CHOICES: Record<Protocol, string[]> = {
-  [Protocol.MESSAGES]: ["claude-haiku-4-5", "claude-sonnet-4-5", "claude-opus-4-5"],
-  [Protocol.CHAT_COMPLETIONS]: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"],
-  [Protocol.RESPONSES]: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"],
-};
-
 export interface StatusResponse {
   version: string;
   uptime_ms: number;
@@ -73,6 +60,8 @@ export interface UpstreamOut {
   protocol: string;
   provider: string;
   base_url: string;
+  /** 该 upstream 的默认模型;client body 不传 model 时 server fallback 用这个。可空。 */
+  model: string | null;
   enabled: boolean;
   /** 该 upstream 是否为其 protocol 的默认上游(`x-rosetta-upstream` header 缺失时回退用)。 */
   is_default: boolean;
@@ -84,7 +73,23 @@ export interface UpstreamCreate {
   protocol: UpstreamProtocol;
   provider: UpstreamProvider;
   api_key?: string;
+  model?: string;
   base_url: string;
+  enabled?: boolean;
+}
+
+/** PUT /admin/upstreams/{id} body;只发显式 set 的字段。
+ *
+ * - `api_key` / `model` 显式 `null` → 清空该字段;未传 → 不动
+ * - `protocol` 改了且原行是 default → server 自动清 is_default
+ */
+export interface UpstreamUpdate {
+  name?: string;
+  protocol?: UpstreamProtocol;
+  provider?: UpstreamProvider;
+  base_url?: string;
+  api_key?: string | null;
+  model?: string | null;
   enabled?: boolean;
 }
 
@@ -185,6 +190,12 @@ export const api = {
   setDefaultUpstream(name: string): Promise<UpstreamOut> {
     return request(`/admin/upstreams/${encodeURIComponent(name)}/default`, {
       method: "PUT",
+    });
+  },
+  updateUpstream(id: string, payload: UpstreamUpdate): Promise<UpstreamOut> {
+    return request(`/admin/upstreams/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
     });
   },
   listLogs(params: ListLogsParams = {}): Promise<LogOut[]> {

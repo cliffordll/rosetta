@@ -19,17 +19,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  ApiError,
-  DEFAULT_MODELS,
-  MODEL_CHOICES,
-  Protocol,
-  api,
-  type UpstreamOut,
-} from "@/lib/api";
+import { ApiError, Protocol, api, type UpstreamOut } from "@/lib/api";
 import { ChatError, runTurn, type ChatTurnMsg } from "@/lib/chat";
 
-const CUSTOM_MODEL_SENTINEL = "__custom__";
 const NO_UPSTREAM_SELECTED = "__none__";
 
 interface MetaInfo {
@@ -54,8 +46,10 @@ type DisplayMsg =
 
 export default function Chat() {
   const [protocol, setProtocol] = useState<Protocol>(Protocol.MESSAGES);
-  const [model, setModel] = useState<string>(DEFAULT_MODELS[Protocol.MESSAGES]);
-  const [useCustomModel, setUseCustomModel] = useState(false);
+  // model 留空(空字符串) → 不发 body.model,server 用 upstream.model 兜底;与
+  // override api-key 的"留空 = 用 DB,填值 = 覆盖"语义对齐。
+  // v0 不再硬编码 client 端"默认模型推荐";placeholder 显示 upstream.model 提示
+  const [model, setModel] = useState<string>("");
   const [upstreamChoice, setUpstreamChoice] = useState<string>(NO_UPSTREAM_SELECTED);
 
   const [upstreams, setUpstreams] = useState<UpstreamOut[]>([]);
@@ -95,15 +89,13 @@ export default function Chat() {
     })();
   }, []);
 
-  // 切 protocol:重置 model 默认 + 关自定义 + 重选当前 protocol 的 default upstream
+  // 切 protocol:回到 auto(留空让 server 兜底)+ 重选当前 protocol 的 default
+  // upstream。真正发请求时若 model 留空不带 body.model,由 forwarder 走 upstream.model
   const onProtocolChange = useCallback(
     (next: Protocol) => {
       setProtocol(next);
-      setModel(DEFAULT_MODELS[next]);
-      setUseCustomModel(false);
-      const dft = upstreams.find(
-        (u) => u.protocol === next && u.is_default && u.enabled,
-      );
+      setModel("");
+      const dft = upstreams.find((u) => u.protocol === next && u.is_default && u.enabled);
       setUpstreamChoice(dft ? String(dft.id) : NO_UPSTREAM_SELECTED);
     },
     [upstreams],
@@ -138,10 +130,10 @@ export default function Chat() {
 
   // 显式选了一行 → 发送 OK
   // 没选(NO_UPSTREAM_SELECTED)→ 仅当当前 protocol 有 default 时允许,走 server fallback
+  // model 不再要求非空:留空时 server 用 upstream.model 兜底
   const canSend =
     !inFlight &&
     input.trim().length > 0 &&
-    model.trim().length > 0 &&
     (resolvedUpstream !== null || hasDefaultForProtocol);
 
   const handleSend = useCallback(async () => {
@@ -179,11 +171,15 @@ export default function Chat() {
     const pathLabel = resolvedUpstream
       ? computePathLabel(protocol, resolvedUpstream)
       : protocol;
+    // model 留空 → runTurn 不发 body.model;meta 行显示估算的 effective model
+    // (client 输入 → upstream.model → "auto";server 实际 resolve 可能不同)
+    const trimmedModel = model.trim();
+    const effectiveModel = trimmedModel || resolvedUpstream?.model || "auto";
 
     try {
       const result = await runTurn(history, {
         fmt: protocol,
-        model,
+        model: trimmedModel || null,
         upstreamName,
         overrideApiKey: overrideKey,
         maxTokens: 1024,
@@ -209,7 +205,7 @@ export default function Chat() {
             status: result.aborted ? "aborted" : "done",
             meta: {
               upstreamLabel,
-              model,
+              model: effectiveModel,
               inputTokens: result.inputTokens,
               outputTokens: result.outputTokens,
               latencyMs: result.latencyMs,
@@ -371,48 +367,15 @@ export default function Chat() {
           <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
             Model
           </Label>
-          {useCustomModel ? (
-            <div className="flex gap-1">
-              <Input
-                value={model}
-                placeholder="模型 id"
-                onChange={(e) => setModel(e.target.value)}
-              />
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setUseCustomModel(false);
-                  setModel(DEFAULT_MODELS[protocol]);
-                }}
-              >
-                预设
-              </Button>
-            </div>
-          ) : (
-            <Select
-              value={MODEL_CHOICES[protocol].includes(model) ? model : CUSTOM_MODEL_SENTINEL}
-              onValueChange={(v) => {
-                if (v === CUSTOM_MODEL_SENTINEL) {
-                  setUseCustomModel(true);
-                  return;
-                }
-                setModel(v);
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {MODEL_CHOICES[protocol].map((m) => (
-                  <SelectItem key={m} value={m}>
-                    {m}
-                  </SelectItem>
-                ))}
-                <SelectItem value={CUSTOM_MODEL_SENTINEL}>自定义…</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
+          <Input
+            value={model}
+            placeholder={
+              resolvedUpstream?.model
+                ? `留空 = 用 ${resolvedUpstream.model}(upstream 默认)`
+                : "留空 = 走 upstream.model;请在 Upstreams 设默认或填具体 model"
+            }
+            onChange={(e) => setModel(e.target.value)}
+          />
         </div>
       </div>
 

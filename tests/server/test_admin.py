@@ -275,6 +275,113 @@ async def test_set_default_not_found(client: AsyncClient) -> None:
     assert r.status_code == 404
 
 
+# ---------- update ----------
+
+
+async def test_update_upstream_partial(client: AsyncClient) -> None:
+    """PUT /admin/upstreams/{id} 部分字段;其他字段保持原值。"""
+    create = await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "u1",
+            "protocol": "messages",
+            "api_key": "sk-1",
+            "base_url": "https://api.example.com/u1",
+        },
+    )
+    pid = create.json()["id"]
+    r = await client.put(
+        f"/admin/upstreams/{pid}",
+        json={"base_url": "https://api.example.com/v2", "model": "claude-sonnet-4-5"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["base_url"] == "https://api.example.com/v2"
+    assert body["model"] == "claude-sonnet-4-5"
+    assert body["name"] == "u1"  # 未传字段不动
+
+
+async def test_update_upstream_clear_api_key(client: AsyncClient) -> None:
+    """传 api_key=null 清空。"""
+    create = await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "u2",
+            "protocol": "messages",
+            "api_key": "sk-2",
+            "base_url": "https://api.example.com/u2",
+        },
+    )
+    pid = create.json()["id"]
+    r = await client.put(f"/admin/upstreams/{pid}", json={"api_key": None})
+    assert r.status_code == 200
+
+
+async def test_update_upstream_protocol_clears_default(client: AsyncClient) -> None:
+    """改 protocol 时如果该行是 default,自动清掉 is_default。"""
+    create = await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "u3",
+            "protocol": "messages",
+            "api_key": "sk",
+            "base_url": "https://api.example.com/u3",
+        },
+    )
+    pid = create.json()["id"]
+    assert (await client.put("/admin/upstreams/u3/default")).status_code == 200
+    r = await client.put(f"/admin/upstreams/{pid}", json={"protocol": "completions"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["protocol"] == "completions"
+    assert body["is_default"] is False
+
+
+async def test_update_upstream_not_found(client: AsyncClient) -> None:
+    # mock seed 占了 "0"*32,用 "f"*32 一定不存在
+    r = await client.put("/admin/upstreams/" + "f" * 32, json={"name": "x"})
+    assert r.status_code == 404
+
+
+async def test_update_upstream_name_conflict(client: AsyncClient) -> None:
+    await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "taken",
+            "protocol": "messages",
+            "api_key": "sk",
+            "base_url": "https://api.example.com/taken",
+        },
+    )
+    create = await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "free",
+            "protocol": "messages",
+            "api_key": "sk",
+            "base_url": "https://api.example.com/free",
+        },
+    )
+    pid = create.json()["id"]
+    r = await client.put(f"/admin/upstreams/{pid}", json={"name": "taken"})
+    assert r.status_code == 409
+
+
+async def test_update_upstream_empty_payload(client: AsyncClient) -> None:
+    create = await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "u4",
+            "protocol": "messages",
+            "api_key": "sk",
+            "base_url": "https://api.example.com/u4",
+        },
+    )
+    pid = create.json()["id"]
+    r = await client.put(f"/admin/upstreams/{pid}", json={})
+    assert r.status_code == 400
+
+
 # ---------- /admin/logs since polling 语义 ----------
 
 

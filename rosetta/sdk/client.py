@@ -28,7 +28,12 @@ from rosetta.sdk.discover import discover
 from rosetta.server.controller.logs import LogOut
 from rosetta.server.controller.runtime import StatusResponse
 from rosetta.server.controller.stats import Period, StatsOut
-from rosetta.server.controller.upstreams import RestoreMockOut, UpstreamCreate, UpstreamOut
+from rosetta.server.controller.upstreams import (
+    RestoreMockOut,
+    UpstreamCreate,
+    UpstreamOut,
+    UpstreamUpdate,
+)
 from rosetta.shared.protocols import UPSTREAM_PATH, Protocol
 
 _DATA_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
@@ -117,6 +122,17 @@ class ProxyClient:
         resp = await self.http.post(
             f"{self.base_url}/admin/upstreams",
             json=payload.model_dump(),
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return UpstreamOut.model_validate(resp.json())
+
+    async def update_upstream(self, upstream_id: str, payload: UpstreamUpdate) -> UpstreamOut:
+        """部分更新;只发用户显式设置过的字段(`exclude_unset=True`)。"""
+        self._require_server("update_upstream")
+        resp = await self.http.put(
+            f"{self.base_url}/admin/upstreams/{upstream_id}",
+            json=payload.model_dump(exclude_unset=True),
             timeout=_ADMIN_TIMEOUT,
         )
         resp.raise_for_status()

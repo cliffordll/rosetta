@@ -6,7 +6,8 @@
 典型用法
 --------
 ```
-ctx = ChatContext(client=client, fmt=Protocol.MESSAGES, model="claude-haiku-4-5")
+# model=None 时不发 body.model,server 用 upstream.model 兜底
+ctx = ChatContext(client=client, fmt=Protocol.MESSAGES, model=None)
 ctx.append_user("hi")
 result = await ctx.run_turn(on_token=print)
 ctx.append_assistant(result.text)
@@ -23,12 +24,6 @@ from typing import Any
 from rosetta.sdk.client import ProxyClient
 from rosetta.sdk.streams import ChatStream
 from rosetta.shared.protocols import Protocol
-
-DEFAULT_MODELS: dict[Protocol, str] = {
-    Protocol.MESSAGES: "claude-haiku-4-5",
-    Protocol.CHAT_COMPLETIONS: "gpt-4o-mini",
-    Protocol.RESPONSES: "gpt-4o-mini",
-}
 
 
 def _empty_messages() -> list[dict[str, str]]:
@@ -60,11 +55,15 @@ class TurnResult:
 
 @dataclass
 class ChatContext:
-    """一次聊天会话的完整上下文:客户端 + 会话配置 + 多轮历史。"""
+    """一次聊天会话的完整上下文:客户端 + 会话配置 + 多轮历史。
+
+    `model: str | None`:None 时 `_build_body` 不发 `model` 字段,server forwarder
+    用 `upstream.model` 兜底(与 `api_key` 留空透传 upstream.api_key 的语义对齐)。
+    """
 
     client: ProxyClient
     fmt: Protocol
-    model: str
+    model: str | None
     upstream: str | None = None
     api_key: str | None = None
     max_tokens: int = 1024
@@ -90,7 +89,7 @@ class ChatContext:
     def set_fmt(self, fmt: Protocol) -> None:
         self.fmt = fmt
 
-    def set_model(self, model: str) -> None:
+    def set_model(self, model: str | None) -> None:
         self.model = model
 
     # ---------- 核心:一轮请求 ----------
@@ -135,10 +134,15 @@ class ChatContext:
         """按 self.fmt 把对话历史组装成请求体。
 
         v0.1 只存纯文本(`content: str`),三格式的多轮表达都能直接消化。
+        `self.model is None` 时 body 不写 `model` 字段,让 server forwarder 走
+        upstream.model 兜底。
         """
+        # model 字段:None 时不写;放在 body 头便于阅读
+        model_field: dict[str, Any] = {"model": self.model} if self.model else {}
+
         if self.fmt is Protocol.MESSAGES:
             return {
-                "model": self.model,
+                **model_field,
                 "max_tokens": self.max_tokens,
                 "stream": True,
                 "messages": self.messages,
@@ -149,7 +153,7 @@ class ChatContext:
             # max_tokens 按 messages 语义复用一个值;真实 OpenAI 可不传,但 rosetta
             # 的翻译层 adapter 要求必填,一次性给齐简化下游路径
             return {
-                "model": self.model,
+                **model_field,
                 "stream": True,
                 "stream_options": {"include_usage": True},
                 "max_tokens": self.max_tokens,
@@ -159,7 +163,7 @@ class ChatContext:
         # Protocol.RESPONSES:字段名是 max_output_tokens,语义同 max_tokens;
         # input item 按 Responses 规范带 type="message"(否则 adapter 拒)
         return {
-            "model": self.model,
+            **model_field,
             "stream": True,
             "max_output_tokens": self.max_tokens,
             "input": [

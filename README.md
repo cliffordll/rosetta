@@ -72,12 +72,16 @@ uv run python -m rosetta.server
 uv run rosetta chat "hello"
 
 # 想配真实上游:添 upstream 后按 name 选
-uv run rosetta upstream add --name anthropic-main --protocol messages --api-key sk-ant-XXX --base-url https://api.anthropic.com
-uv run rosetta chat --upstream anthropic-main --model claude-haiku-4-5 "hello"
+# `--model` 可选,作为该 upstream 的默认模型;client body 不传 model 时由 server 兜底
+uv run rosetta upstream add --name anthropic-main --protocol messages --api-key sk-ant-XXX --base-url https://api.anthropic.com --model claude-haiku-4-5
+uv run rosetta chat --upstream anthropic-main "hello"   # 不传 --model 也跑,用 upstream.model
+
+# 改字段(部分更新;留空不动)
+uv run rosetta upstream update <id> --model claude-sonnet-4-5
 
 # 设为 messages 协议的默认上游;之后 chat 不传 --upstream 也能跑
 uv run rosetta upstream set-default anthropic-main
-uv run rosetta chat --model claude-haiku-4-5 "hello"
+uv run rosetta chat "hello"   # 不传 --upstream / --model,全靠 upstream 默认值
 
 # 绕 server 直连(direct 模式)
 uv run rosetta chat --base-url https://api.anthropic.com --api-key sk-ant-XXX --model claude-haiku-4-5 "hello"

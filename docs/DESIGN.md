@@ -533,13 +533,23 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
        │ 11. 按 format 解码，逐 token 打印  │     (upstream_id, tokens, latency)  │
 ```
 
+#### upstream-level 默认值
+
+`upstreams` 表的 `api_key` / `base_url` / `model` 三个字段都是"客户端没传时的兜底值",语义对齐:
+
+- 客户端 header / body 显式提供 → 用客户端值
+- 客户端没提供 → 用 upstream 的对应字段
+- 两边都没 → 各自走兜底:`api_key` 缺 → 500 `upstream_missing_key`;`model` 缺 → body 透传给上游让其 4xx;`base_url` 不存在(DB 强 NOT NULL,不会有这个分支)
+
+`upstream.model` 是 schema v3(2026-04)新加,与 `api_key` 语义对齐;forwarder 在 body 解析后注入 → 重新序列化 bytes → 同格式直通 / 跨格式翻译两条路径都受益。
+
 #### 关键字段的来源与去向
 
 | 字段 | 链路步骤 | 来源 | 去向 | 备注 |
 |---|---|---|---|---|
 | 上游 URL | 8 | `upstreams.base_url`（空则按 type 默认，见 §8.2） | httpx 请求行 | 用户在 GUI / `upstream add` 填一次 |
 | 上游 api-key | 8 | **客户端 `x-api-key` 头**（若带）→ **否则 `upstreams.api_key`** | httpx 请求头（按上游 type 选具体写法） | v0 无"rosetta 本地 key"概念 |
-| `model` | 2 → 8 | CLI `--model` 参数 | 上游 `body.model` 原样 | v0 不做别名翻译 |
+| `model` | 2 → 8 | **客户端 body.model**(若有)→ **否则 `upstreams.model`** 兜底 | 上游 `body.model` | client 显式优先;forwarder 在 body.model 缺失或为空时注入 upstream.model;两边都没就维持原 body 让上游 4xx |
 | `messages[]` | 2 → 8 | CLI 内存数组（多轮历史） | 上游 body（直通）或 adapter 翻译后（跨格式） | |
 | `x-rosetta-upstream: foo`（可选） | 2 | CLI `--upstream foo`(留空走 protocol default) | server 按 name 查;缺失则按入口 protocol 取 default | **不转发上游**;缺失且无 default 时 400 |
 
