@@ -45,8 +45,8 @@ async def _run(*, n: int, upstream: str | None, follow: bool) -> None:
     try:
         async with ProxyClient.discover_session(spawn_if_missing=False) as client:
             if not follow:
-                items = await client.list_logs(limit=n, upstream=upstream)
-                _print_batch(items, header=True)
+                result = await client.list_logs(limit=n, upstream=upstream)
+                _print_batch(result.items, header=True)
                 return
             await _follow_loop(client, upstream=upstream, tail=n)
     except RuntimeError as e:
@@ -55,7 +55,7 @@ async def _run(*, n: int, upstream: str | None, follow: bool) -> None:
 
 async def _follow_loop(client: ProxyClient, *, upstream: str | None, tail: int) -> None:
     """先打 tail 批,再无限 polling since=last_created_at。"""
-    initial = await client.list_logs(limit=tail, upstream=upstream)
+    initial = (await client.list_logs(limit=tail, upstream=upstream)).items
     # server 返回时间降序;follow 语义希望时间升序(新日志追加在下面)
     initial_asc = list(reversed(initial))
     _print_batch(initial_asc, header=True, follow=True)
@@ -63,10 +63,10 @@ async def _follow_loop(client: ProxyClient, *, upstream: str | None, tail: int) 
     last_seen = initial_asc[-1].created_at if initial_asc else None
     while True:
         await asyncio.sleep(_POLL_INTERVAL_SEC)
-        batch = await client.list_logs(limit=_POLL_BATCH_LIMIT, upstream=upstream, since=last_seen)
-        if not batch:
+        result = await client.list_logs(limit=_POLL_BATCH_LIMIT, upstream=upstream, since=last_seen)
+        if not result.items:
             continue
-        batch_asc = list(reversed(batch))
+        batch_asc = list(reversed(result.items))
         _print_batch(batch_asc, header=False, follow=True)
         last_seen = batch_asc[-1].created_at
 

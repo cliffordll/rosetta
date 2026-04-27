@@ -25,7 +25,7 @@ from typing import Any, Literal, Self
 import httpx
 
 from rosetta.sdk.discover import discover
-from rosetta.server.controller.logs import LogOut
+from rosetta.server.controller.logs import LogListResponse
 from rosetta.server.controller.runtime import StatusResponse
 from rosetta.server.controller.stats import Period, StatsOut
 from rosetta.server.controller.upstreams import (
@@ -174,8 +174,10 @@ class ProxyClient:
         offset: int = 0,
         upstream: str | None = None,
         since: datetime | None = None,
-    ) -> list[LogOut]:
-        """拉请求流水。`since` 作 polling 游标:只返 `created_at > since` 的记录。"""
+    ) -> LogListResponse:
+        """拉请求流水。返回 `{items, total}`:`total` 是同条件下的全表计数(分页器用),
+        不受 `limit`/`offset` 影响。`since` 作 polling 游标:只返 `created_at > since` 的记录。
+        """
         self._require_server("list_logs")
         params: dict[str, str | int] = {"limit": limit, "offset": offset}
         if upstream:
@@ -186,10 +188,7 @@ class ProxyClient:
             f"{self.base_url}/admin/logs", params=params, timeout=_ADMIN_TIMEOUT
         )
         resp.raise_for_status()
-        items = resp.json()
-        if not isinstance(items, list):
-            raise RuntimeError("GET /admin/logs 返回非 list")
-        return [LogOut.model_validate(item) for item in items]  # pyright: ignore[reportUnknownVariableType]
+        return LogListResponse.model_validate(resp.json())
 
     async def stats(self, *, period: Period = "today") -> StatsOut:
         self._require_server("stats")

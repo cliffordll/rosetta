@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from types import EllipsisType
 from typing import Any
 
 from sqlalchemy import func, select, update
@@ -89,8 +90,8 @@ class UpstreamRepo:
         protocol: str | None = None,
         provider: str | None = None,
         base_url: str | None = None,
-        api_key: str | None = ...,  # type: ignore[assignment]
-        model: str | None = ...,  # type: ignore[assignment]
+        api_key: str | None | EllipsisType = ...,
+        model: str | None | EllipsisType = ...,
         enabled: bool | None = None,
     ) -> Upstream:
         """部分更新 upstream;只改传入的字段。

@@ -409,6 +409,35 @@ async def test_logs_since_strictly_greater(client: AsyncClient, session: AsyncSe
     cutoff = (base + timedelta(seconds=10)).isoformat()
     r = await client.get("/admin/logs", params={"since": cutoff})
     assert r.status_code == 200
-    items = r.json()
+    body = r.json()
+    assert body["total"] == 1
+    items = body["items"]
     assert len(items) == 1
     assert items[0]["model"] == "m-2"
+
+
+async def test_logs_total_independent_of_limit(client: AsyncClient, session: AsyncSession) -> None:
+    """response.total 反映同条件下全表计数,不受 limit 影响(分页器靠它算 totalPages)。"""
+    from datetime import UTC, datetime, timedelta
+
+    from rosetta.server.database.models import LogEntry
+
+    base = datetime.now(UTC).replace(microsecond=0)
+    for i in range(7):
+        session.add(
+            LogEntry(
+                id=f"{i:0>32}",
+                upstream_id=None,
+                model=f"m-{i}",
+                status="ok",
+                latency_ms=i,
+                created_at=base + timedelta(seconds=i),
+            )
+        )
+    await session.commit()
+
+    r = await client.get("/admin/logs", params={"limit": 3, "offset": 0})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 7  # 全表 7 条
+    assert len(body["items"]) == 3  # 当前页 3 条
