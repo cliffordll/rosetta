@@ -120,6 +120,12 @@ export interface ListLogsParams {
   since?: string;
 }
 
+/** `GET /admin/logs` 返回结构。`total` 是同条件下的全表计数,用于分页器算 totalPages。 */
+export interface LogListResponse {
+  items: LogOut[];
+  total: number;
+}
+
 export class ApiError extends Error {
   status: number;
   body: string;
@@ -198,7 +204,7 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
-  listLogs(params: ListLogsParams = {}): Promise<LogOut[]> {
+  listLogs(params: ListLogsParams = {}): Promise<LogListResponse> {
     const q = new URLSearchParams();
     if (params.limit !== undefined) q.set("limit", String(params.limit));
     if (params.offset !== undefined) q.set("offset", String(params.offset));

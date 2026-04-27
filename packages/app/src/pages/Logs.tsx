@@ -19,29 +19,34 @@ import {
 } from "@/components/ui/table";
 import { api, type LogOut, type UpstreamOut } from "@/lib/api";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
+const DEFAULT_PAGE_SIZE = 20;
 const UPSTREAM_ALL = "__all__";
 
 export default function Logs() {
   const [items, setItems] = useState<LogOut[] | null>(null);
+  const [total, setTotal] = useState<number>(0);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [upstreams, setUpstreams] = useState<UpstreamOut[]>([]);
   const [upstreamFilter, setUpstreamFilter] = useState<string>(UPSTREAM_ALL);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [offset, setOffset] = useState(0);
 
   const load = useCallback(
-    async (opts: { upstream: string; offset: number }) => {
+    async (opts: { upstream: string; offset: number; limit: number }) => {
       setLoadErr(null);
       try {
-        const list = await api.listLogs({
-          limit: PAGE_SIZE,
+        const result = await api.listLogs({
+          limit: opts.limit,
           offset: opts.offset,
           upstream: opts.upstream === UPSTREAM_ALL ? undefined : opts.upstream,
         });
-        setItems(list);
+        setItems(result.items);
+        setTotal(result.total);
       } catch (e) {
         setLoadErr(e instanceof Error ? e.message : String(e));
         setItems([]);
+        setTotal(0);
       }
     },
     [],
@@ -60,20 +65,45 @@ export default function Logs() {
   }, []);
 
   useEffect(() => {
-    void load({ upstream: upstreamFilter, offset });
-  }, [load, upstreamFilter, offset]);
+    void load({ upstream: upstreamFilter, offset, limit: pageSize });
+  }, [load, upstreamFilter, offset, pageSize]);
 
   function onUpstreamChange(value: string) {
     setOffset(0); // 换过滤重置分页
     setUpstreamFilter(value);
   }
 
-  function refresh() {
-    void load({ upstream: upstreamFilter, offset });
+  function onPageSizeChange(value: string) {
+    const next = Number(value);
+    setOffset(0); // 换页大小重置到第一页,避免 offset 落在新页面之外
+    setPageSize(next);
   }
 
-  const canPrev = offset > 0;
-  const canNext = items !== null && items.length === PAGE_SIZE;
+  function refresh() {
+    void load({ upstream: upstreamFilter, offset, limit: pageSize });
+  }
+
+  // 用 total 算 page / totalPages,即使本页数据不足 pageSize 也能正确显示进度
+  const page = Math.floor(offset / pageSize) + 1;
+  const totalPages = total > 0 ? Math.ceil(total / pageSize) : 1;
+  const canPrev = page > 1;
+  const canNext = page < totalPages;
+  const rangeStart = total === 0 ? 0 : offset + 1;
+  const rangeEnd = items === null ? offset : offset + items.length;
+
+  function gotoFirst() {
+    setOffset(0);
+  }
+  function gotoPrev() {
+    setOffset(Math.max(0, offset - pageSize));
+  }
+  function gotoNext() {
+    setOffset(offset + pageSize);
+  }
+  function gotoLast() {
+    // 最后一页起始 offset = (totalPages - 1) * pageSize,确保不超 total
+    setOffset(Math.max(0, (totalPages - 1) * pageSize));
+  }
 
   return (
     <section>
@@ -151,26 +181,41 @@ export default function Logs() {
       )}
 
       <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
-        <div>
-          offset {offset}
-          {items !== null ? ` · ${items.length} rows` : ""}
+        <div className="flex items-center gap-2">
+          <span>
+            {total === 0
+              ? "0 entries"
+              : `Showing ${rangeStart}–${rangeEnd} of ${total} entries`}
+          </span>
+          <span className="text-xs">·</span>
+          <Select value={String(pageSize)} onValueChange={onPageSizeChange}>
+            <SelectTrigger className="h-8 w-28">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PAGE_SIZE_OPTIONS.map((n) => (
+                <SelectItem key={n} value={String(n)}>
+                  {n} / page
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!canPrev}
-            onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
-          >
-            Prev
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" disabled={!canPrev} onClick={gotoFirst}>
+            « First
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!canNext}
-            onClick={() => setOffset(offset + PAGE_SIZE)}
-          >
-            Next
+          <Button variant="outline" size="sm" disabled={!canPrev} onClick={gotoPrev}>
+            ‹ Prev
+          </Button>
+          <span className="px-2 text-xs">
+            Page {page} / {totalPages}
+          </span>
+          <Button variant="outline" size="sm" disabled={!canNext} onClick={gotoNext}>
+            Next ›
+          </Button>
+          <Button variant="outline" size="sm" disabled={!canNext} onClick={gotoLast}>
+            Last »
           </Button>
         </div>
       </div>

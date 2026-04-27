@@ -9,8 +9,8 @@ v0.1 没 logger 真往 logs 表写入,因此本端点常态返空。保留是为
 - `upstream`:按 upstream name 过滤(server 内部 JOIN 到 id)
 - `since` / `until`:ISO 8601 时间戳过滤 `created_at`
 
-响应每条:id / created_at / upstream(name,可能为 null)/ model / input_tokens /
-output_tokens / latency_ms / status / error。
+响应:`{items: LogOut[], total: int}` — `total` 是同条件下的全表计数(用于分页器
+渲染 totalPages),不受 `limit`/`offset` 影响。
 """
 
 from __future__ import annotations
@@ -40,7 +40,12 @@ class LogOut(BaseModel):
     error: str | None
 
 
-@router.get("/logs", response_model=list[LogOut])
+class LogListResponse(BaseModel):
+    items: list[LogOut]
+    total: int
+
+
+@router.get("/logs", response_model=LogListResponse)
 async def list_logs(
     log_repo: LogRepoDep,
     upstream_repo: UpstreamRepoDep,
@@ -49,7 +54,7 @@ async def list_logs(
     upstream: str | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
-) -> list[LogOut]:
+) -> LogListResponse:
     upstream_id: str | None = None
     if upstream is not None:
         u = await upstream_repo.get_by_name(upstream)
@@ -67,7 +72,12 @@ async def list_logs(
         since=since,
         until=until,
     )
-    return [
+    total = await log_repo.count_with_filters(
+        upstream_id=upstream_id,
+        since=since,
+        until=until,
+    )
+    items = [
         LogOut(
             id=entry.id,
             created_at=entry.created_at,
@@ -81,3 +91,4 @@ async def list_logs(
         )
         for entry, u in rows
     ]
+    return LogListResponse(items=items, total=total)

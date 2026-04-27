@@ -236,8 +236,10 @@ async def test_list_logs_with_filters(
     echo_client: tuple[ProxyClient, dict[str, Any]],
 ) -> None:
     client, captured = echo_client
-    captured["response"] = httpx.Response(200, json=[])
-    await client.list_logs(limit=5, offset=10, upstream="ant")
+    captured["response"] = httpx.Response(200, json={"items": [], "total": 0})
+    result = await client.list_logs(limit=5, offset=10, upstream="ant")
+    assert result.items == []
+    assert result.total == 0
     req = captured["request"]
     assert req.url.params["limit"] == "5"
     assert req.url.params["offset"] == "10"

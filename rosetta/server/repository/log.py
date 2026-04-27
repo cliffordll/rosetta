@@ -41,6 +41,23 @@ class LogRepo:
         await self.session.refresh(entry)
         return entry
 
+    @staticmethod
+    def _build_filters(
+        *,
+        upstream_id: str | None,
+        since: datetime | None,
+        until: datetime | None,
+    ) -> list[ColumnElement[bool]]:
+        """三个 list / count 共用的 where 条件。`since` 是严格大于,服务 polling 游标。"""
+        filters: list[ColumnElement[bool]] = []
+        if upstream_id is not None:
+            filters.append(LogEntry.upstream_id == upstream_id)
+        if since is not None:
+            filters.append(LogEntry.created_at > since)
+        if until is not None:
+            filters.append(LogEntry.created_at <= until)
+        return filters
+
     async def list_with_upstream(
         self,
         *,
@@ -51,15 +68,7 @@ class LogRepo:
         until: datetime | None = None,
     ) -> Sequence[tuple[LogEntry, Upstream | None]]:
         """按条件查 log + outer-join upstream name;死引用 upstream 那侧返回 None。"""
-        filters: list[ColumnElement[bool]] = []
-        if upstream_id is not None:
-            filters.append(LogEntry.upstream_id == upstream_id)
-        if since is not None:
-            # 严格大于:CLI / UI 的 polling 拿到本批最晚 created_at 作为下次 since,
-            # 不重复取到已看过的记录
-            filters.append(LogEntry.created_at > since)
-        if until is not None:
-            filters.append(LogEntry.created_at <= until)
+        filters = self._build_filters(upstream_id=upstream_id, since=since, until=until)
 
         stmt = (
             select(LogEntry, Upstream)
@@ -75,6 +84,21 @@ class LogRepo:
         # Row → tuple 显式解构:pyright 不把 Sequence[Row[Tuple[A,B]]] 看作
         # Sequence[tuple[A, B|None]](协变不成立),手动 unpack 后类型就对了
         return [(entry, up) for entry, up in result.all()]
+
+    async def count_with_filters(
+        self,
+        *,
+        upstream_id: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> int:
+        """同 `list_with_upstream` 的 where 条件下统计总数,服务分页器算 totalPages。"""
+        filters = self._build_filters(upstream_id=upstream_id, since=since, until=until)
+        stmt = select(func.count(LogEntry.id))
+        if filters:
+            stmt = stmt.where(and_(*filters))
+        result = await self.session.execute(stmt)
+        return int(result.scalar_one() or 0)
 
     async def aggregate_stats(self, *, since: datetime) -> tuple[int, int, float]:
         """窗口内聚合;返回 (total, ok_count, avg_latency_ms)。无样本时各字段 0。"""
