@@ -74,6 +74,8 @@ export interface UpstreamOut {
   provider: string;
   base_url: string;
   enabled: boolean;
+  /** 该 upstream 是否为其 protocol 的默认上游(`x-rosetta-upstream` header 缺失时回退用)。 */
+  is_default: boolean;
   created_at: string;
 }
 
@@ -179,6 +181,11 @@ export const api = {
   },
   deleteUpstream(id: string): Promise<void> {
     return request(`/admin/upstreams/${id}`, { method: "DELETE" });
+  },
+  setDefaultUpstream(name: string): Promise<UpstreamOut> {
+    return request(`/admin/upstreams/${encodeURIComponent(name)}/default`, {
+      method: "PUT",
+    });
   },
   listLogs(params: ListLogsParams = {}): Promise<LogOut[]> {
     const q = new URLSearchParams();

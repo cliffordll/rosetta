@@ -107,6 +107,7 @@ async def test_list_upstreams(echo_client: tuple[ProxyClient, dict[str, Any]]) -
                 "provider": "anthropic",
                 "base_url": "https://api.anthropic.com",
                 "enabled": True,
+                "is_default": False,
                 "created_at": datetime(2026, 4, 22, 10, 0, 0).isoformat(),
             }
         ],
@@ -129,6 +130,7 @@ async def test_create_upstream(echo_client: tuple[ProxyClient, dict[str, Any]]) 
             "provider": "anthropic",
             "base_url": "https://api.anthropic.com",
             "enabled": True,
+            "is_default": False,
             "created_at": "2026-04-22T10:00:00",
         },
     )
@@ -169,6 +171,30 @@ async def test_delete_upstream_not_found_raises(
     captured["response"] = httpx.Response(404, json={"detail": "not found"})
     with pytest.raises(httpx.HTTPStatusError):
         await client.delete_upstream("ghost")
+
+
+async def test_set_default_upstream(
+    echo_client: tuple[ProxyClient, dict[str, Any]],
+) -> None:
+    client, captured = echo_client
+    captured["response"] = httpx.Response(
+        200,
+        json={
+            "id": "p1-id",
+            "name": "p1",
+            "protocol": "messages",
+            "provider": "anthropic",
+            "base_url": "https://api.anthropic.com",
+            "enabled": True,
+            "is_default": True,
+            "created_at": "2026-04-22T10:00:00",
+        },
+    )
+    updated = await client.set_default_upstream("p1")
+    assert updated.is_default is True
+    req = captured["request"]
+    assert req.method == "PUT"
+    assert req.url.path == "/admin/upstreams/p1/default"
 
 
 # ---------- logs / stats / shutdown ----------

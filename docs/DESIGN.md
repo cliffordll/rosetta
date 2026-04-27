@@ -447,7 +447,7 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 
 ### 8.4 路由规则
 
-**rosetta 不做 model-based 自动路由**,客户端必须通过 `x-rosetta-upstream: <name>` header 显式指定 upstream。原设计里按 `model_glob` 自动匹配 upstream 的 `routes` 表已经移除(2026-04 简化),单个 http 请求的选 upstream 流程只剩一步:
+**rosetta 不做 model-based 自动路由**;选 upstream 走**两段策略**:**显式 header 优先**,**header 缺失时按入口路径 protocol 取 default upstream**(protocol → upstream 1:N,但每个 protocol 至多一行 `is_default=true`;DB 用 partial unique index `(protocol) WHERE is_default=1` 兜底唯一)。原设计里按 `model_glob` 自动匹配 upstream 的 `routes` 表已经移除(2026-04 简化)。
 
 ```
 1. header 有 x-rosetta-upstream: <name>?
@@ -455,8 +455,14 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
       · 找到 enabled → 用它
       · 不存在 → 400 upstream_not_found
       · 被禁用 → 400 upstream_disabled
-   · 没有 → 400 missing_rosetta_upstream
+   · 没有 → 按入口路径的 protocol 找 enabled 的 is_default=true 行
+      · 命中 → 用它
+      · 没设(或 default 被禁用) → 400 missing_rosetta_upstream
 ```
+
+**严格同 protocol fallback**:default 查询锁死同 protocol(打 `/v1/messages` 只在 `protocol='messages'` 的行里找 default,不允许跨协议借用)。这避免了"客户端期望走某协议的 default,意外被翻译到另一协议"的隐式行为;要跨协议必须显式带 header。
+
+**default 的写入**:`PUT /admin/upstreams/{name}/default` / `rosetta upstream set-default <name>` / GUI Upstreams 页 "Set default" 按钮三选一。事务内"先清同 protocol 旧 default → 再 set 目标",partial unique index 在每条 statement 后检查,先清后 set 不会瞬时冲突。
 
 **关于选中的 upstream 与入口 format**:选中 upstream 的 `protocol` 与入口 format 不一致时,自动走 §8.3 翻译(对角线直通仅发生在两者一致的情况)。例如入口 `/v1/messages` + upstream `protocol=completions` → IR 翻译为 Chat Completions 请求。
 
@@ -477,9 +483,9 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 该结构**不伪装**上游格式(不套 Claude/OpenAI 的错误壳),由 CLI / GUI 识别 `error.type == "rosetta_error"` 后格式化展示。
 
 **客户端配合**:
-- `rosetta chat --upstream <name>` 自动注入 header
-- GUI Chat 页 "Upstream 下拉" 必选,每次发送都带 header
-- 外部 SDK 调用:应用层在 HTTP client 里统一加 header(upstream 是"环境配置")
+- `rosetta chat --upstream <name>` 自动注入 header;`--upstream` 不传则不带 header,让 server 走 protocol default fallback
+- GUI Chat 页 "Upstream 下拉" 默认预选当前 protocol 的 default;用户可手选切换或留空(留空也走 fallback)
+- 外部 SDK 调用:应用层在 HTTP client 里按需加 header(显式选 upstream 时加,走默认时省)
 
 ### 8.5 端到端请求链路（以 CLI chat 为例）
 
@@ -535,7 +541,7 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 | 上游 api-key | 8 | **客户端 `x-api-key` 头**（若带）→ **否则 `upstreams.api_key`** | httpx 请求头（按上游 type 选具体写法） | v0 无"rosetta 本地 key"概念 |
 | `model` | 2 → 8 | CLI `--model` 参数 | 上游 `body.model` 原样 | v0 不做别名翻译 |
 | `messages[]` | 2 → 8 | CLI 内存数组（多轮历史） | 上游 body（直通）或 adapter 翻译后（跨格式） | |
-| `x-rosetta-upstream: foo`（**必须**） | 2 | CLI `--upstream foo` | server 按 name 查 upstream | **不转发上游**;缺失直接 400 |
+| `x-rosetta-upstream: foo`（可选） | 2 | CLI `--upstream foo`(留空走 protocol default) | server 按 name 查;缺失则按入口 protocol 取 default | **不转发上游**;缺失且无 default 时 400 |
 
 #### 客户端显式传 `--api-key` 的分支
 
@@ -645,7 +651,7 @@ echo "hello" | rosetta chat              # stdin 作为 prompt：一次性
 rosetta chat --model claude-haiku-4-5 "hi"
 rosetta chat --protocol completions        # 入口格式，默认 messages（messages | completions | responses）
                                          #   分别对应 /v1/messages、/v1/chat/completions、/v1/responses
-rosetta chat --upstream foo "hi"         # 必填:指定 upstream(带 x-rosetta-upstream header)
+rosetta chat --upstream foo "hi"         # 可选:指定 upstream;留空走入口 protocol 的 default(set-default 配置)
 rosetta chat --api-key sk-ant-XXX "hi"   # 可选:覆盖 upstreams.api_key，临时用另一把上游 key
 rosetta chat --no-stream                 # 关流式（默认开，SSE 边出边打）
 rosetta chat --json                      # 一次性：打印完整响应 JSON，不做渲染（方便脚本）
@@ -756,7 +762,7 @@ $ rosetta chat \
 1. **server 没有自己的 key 概念**——step 4 里 CLI 没传 `x-api-key`，server 用 upstreams 里存的；step 7 里 CLI 传了,server 就透传。概念统一。
 2. **meta 行的翻译路径**（`直通` / `→IR→`）是活体自检的核心信号——启动后打一条 `rosetta chat "ping"` 看 meta 就知道链路是否贯通。
 3. **多轮靠客户端**：step 5 第二轮的"再乘以 5"能被理解，是因为 CLI 把前两轮一起塞进了 `body.messages`；server 无状态，纯转发。
-4. **upstream 必须显式指定**:rosetta 不做 model-based 自动路由,客户端每次都带 `x-rosetta-upstream` header(`--upstream <name>`);没带直接 400。
+4. **upstream 路由两段式**:rosetta 不做 model-based 自动路由;客户端可显式带 `x-rosetta-upstream` header(`--upstream <name>`),也可不带让 server 按入口 protocol 取 default(`rosetta upstream set-default <name>` 配置)。两边都没的话 400。
 5. **direct 模式**（step 8）是个旁路：`--base-url` 触发,不经 server,不记日志,也不翻译——要跨格式就去掉 `--base-url` 走 server。
 
 ---
@@ -813,7 +819,7 @@ interface Platform {
 ```
 
 - **状态**：当前会话的 `messages[]` 用 `useState` 存在 Chat 页组件里，**不入 DB、不入全局 store**、切页或刷新即清。想要多会话 / 历史翻阅请用外部 chat 客户端连 rosetta（见 §1 定位）。
-- **Upstream 下拉**:必填,挂载时拉 `GET /admin/upstreams` 填充选项;每次发送都带 `x-rosetta-upstream: <name>` header。没选 upstream 不能点发送。
+- **Upstream 下拉**:可选,挂载时拉 `GET /admin/upstreams` 填充选项;默认预选当前 protocol 的 `is_default=true` 那一行(没设默认则保留"未选"状态)。选了具体 upstream → 发送时带 `x-rosetta-upstream: <name>` header;留空 → 不带 header,server 按 protocol 取 default。"未选 + 当前 protocol 无 default" 才禁用 Send(否则 server 会 400)。
 - **Protocol 下拉**:三选一 `messages | completions | responses`(对应 `/v1/messages` / `/v1/chat/completions` / `/v1/responses`),默认 `messages`。切换后下次发送用新协议的请求体构造;已渲染的历史消息不回放。已知局限和 CLI 相同——切 protocol 后前文的 tool_use / thinking / image 块丢弃并给 toast 提示。
 - **Model 下拉**:来源 `GET /v1/models?format=<当前>&upstream=<Upstream 下拉值>`,随 format / upstream 联动。
 - **流式**：浏览器 `fetch` + `ReadableStream` 读 SSE，按当前 format 解码后逐 token 追加到 assistant 气泡；`Stop` 按钮 `AbortController.abort()`。
@@ -890,7 +896,7 @@ fetch(`${url}/v1/messages`, {
     // 默认不带任何鉴权头，server 会用 upstreams.api_key 兜底。
     // 用户在右上角 "Override api-key" 输入了临时 key 时才加这一行：
     //   'x-api-key':        <override key>,
-    'x-rosetta-upstream': <Upstream 下拉选中的 name>,   // 必填
+    'x-rosetta-upstream': <Upstream 下拉选中的 name>,   // 可选;选了才加,留空走 protocol default
     'content-type':       'application/json',
   },
   body: JSON.stringify({

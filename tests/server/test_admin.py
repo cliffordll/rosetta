@@ -85,6 +85,7 @@ async def test_create_upstream_success(client: AsyncClient) -> None:
     assert body["name"] == "ant-main"
     assert body["protocol"] == "messages"
     assert body["enabled"] is True
+    assert body["is_default"] is False  # 新建默认不是 default
     assert "api_key" not in body  # 不回显 api_key
 
 
@@ -224,6 +225,54 @@ async def test_restore_mock_force_rebuilds(client: AsyncClient) -> None:
     r = await client.post("/admin/upstreams/restore-mock?force=true")
     assert r.status_code == 200
     assert r.json()["created"] is True
+
+
+# ---------- set-default ----------
+
+
+async def test_set_default_success(client: AsyncClient) -> None:
+    """PUT /admin/upstreams/{name}/default 设默认,is_default 翻 true。"""
+    await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "p1",
+            "protocol": "messages",
+            "api_key": "sk-1",
+            "base_url": "https://api.example.com/p1",
+        },
+    )
+    r = await client.put("/admin/upstreams/p1/default")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["name"] == "p1"
+    assert body["is_default"] is True
+
+
+async def test_set_default_switches_old_default(client: AsyncClient) -> None:
+    """同 protocol 切换 default,旧的 is_default 自动归零。"""
+    for name in ("a", "b"):
+        await client.post(
+            "/admin/upstreams",
+            json={
+                "name": name,
+                "protocol": "messages",
+                "api_key": "sk",
+                "base_url": f"https://api.example.com/{name}",
+            },
+        )
+    assert (await client.put("/admin/upstreams/a/default")).status_code == 200
+    assert (await client.put("/admin/upstreams/b/default")).status_code == 200
+
+    listed = (await client.get("/admin/upstreams")).json()
+    a_row = next(u for u in listed if u["name"] == "a")
+    b_row = next(u for u in listed if u["name"] == "b")
+    assert a_row["is_default"] is False
+    assert b_row["is_default"] is True
+
+
+async def test_set_default_not_found(client: AsyncClient) -> None:
+    r = await client.put("/admin/upstreams/ghost/default")
+    assert r.status_code == 404
 
 
 # ---------- /admin/logs since polling 语义 ----------

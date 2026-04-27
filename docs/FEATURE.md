@@ -883,6 +883,45 @@
 
 ---
 
+## 阶段 9 · post-v0 · protocol default upstream(0.5 天)
+
+### 步骤 9.1 ✅ · 按入口 protocol 选 default upstream
+
+- **目标**:`x-rosetta-upstream` header 缺失时,server 按入口路径的 protocol 取 `is_default=true` 的 upstream 作 fallback;header 显式指定仍然优先(DESIGN §8.4 路由规则两段策略)
+- **产出**:
+  - `migrations/002_upstream_default.sql`:`upstreams` 加 `is_default INTEGER` + partial unique index `(protocol) WHERE is_default=1` + bump `user_version=2`
+  - `database/models.py`:`Upstream.is_default` 字段
+  - `repository/upstream.py`:`get_default(protocol)` / `set_default(name)`(两步 UPDATE 串行,先清同 protocol 旧 default 再 set 目标);`MOCK_UPSTREAM_FIELDS` 加 `is_default: False`
+  - `service/selector.py`:`pick_upstream` 加 `request_protocol: Protocol` 参数 + fallback 分支,严格同 protocol(不跨协议借用)
+  - `controller/dataplane.py`:三个 endpoint 把 `Protocol.X` 传进 `pick_upstream`
+  - `controller/upstreams.py`:`UpstreamOut` 加 `is_default`;新 `PUT /admin/upstreams/{name}/default` endpoint
+  - `sdk/client.py`:`ProxyClient.set_default_upstream(name)`
+  - `cli/commands/upstream.py`:`rosetta upstream set-default <name>` 子命令;`list` 表头加 `default` 列;原 `mock` 重命名为 `restore-mock`
+  - `cli/commands/chat.py`:`--upstream` 不再硬编码 `mock` 兜底;不传则 None,让 server fallback
+  - `packages/app/src/lib/api.ts`:`UpstreamOut.is_default` + `api.setDefaultUpstream(name)`
+  - `packages/app/src/pages/Upstreams.tsx`:`default` 列 badge + actions 列 "Set default" 按钮
+  - `packages/app/src/pages/Chat.tsx`:挂载预选当前 protocol 的 default;切 protocol 联动重选;允许"未选 + protocol 有 default" 直接发(走 server fallback)
+  - `tests/server/test_upstream_repo.py`:9 个测试覆盖 get/set 行为
+  - `tests/server/test_selector.py`:重构成 TestHeaderUpstream + TestDefaultFallback 两个 class,9 用例
+  - `tests/server/test_admin.py`:set-default 3 用例
+  - `tests/sdk/test_client_admin.py`:set_default_upstream 用例 + 旧 fixture 加 `is_default`
+- **手动测试步骤**:
+  1. `rosetta upstream add --name a1 --protocol messages --base-url ...` 加一个上游
+  2. `rosetta chat "hi"` → 期望 400 `missing_rosetta_upstream`(没 header 也没 default)
+  3. `rosetta upstream set-default a1` → 期望 stdout `'a1' is now default for protocol=messages`
+  4. `rosetta chat "hi"` → 期望正常返回(走 fallback)
+  5. `rosetta upstream list` → 期望 a1 行 `default=True`
+  6. 加第二个 messages 上游 a2,`rosetta upstream set-default a2`;再跑 `list` → 期望 a1 翻 False、a2 翻 True
+  7. `rosetta chat --upstream a1 "hi"` → 期望走 a1(显式 header 优先)
+  8. GUI Chat 页 → 进页面默认预选 a2(messages 的 default);切 protocol 到 completions 没 default → 下方 hint "无 default upstream";设 default 后回到 messages 默认预选生效
+- **预期结果**:每步对照清单
+- **通过判据**:7 个步骤均通过 + `pytest -q` 全过 + `bun run typecheck` 全过
+- **让步**:
+  - GUI 没有显式 "(auto)" SelectItem;用户从已选切回"由 server 决定"需要刷新页或换 protocol 触发重选 — UX 局限,留 v1+
+  - server 没在响应头返回"实际 resolved 的 upstream";meta 行 fallback 时显示字面量 "default",看不到具体落到哪个 upstream — 留 v1+ 加 `X-Rosetta-Resolved-Upstream`
+
+---
+
 ## 预估与节奏
 
 - 阶段 0-4(核心后端 + CLI):6-10 人日

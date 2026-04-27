@@ -59,6 +59,7 @@ class Upstream(Base):
     base_url: Mapped[str]
     api_key: Mapped[str | None] = mapped_column(default=None)
     enabled: Mapped[bool] = mapped_column(default=True)
+    is_default: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
 
 

@@ -3,7 +3,9 @@
 两种连接模式
 ------------
 - server 模式(默认):通过本地 rosetta-server 转发;`--upstream` 指定上游,
-  未给默认 `"mock"`(要求 server 侧有 name=mock 的 upstream)。
+  未给则不传 `x-rosetta-upstream` header,server 按入口 protocol 选 default upstream
+  (DESIGN §8.4 fallback);该 protocol 没有 default 时 server 返 400,提示去
+  `rosetta upstream set-default <name>` 设一个。
 - direct 模式:`--base-url` 给上游根地址,绕过 server 直连;必须同时传
   `--api-key` + `--model`。`--base-url` 一旦给出,`--upstream` 自动失效。
 """
@@ -35,7 +37,7 @@ def chat_cmd(
         str | None,
         typer.Option(
             "--upstream",
-            help="server 模式的 upstream 名;未给默认 mock;--base-url 给时自动失效",
+            help="server 模式 upstream 名;未给则取 protocol 的 default;--base-url 给时失效",
         ),
     ] = None,
     base_url: Annotated[
@@ -81,8 +83,8 @@ def chat_cmd(
         effective_model = model
         effective_upstream: str | None = None
     else:
-        # server 模式:--upstream 缺省 mock,--model 缺省按 protocol 取
-        effective_upstream = upstream or "mock"
+        # server 模式:--upstream 不缺省;None 让 server 走 protocol default fallback
+        effective_upstream = upstream
         effective_model = model or DEFAULT_MODELS[fmt]
 
     asyncio.run(

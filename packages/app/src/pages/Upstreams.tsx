@@ -85,6 +85,18 @@ export default function Upstreams() {
     }
   }
 
+  async function handleSetDefault(name: string) {
+    setInfo(null);
+    setLoadErr(null);
+    try {
+      const updated = await api.setDefaultUpstream(name);
+      setInfo(`upstream '${updated.name}' is now default for protocol=${updated.protocol}`);
+      await load();
+    } catch (e) {
+      setLoadErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function handleRestoreMock() {
     setInfo(null);
     setLoadErr(null);
@@ -151,8 +163,9 @@ export default function Upstreams() {
                 <TableHead>provider</TableHead>
                 <TableHead>base_url</TableHead>
                 <TableHead className="w-24">enabled</TableHead>
+                <TableHead className="w-24">default</TableHead>
                 <TableHead className="w-40">created_at</TableHead>
-                <TableHead className="w-24 text-right">actions</TableHead>
+                <TableHead className="w-40 text-right">actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -176,10 +189,22 @@ export default function Upstreams() {
                       <Badge variant="outline">disabled</Badge>
                     )}
                   </TableCell>
+                  <TableCell>
+                    {u.is_default ? <Badge>default</Badge> : null}
+                  </TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">
                     {formatDate(u.created_at)}
                   </TableCell>
                   <TableCell className="text-right">
+                    {!u.is_default && u.protocol !== "any" && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void handleSetDefault(u.name)}
+                      >
+                        Set default
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"

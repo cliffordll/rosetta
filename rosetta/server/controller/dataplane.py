@@ -79,10 +79,15 @@ async def parse_request(request: Request) -> RequestCtx:
 @router.post("/v1/messages")
 async def messages(request: Request, session: SessionDep) -> Response:
     ctx = await parse_request(request)
-    upstream = await pick_upstream(session, header_upstream=ctx.rosetta_upstream)
+    request_protocol = Protocol.MESSAGES
+    upstream = await pick_upstream(
+        session,
+        header_upstream=ctx.rosetta_upstream,
+        request_protocol=request_protocol,
+    )
     return await forwarder.forward(
         upstream=upstream,
-        request_protocol=Protocol.MESSAGES,
+        request_protocol=request_protocol,
         body=ctx.body,
         content_type=ctx.content_type,
         client_api_key=ctx.client_api_key,
@@ -92,10 +97,15 @@ async def messages(request: Request, session: SessionDep) -> Response:
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request, session: SessionDep) -> Response:
     ctx = await parse_request(request)
-    upstream = await pick_upstream(session, header_upstream=ctx.rosetta_upstream)
+    request_protocol = Protocol.CHAT_COMPLETIONS
+    upstream = await pick_upstream(
+        session,
+        header_upstream=ctx.rosetta_upstream,
+        request_protocol=request_protocol,
+    )
     return await forwarder.forward(
         upstream=upstream,
-        request_protocol=Protocol.CHAT_COMPLETIONS,
+        request_protocol=request_protocol,
         body=ctx.body,
         content_type=ctx.content_type,
         client_api_key=ctx.client_api_key,
@@ -105,10 +115,15 @@ async def chat_completions(request: Request, session: SessionDep) -> Response:
 @router.post("/v1/responses")
 async def responses_endpoint(request: Request, session: SessionDep) -> Response:
     ctx = await parse_request(request)
-    upstream = await pick_upstream(session, header_upstream=ctx.rosetta_upstream)
+    request_protocol = Protocol.RESPONSES
+    upstream = await pick_upstream(
+        session,
+        header_upstream=ctx.rosetta_upstream,
+        request_protocol=request_protocol,
+    )
     return await forwarder.forward(
         upstream=upstream,
-        request_protocol=Protocol.RESPONSES,
+        request_protocol=request_protocol,
         body=ctx.body,
         content_type=ctx.content_type,
         client_api_key=ctx.client_api_key,
