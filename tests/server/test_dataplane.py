@@ -607,6 +607,7 @@ async def test_forward_writes_log_on_success(session: AsyncSession) -> None:
         request_protocol=Protocol.MESSAGES,
         body=body,
         content_type="application/json",
+        client_addr="127.0.0.1:54321",
     )
     # 消费流(触发完整生命周期)
     if hasattr(resp, "body_iterator"):
@@ -621,6 +622,9 @@ async def test_forward_writes_log_on_success(session: AsyncSession) -> None:
     assert entry.model == "claude-haiku-4-5"
     assert entry.error is None
     assert entry.latency_ms is not None and entry.latency_ms >= 0
+    # client_addr 透传 + upstream_url 自动从 upstream.base_url 取(mock 写的是 'mock://')
+    assert entry.client_addr == "127.0.0.1:54321"
+    assert entry.upstream_url == "mock://"
 
 
 async def test_forward_writes_log_on_service_error(session: AsyncSession) -> None:

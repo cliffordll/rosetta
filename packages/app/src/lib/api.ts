@@ -110,6 +110,10 @@ export interface LogOut {
   latency_ms: number | null;
   status: string;
   error: string | null;
+  /** 客户端 "host:port"(本机回环也记;反代场景可能 null)。 */
+  client_addr: string | null;
+  /** 请求当时的 upstream.base_url 快照(mock 路径写 'mock://')。 */
+  upstream_url: string | null;
 }
 
 export interface ListLogsParams {

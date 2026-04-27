@@ -181,6 +181,7 @@ class Forwarder:
         content_type: str,
         extra_response_headers: dict[str, str] | None = None,
         client_api_key: str | None = None,
+        client_addr: str | None = None,
     ) -> Response:
         """把请求按格式翻译(必要时)+ 转发到上游。
 
@@ -231,13 +232,22 @@ class Forwarder:
                     extra_response_headers = dict(extra_response_headers or {})
                     extra_response_headers["x-rosetta-warnings"] = warnings_header
 
-            await self._record_log(upstream, model, "ok", t0)
+            await self._record_log(upstream, model, "ok", t0, client_addr=client_addr)
             return self._with_extra_headers(resp, extra_response_headers)
         except ServiceError as e:
-            await self._record_log(upstream, model, "error", t0, error=f"{e.code}: {e.message}")
+            await self._record_log(
+                upstream,
+                model,
+                "error",
+                t0,
+                error=f"{e.code}: {e.message}",
+                client_addr=client_addr,
+            )
             raise
         except Exception as e:  # pragma: no cover — 防御:service 层理论上不会漏
-            await self._record_log(upstream, model, "error", t0, error=str(e))
+            await self._record_log(
+                upstream, model, "error", t0, error=str(e), client_addr=client_addr
+            )
             raise
 
     async def _forward_upstream(
@@ -337,15 +347,20 @@ class Forwarder:
         t0: float,
         *,
         error: str | None = None,
+        client_addr: str | None = None,
     ) -> None:
         """写一条请求流水;LogWriter 内部已兜底,这里不用 try。"""
         latency_ms = int((time.monotonic() - t0) * 1000)
+        # mock 上游不发 HTTP,upstream.base_url 是 'mock://'(seed 钉死);
+        # 直接快照 base_url,显式标识就在数据里
         await log_writer.record(
             upstream_id=upstream.id,
             model=model,
             status=status,  # type: ignore[arg-type]
             latency_ms=latency_ms,
             error=error,
+            client_addr=client_addr,
+            upstream_url=upstream.base_url,
         )
 
     # ---------- 上游 IO helper ----------

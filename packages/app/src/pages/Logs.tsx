@@ -150,6 +150,8 @@ export default function Logs() {
                 <TableHead className="w-24">status</TableHead>
                 <TableHead className="w-20 text-right">latency</TableHead>
                 <TableHead className="w-24 text-right">in→out</TableHead>
+                <TableHead className="w-40">client_addr</TableHead>
+                <TableHead className="w-48">upstream_url</TableHead>
                 <TableHead>error</TableHead>
               </TableRow>
             </TableHeader>
@@ -169,6 +171,18 @@ export default function Logs() {
                   </TableCell>
                   <TableCell className="text-right font-mono text-xs">
                     {(entry.input_tokens ?? 0)}→{(entry.output_tokens ?? 0)}
+                  </TableCell>
+                  <TableCell
+                    className="truncate font-mono text-xs text-muted-foreground"
+                    title={entry.client_addr ?? ""}
+                  >
+                    {entry.client_addr ?? "-"}
+                  </TableCell>
+                  <TableCell
+                    className="truncate font-mono text-xs text-muted-foreground"
+                    title={entry.upstream_url ?? ""}
+                  >
+                    {entry.upstream_url ?? "-"}
                   </TableCell>
                   <TableCell className="max-w-xs truncate text-xs text-muted-foreground">
                     {entry.error ?? ""}
