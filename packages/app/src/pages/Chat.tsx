@@ -89,14 +89,21 @@ export default function Chat() {
     })();
   }, []);
 
-  // 切 protocol:回到 auto(留空让 server 兜底)+ 重选当前 protocol 的 default
-  // upstream。真正发请求时若 model 留空不带 body.model,由 forwarder 走 upstream.model
+  // 切 protocol:回到 auto + 重选当前 protocol 的 upstream。优先级:
+  //   default(若有) → 该 protocol 第一个 enabled → mock(protocol=any)→ NO_UPSTREAM_SELECTED
+  // 真正发请求时若 model 留空不带 body.model,由 forwarder 走 upstream.model
   const onProtocolChange = useCallback(
     (next: Protocol) => {
       setProtocol(next);
       setModel("");
-      const dft = upstreams.find((u) => u.protocol === next && u.is_default && u.enabled);
-      setUpstreamChoice(dft ? String(dft.id) : NO_UPSTREAM_SELECTED);
+      const matches = upstreams.filter(
+        (u) => (u.protocol === next || u.protocol === "any") && u.enabled,
+      );
+      const dft = matches.find((u) => u.protocol === next && u.is_default);
+      const first =
+        matches.find((u) => u.protocol === next) ?? matches.find((u) => u.protocol === "any");
+      const picked = dft ?? first ?? null;
+      setUpstreamChoice(picked ? String(picked.id) : NO_UPSTREAM_SELECTED);
     },
     [upstreams],
   );
@@ -122,6 +129,14 @@ export default function Chat() {
     for (const u of upstreams) map.set(u.id, u);
     return map;
   }, [upstreams]);
+
+  // 下拉只显示当前 protocol 匹配 + protocol="any" 的 upstream(mock 跨协议接受)。
+  // server 仍支持跨协议 IR 翻译,但 Chat UX 上按 protocol 过滤更直觉,避免误选
+  const filteredUpstreams = useMemo(
+    () =>
+      upstreams.filter((u) => u.protocol === protocol || u.protocol === "any"),
+    [upstreams, protocol],
+  );
 
   const resolvedUpstream = useMemo<UpstreamOut | null>(() => {
     if (upstreamChoice === NO_UPSTREAM_SELECTED) return null;
@@ -329,8 +344,14 @@ export default function Chat() {
             <SelectTrigger>
               <SelectValue placeholder="请选择 upstream" />
             </SelectTrigger>
-            <SelectContent>
-              {upstreams.map((u) => (
+            <SelectContent
+              position="popper"
+              side="bottom"
+              align="start"
+              sideOffset={4}
+              avoidCollisions={false}
+            >
+              {filteredUpstreams.map((u) => (
                 <SelectItem key={u.id} value={String(u.id)}>
                   {u.name} · {u.protocol}
                 </SelectItem>

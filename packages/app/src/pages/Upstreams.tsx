@@ -1,3 +1,4 @@
+import { CopyIcon, PencilIcon, StarIcon, Trash2Icon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
@@ -53,13 +54,14 @@ const PROTOCOLS: UpstreamProtocol[] = ["messages", "completions", "responses"];
 // 分组渲染顺序;`any` 是 mock 占位,放最后
 const GROUP_ORDER: string[] = ["messages", "completions", "responses", "any"];
 
-const COLUMN_COUNT = 9;
+const COLUMN_COUNT = 8;
 
 export default function Upstreams() {
   const [items, setItems] = useState<UpstreamOut[] | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [openAdd, setOpenAdd] = useState(false);
   const [toEdit, setToEdit] = useState<UpstreamOut | null>(null);
+  const [toCopy, setToCopy] = useState<UpstreamOut | null>(null);
   const [toDelete, setToDelete] = useState<UpstreamOut | null>(null);
   const [restoringMock, setRestoringMock] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
@@ -174,19 +176,18 @@ export default function Upstreams() {
           restoringMock={restoringMock}
         />
       ) : (
-        <div className="rounded-lg border border-border">
-          <Table>
+        <div className="rounded-lg border border-border overflow-x-auto">
+          <Table className="w-full table-fixed">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-24">id</TableHead>
-                <TableHead>name</TableHead>
-                <TableHead>provider</TableHead>
-                <TableHead>model</TableHead>
+                <TableHead className="w-[14%]">name</TableHead>
+                <TableHead className="w-[10%]">provider</TableHead>
+                <TableHead className="w-[18%]">model</TableHead>
                 <TableHead>base_url</TableHead>
-                <TableHead className="w-24">enabled</TableHead>
-                <TableHead className="w-24">default</TableHead>
-                <TableHead className="w-40">created_at</TableHead>
-                <TableHead className="w-48 text-right">actions</TableHead>
+                <TableHead className="w-16">enabled</TableHead>
+                <TableHead className="w-16">default</TableHead>
+                <TableHead className="w-32">created_at</TableHead>
+                <TableHead className="w-28 text-right">actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -197,6 +198,7 @@ export default function Upstreams() {
                   rows={group.rows}
                   onSetDefault={(u) => void handleSetDefault(u.name)}
                   onEdit={(u) => setToEdit(u)}
+                  onCopy={(u) => setToCopy(u)}
                   onDelete={(u) => setToDelete(u)}
                 />
               ))}
@@ -222,6 +224,17 @@ export default function Upstreams() {
         onOpenChange={(o) => !o && setToEdit(null)}
         onSubmitted={async () => {
           setToEdit(null);
+          await load();
+        }}
+      />
+
+      <UpstreamFormDialog
+        mode="copy"
+        initial={toCopy}
+        open={toCopy !== null}
+        onOpenChange={(o) => !o && setToCopy(null)}
+        onSubmitted={async () => {
+          setToCopy(null);
           await load();
         }}
       />
@@ -256,12 +269,14 @@ function GroupSection({
   rows,
   onSetDefault,
   onEdit,
+  onCopy,
   onDelete,
 }: {
   protocol: string;
   rows: UpstreamOut[];
   onSetDefault: (u: UpstreamOut) => void;
   onEdit: (u: UpstreamOut) => void;
+  onCopy: (u: UpstreamOut) => void;
   onDelete: (u: UpstreamOut) => void;
 }) {
   return (
@@ -276,36 +291,97 @@ function GroupSection({
       </TableRow>
       {rows.map((u) => (
         <TableRow key={u.id}>
-          <TableCell className="font-mono text-xs">{u.id.slice(0, 8)}…</TableCell>
-          <TableCell className="font-medium">{u.name}</TableCell>
+          <TableCell className="truncate font-medium" title={u.name}>
+            {u.name}
+          </TableCell>
           <TableCell>
             <Badge variant="outline">{u.provider}</Badge>
           </TableCell>
-          <TableCell className="font-mono text-xs text-muted-foreground">
+          <TableCell
+            className="truncate font-mono text-xs text-muted-foreground"
+            title={u.model ?? ""}
+          >
             {u.model ?? "-"}
           </TableCell>
-          <TableCell className="text-muted-foreground">{u.base_url}</TableCell>
-          <TableCell>
-            {u.enabled ? <Badge>enabled</Badge> : <Badge variant="outline">disabled</Badge>}
+          <TableCell
+            className="truncate text-xs text-muted-foreground"
+            title={u.base_url}
+          >
+            {u.base_url}
           </TableCell>
-          <TableCell>{u.is_default ? <Badge>default</Badge> : null}</TableCell>
-          <TableCell className="font-mono text-xs text-muted-foreground">
+          <TableCell className="text-xs">
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className={`size-2 rounded-full ${
+                  u.enabled ? "bg-emerald-500" : "bg-muted-foreground/40"
+                }`}
+                aria-hidden
+              />
+              <span className={u.enabled ? "font-medium" : "text-muted-foreground"}>
+                {u.enabled ? "on" : "off"}
+              </span>
+            </span>
+          </TableCell>
+          <TableCell>
+            {u.protocol !== "any" && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                title={
+                  u.is_default
+                    ? "Default for this protocol"
+                    : "Set as default for this protocol"
+                }
+                disabled={u.is_default}
+                onClick={() => onSetDefault(u)}
+              >
+                <StarIcon
+                  className={
+                    u.is_default
+                      ? "fill-amber-400 text-amber-500"
+                      : "text-muted-foreground"
+                  }
+                />
+              </Button>
+            )}
+          </TableCell>
+          <TableCell
+            className="truncate font-mono text-xs text-muted-foreground"
+            title={u.created_at}
+          >
             {formatDate(u.created_at)}
           </TableCell>
           <TableCell className="text-right">
-            {!u.is_default && u.protocol !== "any" && (
-              <Button variant="ghost" size="sm" onClick={() => onSetDefault(u)}>
-                Set default
+            <div className="flex justify-end gap-1">
+              {u.provider !== "mock" && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    title="Edit"
+                    onClick={() => onEdit(u)}
+                  >
+                    <PencilIcon />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    title="Copy as new"
+                    onClick={() => onCopy(u)}
+                  >
+                    <CopyIcon />
+                  </Button>
+                </>
+              )}
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                title="Delete"
+                onClick={() => onDelete(u)}
+              >
+                <Trash2Icon />
               </Button>
-            )}
-            {u.provider !== "mock" && (
-              <Button variant="ghost" size="sm" onClick={() => onEdit(u)}>
-                Edit
-              </Button>
-            )}
-            <Button variant="ghost" size="sm" onClick={() => onDelete(u)}>
-              Delete
-            </Button>
+            </div>
           </TableCell>
         </TableRow>
       ))}
@@ -335,11 +411,16 @@ function EmptyState({
   );
 }
 
-type FormMode = "add" | "edit";
+type FormMode = "add" | "edit" | "copy";
 
 /**
- * Add / Edit 共用对话框。`mode="add"` 提交 createUpstream;`mode="edit"` 提交
- * updateUpstream(只发改过的字段;protocol 变化时 server 自动清 is_default)。
+ * Add / Edit / Copy 共用对话框。
+ *
+ * - `add`:空白表单 → POST createUpstream
+ * - `edit`:initial 预填 → PUT updateUpstream(只发改过的字段;protocol 变化时
+ *   server 自动清 is_default;api_key 留空 = 不动)
+ * - `copy`:initial 预填(name 加 `-copy` 后缀,api_key 不带) → POST createUpstream;
+ *   等价于"以选中行为模板新建一个"
  */
 function UpstreamFormDialog({
   mode,
@@ -368,16 +449,19 @@ function UpstreamFormDialog({
   useEffect(() => {
     if (!open) return;
     setErr(null);
-    if (mode === "edit" && initial) {
-      setName(initial.name);
-      // initial.protocol 可能是 "any"(mock),但 mock 不让编辑,这里保险下
+    if ((mode === "edit" || mode === "copy") && initial) {
+      // copy 时 name 加后缀避免 UNIQUE 冲突;edit 时保留原 name
+      setName(mode === "copy" ? `${initial.name}-copy` : initial.name);
+      // initial.protocol 可能是 "any"(mock),但 mock 不让编辑/复制,这里保险下
       setProtocol(
         (PROTOCOLS as readonly string[]).includes(initial.protocol)
           ? (initial.protocol as UpstreamProtocol)
           : "messages",
       );
       setProvider(initial.provider as UpstreamProvider);
-      setApiKey(""); // api_key 不回填;留空 = 不动,填值 = 更新
+      // api_key 永不回填:UpstreamOut 不返回 api_key;
+      // edit 留空 = 不动,copy 留空 = 新行无 key(用户重新填或留空让客户端透传)
+      setApiKey("");
       setModel(initial.model ?? "");
       setBaseUrl(initial.base_url);
       setEnabled(initial.enabled);
@@ -401,7 +485,8 @@ function UpstreamFormDialog({
     }
     setSubmitting(true);
     try {
-      if (mode === "add") {
+      // add 和 copy 都走 createUpstream,语义都是"新建一行";copy 仅在预填上不同
+      if (mode === "add" || mode === "copy") {
         const payload: UpstreamCreate = {
           name: name.trim(),
           protocol,
@@ -445,17 +530,21 @@ function UpstreamFormDialog({
   }
 
   const isEdit = mode === "edit";
+  const isCopy = mode === "copy";
+
+  const title = isEdit ? "Edit upstream" : isCopy ? "Copy upstream" : "Add upstream";
+  const description = isEdit
+    ? "修改字段后保存;api_key 留空 = 不动,填值 = 更新。改 protocol 时如果该行是 default,会自动清掉。"
+    : isCopy
+      ? `以 '${initial?.name}' 为模板新建一行;name 已加 -copy 后缀避免冲突,api_key 出于安全不会带过来,需要的话自行填。`
+      : "新建上游 upstream;model 留空时,客户端必须自带 body.model。";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit upstream" : "Add upstream"}</DialogTitle>
-          <DialogDescription>
-            {isEdit
-              ? "修改字段后保存;api_key 留空 = 不动,填值 = 更新。改 protocol 时如果该行是 default,会自动清掉。"
-              : "新建上游 upstream;model 留空时,客户端必须自带 body.model。"}
-          </DialogDescription>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <form onSubmit={(e) => void submit(e)} className="space-y-4">
           <div className="space-y-2">
@@ -502,7 +591,11 @@ function UpstreamFormDialog({
             <Label htmlFor="u-key">
               api_key{" "}
               <span className="text-xs text-muted-foreground">
-                {isEdit ? "(留空 = 不动)" : "(可选)"}
+                {isEdit
+                  ? "(留空 = 不动)"
+                  : isCopy
+                    ? "(原值不带过来 · 重新填或留空)"
+                    : "(可选)"}
               </span>
             </Label>
             <Input
@@ -533,7 +626,7 @@ function UpstreamFormDialog({
               placeholder="https://api.example.com"
             />
           </div>
-          {isEdit && (
+          {(isEdit || isCopy) && (
             <div className="flex items-center gap-2">
               <input
                 id="u-enabled"
