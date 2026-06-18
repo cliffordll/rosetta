@@ -14,7 +14,7 @@ import json
 from collections.abc import AsyncIterable, AsyncIterator, Iterable, Iterator
 from typing import Any
 
-from rosetta.shared.protocols import Protocol
+from rosetta.shared.server_api import ServerApi
 
 
 def parse_sse_stream(raw: Iterable[bytes]) -> Iterator[tuple[str | None, dict[str, Any]]]:
@@ -117,7 +117,9 @@ def _parse_frame(frame: bytes) -> tuple[str | None, dict[str, Any]] | None:
     return event_name, data_obj  # type: ignore[return-value]
 
 
-def encode_sse_stream(events: Iterable[dict[str, Any]], *, protocol_: Protocol) -> Iterator[bytes]:
+def encode_sse_stream(
+    events: Iterable[dict[str, Any]], *, server_api: ServerApi
+) -> Iterator[bytes]:
     """dict 事件流 → SSE 字节流。
 
     - Messages / Responses:每帧 `event: <type>\\ndata: <json>\\n\\n`
@@ -125,15 +127,15 @@ def encode_sse_stream(events: Iterable[dict[str, Any]], *, protocol_: Protocol) 
       流末尾补 `data: [DONE]\\n\\n`
     """
     for ev in events:
-        yield encode_sse_event(ev, protocol_=protocol_)
-    if protocol_ is Protocol.CHAT_COMPLETIONS:
+        yield encode_sse_event(ev, server_api=server_api)
+    if server_api is ServerApi.CHAT_COMPLETIONS:
         yield b"data: [DONE]\n\n"
 
 
-def encode_sse_event(ev: dict[str, Any], *, protocol_: Protocol) -> bytes:
+def encode_sse_event(ev: dict[str, Any], *, server_api: ServerApi) -> bytes:
     """单个 dict 事件 → 单个 SSE 帧,不追加 Chat Completions 的 `[DONE]`。"""
     etype = ev.get("type") if isinstance(ev.get("type"), str) else None
-    if protocol_ is Protocol.CHAT_COMPLETIONS:
+    if server_api is ServerApi.CHAT_COMPLETIONS:
         return f"data: {json.dumps(ev, ensure_ascii=False)}\n\n".encode()
     if etype:
         return f"event: {etype}\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n".encode()

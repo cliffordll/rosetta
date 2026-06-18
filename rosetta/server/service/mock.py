@@ -5,22 +5,22 @@
 
 架构(L3 · 全链路走 IR)
 ------------------------
-请求侧:body → `_REQ_TO_IR[fmt]` → `RequestIR`,从 messages 里抽最后一条 user 的
+请求侧:body → `_REQ_TO_IR[server_api]` → `RequestIR`,从 messages 里抽最后一条 user 的
 TextBlock.text 作为 echo 原料。adapter 抛的 `ValidationError` / `ValueError` 统一
 包成 `ServiceError(400)`,不兜底 —— "严格校验"语义。
 
 响应侧:
-- 非流:构造 `ResponseIR`(单 TextBlock + Usage),`_IR_TO_RESP[fmt](ir)` → dict → JSON
+- 非流:构造 `ResponseIR`(单 TextBlock + Usage),`_IR_TO_RESP[server_api](ir)` → dict → JSON
 - 流式:构造 IR StreamEvent 序列(`MessageStartEvent` → N 个 `TextDeltaEvent` →
-  `MessageStopEvent`),`_IR_TO_STREAM[fmt](events)` → target dict → `encode_sse_stream`
+  `MessageStopEvent`),`_IR_TO_STREAM[server_api](events)` → target dict → `encode_sse_stream`
   → bytes,每帧 yield 前 `await sleep(token_delay_sec)` 控制节奏
 
 节奏精度 vs 代码复用的权衡
 ---------------------------
-L3 路径下 sleep 粒度是"每个 target SSE 帧",不是"每个词"。messages 协议下两者
+L3 路径下 sleep 粒度是"每个 target SSE 帧",不是"每个词"。messages 类型下两者
 几乎一致;completions / responses 会因 adapter 的 1:N 映射偏慢(例如 responses
 的每个 IR TextDeltaEvent 会额外产 content_part 等环境帧)。人眼可感的节奏差异
-很小,为此换来三协议 schema 一处维护,免去 mock 自己写 200+ 行手搓 SSE。
+很小,为此换来三 API 类型 schema 一处维护,免去 mock 自己写 200+ 行手搓 SSE。
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ from rosetta.server.translation.ir import (
     UsageDelta,
 )
 from rosetta.server.translation.sse import encode_sse_stream
-from rosetta.shared.protocols import Protocol
+from rosetta.shared.server_api import ServerApi
 
 
 class MockResponder:
@@ -71,7 +71,7 @@ class MockResponder:
         self,
         *,
         token_delay_sec: float = 0.02,
-        echo_prefix_template: str = "[mock:{protocol}] echo: ",
+        echo_prefix_template: str = "[mock:{server_api}] echo: ",
         echo_limit: int = 200,
         tokens_per_char: int = 4,
     ) -> None:
@@ -84,12 +84,12 @@ class MockResponder:
 
     async def respond(
         self,
-        fmt: Protocol,
+        server_api: ServerApi,
         body: dict[str, Any],
         *,
         stream: bool,
     ) -> Response:
-        """按 fmt + stream 产出 mock 响应。body 必须是合规的 client 请求。
+        """按 server_api + stream 产出 mock 响应。body 必须是合规的 client 请求。
 
         client 没传 `model` + 上游又没在 `upstream.model` 配 → forwarder 不会注入,
         body 到这里仍然没 model;mock 自己兜个占位避免 IR Pydantic 校验失败,因为
@@ -97,16 +97,18 @@ class MockResponder:
         """
         if not isinstance(body.get("model"), str) or not body["model"].strip():
             body = {**body, "model": "mock-default"}
-        req = self._request_to_ir(fmt, body)
+        req = self._request_to_ir(server_api, body)
         user_text = self._extract_last_user_text(req)
-        reply = self._build_reply(fmt, user_text)
+        reply = self._build_reply(server_api, user_text)
         input_tokens = self._estimate_tokens(user_text)
         output_tokens = self._estimate_tokens(reply)
 
         if not stream:
-            return self._build_once_response(fmt, req.model, reply, input_tokens, output_tokens)
+            return self._build_once_response(
+                server_api, req.model, reply, input_tokens, output_tokens
+            )
         return StreamingResponse(
-            self._build_stream(fmt, req.model, reply, input_tokens, output_tokens),
+            self._build_stream(server_api, req.model, reply, input_tokens, output_tokens),
             status_code=200,
             media_type="text/event-stream",
         )
@@ -114,21 +116,21 @@ class MockResponder:
     # ---------- 请求侧:IR 化 + 抽用户文本 ----------
 
     @staticmethod
-    def _request_to_ir(fmt: Protocol, body: dict[str, Any]) -> RequestIR:
+    def _request_to_ir(server_api: ServerApi, body: dict[str, Any]) -> RequestIR:
         """调对应 adapter 把 body 转 IR;adapter 抛的校验错包成 400。"""
         try:
-            return _REQ_TO_IR[fmt](body)
+            return _REQ_TO_IR[server_api](body)
         except ValidationError as e:
             raise ServiceError(
                 status=400,
                 code="mock_invalid_request",
-                message=f"mock 请求体校验失败({fmt.value}): {e.errors()[:3]}",
+                message=f"mock 请求体校验失败({server_api.value}): {e.errors()[:3]}",
             ) from e
         except ValueError as e:
             raise ServiceError(
                 status=400,
                 code="mock_invalid_request",
-                message=f"mock 请求体校验失败({fmt.value}): {e}",
+                message=f"mock 请求体校验失败({server_api.value}): {e}",
             ) from e
 
     @staticmethod
@@ -144,9 +146,9 @@ class MockResponder:
 
     # ---------- reply 构造 / token 估算 / 切片 ----------
 
-    def _build_reply(self, fmt: Protocol, user_text: str) -> str:
-        """回显文本 = 前缀(含 protocol)+ 用户输入(截断);空输入显示 (empty)。"""
-        prefix = self.echo_prefix_template.format(protocol=fmt.value)
+    def _build_reply(self, server_api: ServerApi, user_text: str) -> str:
+        """回显文本 = 前缀(含 ServerApi)+ 用户输入(截断);空输入显示 (empty)。"""
+        prefix = self.echo_prefix_template.format(server_api=server_api.value)
         trimmed = user_text.strip()
         if len(trimmed) > self.echo_limit:
             trimmed = trimmed[: self.echo_limit] + "…"
@@ -169,7 +171,7 @@ class MockResponder:
 
     @staticmethod
     def _build_once_response(
-        fmt: Protocol,
+        server_api: ServerApi,
         model: str,
         reply: str,
         input_tokens: int,
@@ -182,7 +184,7 @@ class MockResponder:
             stop_reason="end_turn",
             usage=Usage(input_tokens=input_tokens, output_tokens=output_tokens),
         )
-        body = _IR_TO_RESP[fmt](ir)
+        body = _IR_TO_RESP[server_api](ir)
         import json
 
         return Response(
@@ -195,7 +197,7 @@ class MockResponder:
 
     async def _build_stream(
         self,
-        fmt: Protocol,
+        server_api: ServerApi,
         model: str,
         reply: str,
         input_tokens: int,
@@ -203,8 +205,8 @@ class MockResponder:
     ) -> AsyncIterator[bytes]:
         """IR 流事件 → target dict 流 → SSE bytes,每帧 sleep 一次控制节奏。"""
         ir_events = self._build_ir_events(model, reply, input_tokens, output_tokens)
-        target_dicts = list(_IR_TO_STREAM[fmt](iter(ir_events)))
-        for frame in encode_sse_stream(iter(target_dicts), protocol_=fmt):
+        target_dicts = list(_IR_TO_STREAM[server_api](iter(ir_events)))
+        for frame in encode_sse_stream(iter(target_dicts), server_api=server_api):
             await self._sleep_tick()
             yield frame
 
@@ -215,7 +217,7 @@ class MockResponder:
         input_tokens: int,
         output_tokens: int,
     ) -> Iterable[StreamEvent]:
-        """构造 Anthropic 风格的 IR 事件序列;adapter 负责翻到其他 format。"""
+        """构造 Anthropic 风格的 IR 事件序列;adapter 负责翻到其他 Server API。"""
         mid = f"mock_{uuid.uuid4().hex[:16]}"
         events: list[StreamEvent] = [
             MessageStartEvent(

@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator
 
 from rosetta.server.translation.dispatcher import translate_stream_bytes
-from rosetta.shared.protocols import Protocol
+from rosetta.shared.server_api import ServerApi
 
 
 async def test_translate_stream_bytes_yields_first_frame_before_upstream_finishes() -> None:
@@ -26,8 +26,8 @@ async def test_translate_stream_bytes_yields_first_frame_before_upstream_finishe
 
     translated = translate_stream_bytes(
         raw_chunks(),
-        source=Protocol.MESSAGES,
-        target=Protocol.MESSAGES,
+        source=ServerApi.MESSAGES,
+        target=ServerApi.MESSAGES,
     )
 
     first = await asyncio.wait_for(translated.__anext__(), timeout=0.2)

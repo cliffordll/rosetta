@@ -1,4 +1,4 @@
-"""翻译分派器:按 (source, target) format 选择 adapter 路径。
+"""翻译分派器:按 (source, target) server_api 选择 adapter 路径。
 
 职责
 ----
@@ -11,7 +11,7 @@
 
 SSE 字节层的编解码在 `sse.py`(`parse_sse_stream` / `encode_sse_stream`),本模块只做分派。
 
-Protocol 枚举(沿用 `rosetta.shared.formats.Protocol`):
+ServerApi 枚举(沿用 `rosetta.shared.Server APIs.ServerApi`):
 - `MESSAGES`:Anthropic /v1/messages
 - `CHAT_COMPLETIONS`:OpenAI /v1/chat/completions
 - `RESPONSES`:OpenAI /v1/responses
@@ -61,39 +61,39 @@ from rosetta.server.translation.responses.response import (
     responses_stream_to_ir,
 )
 from rosetta.server.translation.sse import encode_sse_event, parse_sse_stream_async
-from rosetta.shared.protocols import Protocol
+from rosetta.shared.server_api import ServerApi
 
 # Adapter 表:按方向 x 消息类型 共 6 张
 
 _REQ_TO_IR = {
-    Protocol.MESSAGES: messages_to_ir,
-    Protocol.CHAT_COMPLETIONS: completions_to_ir,
-    Protocol.RESPONSES: responses_to_ir,
+    ServerApi.MESSAGES: messages_to_ir,
+    ServerApi.CHAT_COMPLETIONS: completions_to_ir,
+    ServerApi.RESPONSES: responses_to_ir,
 }
 _IR_TO_REQ = {
-    Protocol.MESSAGES: ir_to_messages,
-    Protocol.CHAT_COMPLETIONS: ir_to_completions,
-    Protocol.RESPONSES: ir_to_responses,
+    ServerApi.MESSAGES: ir_to_messages,
+    ServerApi.CHAT_COMPLETIONS: ir_to_completions,
+    ServerApi.RESPONSES: ir_to_responses,
 }
 _RESP_TO_IR = {
-    Protocol.MESSAGES: messages_response_to_ir,
-    Protocol.CHAT_COMPLETIONS: completions_response_to_ir,
-    Protocol.RESPONSES: responses_response_to_ir,
+    ServerApi.MESSAGES: messages_response_to_ir,
+    ServerApi.CHAT_COMPLETIONS: completions_response_to_ir,
+    ServerApi.RESPONSES: responses_response_to_ir,
 }
 _IR_TO_RESP = {
-    Protocol.MESSAGES: ir_to_messages_response,
-    Protocol.CHAT_COMPLETIONS: ir_to_completions_response,
-    Protocol.RESPONSES: ir_to_responses_response,
+    ServerApi.MESSAGES: ir_to_messages_response,
+    ServerApi.CHAT_COMPLETIONS: ir_to_completions_response,
+    ServerApi.RESPONSES: ir_to_responses_response,
 }
 _STREAM_TO_IR = {
-    Protocol.MESSAGES: messages_stream_to_ir,
-    Protocol.CHAT_COMPLETIONS: completions_stream_to_ir,
-    Protocol.RESPONSES: responses_stream_to_ir,
+    ServerApi.MESSAGES: messages_stream_to_ir,
+    ServerApi.CHAT_COMPLETIONS: completions_stream_to_ir,
+    ServerApi.RESPONSES: responses_stream_to_ir,
 }
 _IR_TO_STREAM = {
-    Protocol.MESSAGES: ir_to_messages_stream,
-    Protocol.CHAT_COMPLETIONS: ir_to_completions_stream,
-    Protocol.RESPONSES: ir_to_responses_stream,
+    ServerApi.MESSAGES: ir_to_messages_stream,
+    ServerApi.CHAT_COMPLETIONS: ir_to_completions_stream,
+    ServerApi.RESPONSES: ir_to_responses_stream,
 }
 
 
@@ -101,7 +101,7 @@ _IR_TO_STREAM = {
 
 
 def translate_request(
-    body: dict[str, Any], *, source: Protocol, target: Protocol
+    body: dict[str, Any], *, source: ServerApi, target: ServerApi
 ) -> dict[str, Any]:
     """客户端请求 body → 上游请求 body。
 
@@ -112,11 +112,11 @@ def translate_request(
 
 
 def translate_response(
-    body: dict[str, Any], *, source: Protocol, target: Protocol
+    body: dict[str, Any], *, source: ServerApi, target: ServerApi
 ) -> dict[str, Any]:
     """上游响应 body → 客户端响应 body。
 
-    `source` 是上游的 format,`target` 是客户端的 format。
+    `source` 是上游的 Server API,`target` 是客户端的 Server API。
     """
     ir = _RESP_TO_IR[source](body)
     return _IR_TO_RESP[target](ir)
@@ -128,8 +128,8 @@ def translate_response(
 def translate_stream_events(
     events: Iterable[dict[str, Any]],
     *,
-    source: Protocol,
-    target: Protocol,
+    source: ServerApi,
+    target: ServerApi,
 ) -> Iterator[dict[str, Any]]:
     """跨格式 dict 事件流翻译:source → IR → target。
 
@@ -142,8 +142,8 @@ def translate_stream_events(
 async def translate_stream_bytes(
     raw_chunks: AsyncIterable[bytes],
     *,
-    source: Protocol,
-    target: Protocol,
+    source: ServerApi,
+    target: ServerApi,
 ) -> AsyncIterator[bytes]:
     """上游 SSE 字节流 → 客户端 SSE 字节流(完整翻译链)。
 
@@ -196,9 +196,9 @@ async def translate_stream_bytes(
                 break
             if isinstance(item, BaseException):
                 raise item
-            yield encode_sse_event(item, protocol_=target)
+            yield encode_sse_event(item, server_api=target)
 
-        if target is Protocol.CHAT_COMPLETIONS:
+        if target is ServerApi.CHAT_COMPLETIONS:
             yield b"data: [DONE]\n\n"
         await producer_task
         await worker_task

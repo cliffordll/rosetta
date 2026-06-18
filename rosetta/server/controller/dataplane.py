@@ -10,7 +10,7 @@
 
 分层约定:routes 是哑管道,只读 headers + 透传 body bytes。所有 body 解读
 (model / stream 解析、Responses degrade、跨格式翻译)都在 forwarder 内部完成。
-三端点结构对称,只差 `request_protocol` 参数。
+三端点结构对称,只差 `server_api` 参数。
 """
 
 from __future__ import annotations
@@ -23,9 +23,10 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rosetta.server.database.session import get_session
+from rosetta.server.repository import UpstreamRepo
 from rosetta.server.service.forwarder import forwarder
 from rosetta.server.service.selector import pick_upstream
-from rosetta.shared.protocols import Protocol
+from rosetta.shared.server_api import ServerApi
 
 router = APIRouter()
 
@@ -89,15 +90,17 @@ async def parse_request(request: Request) -> RequestCtx:
 @router.post("/v1/messages")
 async def messages(request: Request, session: SessionDep) -> Response:
     ctx = await parse_request(request)
-    request_protocol = Protocol.MESSAGES
+    server_api = ServerApi.MESSAGES
     upstream = await pick_upstream(
         session,
         header_upstream=ctx.rosetta_upstream,
-        request_protocol=request_protocol,
+        server_api=server_api,
     )
+    api_type_paths = await UpstreamRepo(session).api_type_paths()
     return await forwarder.forward(
         upstream=upstream,
-        request_protocol=request_protocol,
+        server_api=server_api,
+        api_type_paths=api_type_paths,
         body=ctx.body,
         content_type=ctx.content_type,
         client_api_key=ctx.client_api_key,
@@ -108,15 +111,17 @@ async def messages(request: Request, session: SessionDep) -> Response:
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request, session: SessionDep) -> Response:
     ctx = await parse_request(request)
-    request_protocol = Protocol.CHAT_COMPLETIONS
+    server_api = ServerApi.CHAT_COMPLETIONS
     upstream = await pick_upstream(
         session,
         header_upstream=ctx.rosetta_upstream,
-        request_protocol=request_protocol,
+        server_api=server_api,
     )
+    api_type_paths = await UpstreamRepo(session).api_type_paths()
     return await forwarder.forward(
         upstream=upstream,
-        request_protocol=request_protocol,
+        server_api=server_api,
+        api_type_paths=api_type_paths,
         body=ctx.body,
         content_type=ctx.content_type,
         client_api_key=ctx.client_api_key,
@@ -127,15 +132,17 @@ async def chat_completions(request: Request, session: SessionDep) -> Response:
 @router.post("/v1/responses")
 async def responses_endpoint(request: Request, session: SessionDep) -> Response:
     ctx = await parse_request(request)
-    request_protocol = Protocol.RESPONSES
+    server_api = ServerApi.RESPONSES
     upstream = await pick_upstream(
         session,
         header_upstream=ctx.rosetta_upstream,
-        request_protocol=request_protocol,
+        server_api=server_api,
     )
+    api_type_paths = await UpstreamRepo(session).api_type_paths()
     return await forwarder.forward(
         upstream=upstream,
-        request_protocol=request_protocol,
+        server_api=server_api,
+        api_type_paths=api_type_paths,
         body=ctx.body,
         content_type=ctx.content_type,
         client_api_key=ctx.client_api_key,

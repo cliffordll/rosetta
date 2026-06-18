@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 DEFAULT_DB_PATH = Path.home() / ".rosetta" / "rosetta.db"
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 6
 
 
 @dataclass

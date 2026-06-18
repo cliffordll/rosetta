@@ -10,13 +10,13 @@ from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.exc import IntegrityError
 
-from rosetta.server.database.models import Upstream, UpstreamProvider
+from rosetta.server.database.models import Upstream, UpstreamNativeApi, UpstreamProvider
 from rosetta.server.repository import UpstreamRepoDep
 
 router = APIRouter()
 
-# 用户可创建的 protocol 值域:不含 `any`(any 专供 mock 占位,DB seed / restore-mock 才写)
-UpstreamProtocolCreatable = Literal["messages", "completions", "responses"]
+# 用户可创建的 native_api 值域:不含 `any`(any 专供 mock 占位,DB seed / restore-mock 才写)
+UpstreamNativeApiCreatable = Literal["messages", "completions", "responses"]
 
 
 class UpstreamCreate(BaseModel):
@@ -25,7 +25,7 @@ class UpstreamCreate(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
     name: str
-    protocol: UpstreamProtocolCreatable
+    native_api: UpstreamNativeApiCreatable
     provider: UpstreamProvider = "custom"
     base_url: str
     api_key: str | None = None
@@ -38,13 +38,13 @@ class UpstreamUpdate(BaseModel):
 
     - 任何字段未传 → 不动
     - `api_key` / `model` 显式传 `null` → 清空该字段
-    - `protocol` 改了且原行 is_default=True → repository 层会自动清 is_default
+    - `native_api` 改了且原行 is_default=True → repository 层会自动清 is_default
     """
 
     model_config = ConfigDict(extra="forbid", protected_namespaces=())
 
     name: str | None = None
-    protocol: UpstreamProtocolCreatable | None = None
+    native_api: UpstreamNativeApiCreatable | None = None
     provider: UpstreamProvider | None = None
     base_url: str | None = None
     api_key: str | None = None
@@ -58,13 +58,14 @@ class UpstreamOut(BaseModel):
 
     id: str
     name: str
-    protocol: str
+    native_api: UpstreamNativeApi
     provider: str
     base_url: str
     model: str | None
     enabled: bool
     is_default: bool
     created_at: datetime
+    api_key: str | None = None
 
 
 class RestoreMockOut(BaseModel):
@@ -84,7 +85,7 @@ async def create_upstream(payload: UpstreamCreate, repo: UpstreamRepoDep) -> Ups
     try:
         return await repo.create(
             name=payload.name,
-            protocol=payload.protocol,
+            native_api=payload.native_api,
             provider=payload.provider,
             base_url=payload.base_url,
             api_key=payload.api_key,
@@ -104,7 +105,7 @@ async def update_upstream(
 ) -> Upstream:
     """部分更新 upstream;未传字段不动,`api_key`/`model` 传 null 显式清空。
 
-    `protocol` 改了且原行是该协议的 default → repo 自动清 is_default
+    `native_api` 改了且原行是该 native API 的 default → repo 自动清 is_default
     (避免"messages 的 default 突然变成 completions 的"隐式语义跳变)。
     """
     fields = payload.model_dump(exclude_unset=True)
@@ -120,7 +121,7 @@ async def update_upstream(
         return await repo.update(
             upstream_id,
             name=fields.get("name"),
-            protocol=fields.get("protocol"),
+            native_api=fields.get("native_api"),
             provider=fields.get("provider"),
             base_url=fields.get("base_url"),
             api_key=api_key_arg,  # type: ignore[arg-type]
@@ -155,7 +156,7 @@ async def restore_mock_upstream(repo: UpstreamRepoDep, force: bool = False) -> R
 
 @router.put("/upstreams/{name}/default", response_model=UpstreamOut)
 async def set_default_upstream(name: str, repo: UpstreamRepoDep) -> Upstream:
-    """把 `name` 设为其 protocol 的 default(同 protocol 旧 default 自动清零)。
+    """把 `name` 设为其 native_api 的 default(同 native_api 旧 default 自动清零)。
 
     路径用 `name` 而非 `id`:CLI / GUI 的"设为默认"是按名字操作的高频动作,绕
     `id` 反而多一步翻译;name 有 UNIQUE 约束,语义无歧义。
