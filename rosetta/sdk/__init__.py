@@ -5,7 +5,7 @@
 - `ProxyClient.discover_session()`:连到本机 server(不在就自动 spawn)
 - `ProxyClient.direct_session()`:绕 server 直连上游(BYOK)
 - `chat_once(...)`:发一条消息拿 `ChatResult`
-- `iter_text_deltas(resp, fmt)`:三格式 SSE → 文本增量
+- `iter_text_deltas(resp, server_api)`:三格式 SSE → 文本增量
 """
 
 from __future__ import annotations

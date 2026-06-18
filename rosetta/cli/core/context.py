@@ -7,7 +7,7 @@
 --------
 ```
 # model=None 时不发 body.model,server 用 upstream.model 兜底
-ctx = ChatContext(client=client, fmt=Protocol.MESSAGES, model=None)
+ctx = ChatContext(client=client, server_api=ServerApi.MESSAGES, model=None)
 ctx.append_user("hi")
 result = await ctx.run_turn(on_token=print)
 ctx.append_assistant(result.text)
@@ -23,7 +23,7 @@ from typing import Any
 
 from rosetta.sdk.client import ProxyClient
 from rosetta.sdk.streams import ChatStream
-from rosetta.shared.protocols import Protocol
+from rosetta.shared.server_api import ServerApi
 
 
 def _empty_messages() -> list[dict[str, str]]:
@@ -62,7 +62,7 @@ class ChatContext:
     """
 
     client: ProxyClient
-    fmt: Protocol
+    server_api: ServerApi
     model: str | None
     upstream: str | None = None
     api_key: str | None = None
@@ -83,11 +83,11 @@ class ChatContext:
             self.messages.pop()
 
     def reset(self) -> None:
-        """清空对话历史,保留会话配置(fmt / model / upstream ...)。"""
+        """清空对话历史,保留会话配置(server_api / model / upstream ...)。"""
         self.messages.clear()
 
-    def set_fmt(self, fmt: Protocol) -> None:
-        self.fmt = fmt
+    def set_server_api(self, server_api: ServerApi) -> None:
+        self.server_api = server_api
 
     def set_model(self, model: str | None) -> None:
         self.model = model
@@ -101,12 +101,12 @@ class ChatContext:
         `direct` 模式下 api_key / upstream header 不走 server 透传路径。
         """
         body = self._build_body()
-        stream = ChatStream(fmt=self.fmt)
+        stream = ChatStream(server_api=self.server_api)
         buf: list[str] = []
         t0 = time.monotonic()
 
         async with self.client.stream_chat(
-            self.fmt,
+            self.server_api,
             body,
             override_api_key=self.api_key if self.client.mode == "server" else None,
             upstream_header=self.upstream if self.client.mode == "server" else None,
@@ -128,10 +128,10 @@ class ChatContext:
             latency_ms=int((time.monotonic() - t0) * 1000),
         )
 
-    # ---------- 私有:按 format 组装请求体 ----------
+    # ---------- 私有:按 server_api 组装请求体 ----------
 
     def _build_body(self) -> dict[str, Any]:
-        """按 self.fmt 把对话历史组装成请求体。
+        """按 self.server_api 把对话历史组装成请求体。
 
         v0.1 只存纯文本(`content: str`),三格式的多轮表达都能直接消化。
         `self.model is None` 时 body 不写 `model` 字段,让 server forwarder 走
@@ -140,7 +140,7 @@ class ChatContext:
         # model 字段:None 时不写;放在 body 头便于阅读
         model_field: dict[str, Any] = {"model": self.model} if self.model else {}
 
-        if self.fmt is Protocol.MESSAGES:
+        if self.server_api is ServerApi.MESSAGES:
             return {
                 **model_field,
                 "max_tokens": self.max_tokens,
@@ -148,7 +148,7 @@ class ChatContext:
                 "messages": self.messages,
             }
 
-        if self.fmt is Protocol.CHAT_COMPLETIONS:
+        if self.server_api is ServerApi.CHAT_COMPLETIONS:
             # include_usage=true 让最后一个 chunk 带 prompt/completion_tokens
             # max_tokens 按 messages 语义复用一个值;真实 OpenAI 可不传,但 rosetta
             # 的翻译层 adapter 要求必填,一次性给齐简化下游路径
@@ -160,7 +160,7 @@ class ChatContext:
                 "messages": self.messages,
             }
 
-        # Protocol.RESPONSES:字段名是 max_output_tokens,语义同 max_tokens;
+        # ServerApi.RESPONSES:字段名是 max_output_tokens,语义同 max_tokens;
         # input item 按 Responses 规范带 type="message"(否则 adapter 拒)
         return {
             **model_field,

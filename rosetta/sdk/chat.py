@@ -6,7 +6,7 @@
 ChatResult 字段
 --------------
 - `text`:合并后的 assistant 文本(忽略 tool_use / thinking 等非文本块)
-- `usage`:`{"input_tokens", "output_tokens"}`(按 format 映射上游字段)
+- `usage`:`{"input_tokens", "output_tokens"}`(按 server_api 映射上游字段)
 - `path`:粗粒度路径标签(如 `"direct · api.anthropic.com"` / `"messages · server"`)
   真实的翻译链路(`messages→IR→completions` 等)在 v0.1 由 server 端日志记录,
   SDK 无法从 HTTP 响应里直接推断——留 v1+ 用 `x-rosetta-path` 响应头解决
@@ -22,7 +22,7 @@ from typing import Any, cast
 from urllib.parse import urlparse
 
 from rosetta.sdk.client import ProxyClient
-from rosetta.shared.protocols import Protocol
+from rosetta.shared.server_api import ServerApi
 
 
 @dataclass
@@ -39,7 +39,7 @@ async def chat_once(
     text: str,
     *,
     model: str | None = None,
-    fmt: Protocol = Protocol.MESSAGES,
+    server_api: ServerApi = ServerApi.MESSAGES,
     upstream: str | None = None,
     api_key: str | None = None,
     max_tokens: int = 1024,
@@ -56,15 +56,15 @@ async def chat_once(
     if not effective_model:
         raise ValueError("chat_once 需要指定 model(或在 direct 模式构造 client 时传入)")
 
-    effective_fmt = fmt
-    if client.direct_format is not None and client.mode == "direct":
-        effective_fmt = client.direct_format
+    effective_server_api = server_api
+    if client.direct_server_api is not None and client.mode == "direct":
+        effective_server_api = client.direct_server_api
 
-    body = _build_body(effective_fmt, text, effective_model, max_tokens)
+    body = _build_body(effective_server_api, text, effective_model, max_tokens)
 
     t0 = time.monotonic()
     resp = await client.post_chat(
-        effective_fmt,
+        effective_server_api,
         body,
         override_api_key=api_key if client.mode == "server" else None,
         upstream_header=upstream if client.mode == "server" else None,
@@ -78,35 +78,35 @@ async def chat_once(
     data_dict = cast(dict[str, Any], data)
 
     return ChatResult(
-        text=_extract_text(effective_fmt, data_dict),
-        usage=_extract_usage(effective_fmt, data_dict),
-        path=_path_label(client, effective_fmt),
+        text=_extract_text(effective_server_api, data_dict),
+        usage=_extract_usage(effective_server_api, data_dict),
+        path=_path_label(client, effective_server_api),
         latency_ms=latency_ms,
         raw_response=data_dict,
     )
 
 
-def _build_body(fmt: Protocol, text: str, model: str, max_tokens: int) -> dict[str, Any]:
-    if fmt is Protocol.MESSAGES:
+def _build_body(server_api: ServerApi, text: str, model: str, max_tokens: int) -> dict[str, Any]:
+    if server_api is ServerApi.MESSAGES:
         return {
             "model": model,
             "max_tokens": max_tokens,
             "messages": [{"role": "user", "content": text}],
         }
-    if fmt is Protocol.CHAT_COMPLETIONS:
+    if server_api is ServerApi.CHAT_COMPLETIONS:
         return {
             "model": model,
             "messages": [{"role": "user", "content": text}],
         }
-    # Protocol.RESPONSES
+    # ServerApi.RESPONSES
     return {
         "model": model,
         "input": text,
     }
 
 
-def _extract_text(fmt: Protocol, data: dict[str, Any]) -> str:
-    if fmt is Protocol.MESSAGES:
+def _extract_text(server_api: ServerApi, data: dict[str, Any]) -> str:
+    if server_api is ServerApi.MESSAGES:
         blocks = data.get("content", [])
         if not isinstance(blocks, list):
             return ""
@@ -120,7 +120,7 @@ def _extract_text(fmt: Protocol, data: dict[str, Any]) -> str:
                         parts.append(t)
         return "".join(parts)
 
-    if fmt is Protocol.CHAT_COMPLETIONS:
+    if server_api is ServerApi.CHAT_COMPLETIONS:
         choices = data.get("choices")
         if not isinstance(choices, list) or not choices:
             return ""
@@ -133,7 +133,7 @@ def _extract_text(fmt: Protocol, data: dict[str, Any]) -> str:
         content = cast(dict[str, Any], msg).get("content")
         return content if isinstance(content, str) else ""
 
-    # Protocol.RESPONSES
+    # ServerApi.RESPONSES
     output = data.get("output")
     if not isinstance(output, list):
         return ""
@@ -157,12 +157,12 @@ def _extract_text(fmt: Protocol, data: dict[str, Any]) -> str:
     return "".join(parts)
 
 
-def _extract_usage(fmt: Protocol, data: dict[str, Any]) -> dict[str, int]:
+def _extract_usage(server_api: ServerApi, data: dict[str, Any]) -> dict[str, int]:
     usage = data.get("usage")
     if not isinstance(usage, dict):
         return {"input_tokens": 0, "output_tokens": 0}
     u = cast(dict[str, Any], usage)
-    if fmt is Protocol.CHAT_COMPLETIONS:
+    if server_api is ServerApi.CHAT_COMPLETIONS:
         return {
             "input_tokens": int(u.get("prompt_tokens", 0) or 0),
             "output_tokens": int(u.get("completion_tokens", 0) or 0),
@@ -174,8 +174,8 @@ def _extract_usage(fmt: Protocol, data: dict[str, Any]) -> dict[str, int]:
     }
 
 
-def _path_label(client: ProxyClient, fmt: Protocol) -> str:
+def _path_label(client: ProxyClient, server_api: ServerApi) -> str:
     if client.mode == "direct":
         host = urlparse(client.base_url).hostname or client.base_url
         return f"direct · {host}"
-    return f"server · {fmt.value}"
+    return f"server · {server_api.value}"

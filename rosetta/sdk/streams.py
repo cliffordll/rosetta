@@ -1,28 +1,28 @@
 """SDK 侧三格式 SSE → 文本增量解码。
 
-对 `httpx.Response`(流式)按 format 解码成文本片段迭代器;供 `chat_once` 和
+对 `httpx.Response`(流式)按 server_api 解码成文本片段迭代器;供 `chat_once` 和
 CLI `chat` 流式渲染使用。与 `rosetta/server/translation/stream.py` 的 SSE 解析对称,
 但这边是 **async** + 只关心文本(非流式的结构化内容不在本模块)。
 
 两种消费方式
 ------------
-- `iter_text_deltas(resp, fmt)`:只要文本增量,最简
-- `ChatStream(fmt).text_deltas(resp)`:同样 yield 文本,但同时从终端事件累积 usage
+- `iter_text_deltas(resp, server_api)`:只要文本增量,最简
+- `ChatStream(server_api).text_deltas(resp)`:同样 yield 文本,但同时从终端事件累积 usage
   到实例字段(`input_tokens` / `output_tokens`),CLI 打 meta 行需要
 
 文本抽取规则(v0.1)
 --------------------
-- `Protocol.MESSAGES`:`content_block_delta` + `delta.type == "text_delta"` → `delta.text`
-- `Protocol.CHAT_COMPLETIONS`:`choices[0].delta.content`(chunk `data:` 行,`[DONE]` 终止)
-- `Protocol.RESPONSES`:`type == "response.output_text.delta"` → `delta`(str)
+- `ServerApi.MESSAGES`:`content_block_delta` + `delta.type == "text_delta"` → `delta.text`
+- `ServerApi.CHAT_COMPLETIONS`:`choices[0].delta.content`(chunk `data:` 行,`[DONE]` 终止)
+- `ServerApi.RESPONSES`:`type == "response.output_text.delta"` → `delta`(str)
 
 Usage 抽取规则(v0.1)
 ---------------------
-- `Protocol.MESSAGES`:`message_start.message.usage.input_tokens`(首)
+- `ServerApi.MESSAGES`:`message_start.message.usage.input_tokens`(首)
   + `message_delta.usage.output_tokens`(累加式覆盖,上游会在 delta 里给累计值)
-- `Protocol.CHAT_COMPLETIONS`:最后一个 chunk 的 `usage` 字段(需在请求里
+- `ServerApi.CHAT_COMPLETIONS`:最后一个 chunk 的 `usage` 字段(需在请求里
   `stream_options.include_usage=true`,CLI 会自动加)
-- `Protocol.RESPONSES`:`response.completed.response.usage.{input,output}_tokens`
+- `ServerApi.RESPONSES`:`response.completed.response.usage.{input,output}_tokens`
 
 其余事件(工具调用 / 思考 / 错误等)**忽略**——CLI 只做文本回显;更完整的事件消费
 留给未来 v1+ 真正使用 ContentBlock 结构时再引入。
@@ -37,17 +37,17 @@ from typing import Any, cast
 
 import httpx
 
-from rosetta.shared.protocols import Protocol
+from rosetta.shared.server_api import ServerApi
 
 
-async def iter_text_deltas(resp: httpx.Response, fmt: Protocol) -> AsyncIterator[str]:
-    """解码 `resp` 的 SSE 流,按 `fmt` 产出文本增量。
+async def iter_text_deltas(resp: httpx.Response, server_api: ServerApi) -> AsyncIterator[str]:
+    """解码 `resp` 的 SSE 流,按 `server_api` 产出文本增量。
 
     调用方负责确保 `resp` 是用 `stream=True` 发出的。本函数只读不关,由外层
     async-context 管理生命周期。
     """
     async for event_name, data in _iter_sse(resp):
-        text = _extract_text(fmt, event_name, data)
+        text = _extract_text(server_api, event_name, data)
         if text:
             yield text
 
@@ -58,25 +58,25 @@ class ChatStream:
 
     用法::
 
-        stream = ChatStream(fmt=Protocol.MESSAGES)
+        stream = ChatStream(server_api=ServerApi.MESSAGES)
         async for tok in stream.text_deltas(resp):
             print(tok, end="", flush=True)
         # 流结束后 stream.input_tokens / stream.output_tokens 可用
     """
 
-    fmt: Protocol
+    server_api: ServerApi
     input_tokens: int = field(default=0)
     output_tokens: int = field(default=0)
 
     async def text_deltas(self, resp: httpx.Response) -> AsyncIterator[str]:
         async for event_name, data in _iter_sse(resp):
             self._update_usage(event_name, data)
-            text = _extract_text(self.fmt, event_name, data)
+            text = _extract_text(self.server_api, event_name, data)
             if text:
                 yield text
 
     def _update_usage(self, event_name: str | None, data: dict[str, Any]) -> None:
-        if self.fmt is Protocol.MESSAGES:
+        if self.server_api is ServerApi.MESSAGES:
             etype = event_name or data.get("type")
             if etype == "message_start":
                 msg = data.get("message")
@@ -97,7 +97,7 @@ class ChatStream:
                         self.output_tokens = ot
             return
 
-        if self.fmt is Protocol.CHAT_COMPLETIONS:
+        if self.server_api is ServerApi.CHAT_COMPLETIONS:
             u = data.get("usage")
             if isinstance(u, dict):
                 ud = cast(dict[str, Any], u)
@@ -105,7 +105,7 @@ class ChatStream:
                 self.output_tokens = int(ud.get("completion_tokens", 0) or 0)
             return
 
-        # Protocol.RESPONSES
+        # ServerApi.RESPONSES
         etype = event_name or data.get("type")
         if etype == "response.completed":
             resp = data.get("response")
@@ -175,9 +175,9 @@ def _parse_frame(frame: bytes) -> tuple[str | None, dict[str, Any]] | None:
     return event_name, cast(dict[str, Any], parsed)
 
 
-def _extract_text(fmt: Protocol, event_name: str | None, data: dict[str, Any]) -> str:
-    """按 format 抽文本增量;非文本事件返回空字符串。"""
-    if fmt is Protocol.MESSAGES:
+def _extract_text(server_api: ServerApi, event_name: str | None, data: dict[str, Any]) -> str:
+    """按 server_api 抽文本增量;非文本事件返回空字符串。"""
+    if server_api is ServerApi.MESSAGES:
         etype = event_name or data.get("type")
         if etype != "content_block_delta":
             return ""
@@ -190,7 +190,7 @@ def _extract_text(fmt: Protocol, event_name: str | None, data: dict[str, Any]) -
         text = d.get("text", "")
         return text if isinstance(text, str) else ""
 
-    if fmt is Protocol.CHAT_COMPLETIONS:
+    if server_api is ServerApi.CHAT_COMPLETIONS:
         choices = data.get("choices")
         if not isinstance(choices, list) or not choices:
             return ""
@@ -203,7 +203,7 @@ def _extract_text(fmt: Protocol, event_name: str | None, data: dict[str, Any]) -
         content = cast(dict[str, Any], delta).get("content")
         return content if isinstance(content, str) else ""
 
-    # Protocol.RESPONSES
+    # ServerApi.RESPONSES
     etype = event_name or data.get("type")
     if etype != "response.output_text.delta":
         return ""

@@ -34,7 +34,7 @@ from rosetta.server.controller.upstreams import (
     UpstreamOut,
     UpstreamUpdate,
 )
-from rosetta.shared.protocols import UPSTREAM_PATH, Protocol
+from rosetta.shared.server_api import SERVER_API_PATHS, ServerApi
 
 _DATA_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
 _ADMIN_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
@@ -51,7 +51,7 @@ class ProxyClient:
 
     # direct 模式专属:
     _direct_api_key: str | None = field(default=None, repr=False)
-    _direct_format: Protocol | None = None
+    _direct_server_api: ServerApi | None = None
     _direct_model: str | None = None
 
     @classmethod
@@ -74,7 +74,7 @@ class ProxyClient:
         *,
         base_url: str,
         api_key: str,
-        format: Protocol,
+        server_api: ServerApi,
         model: str,
     ) -> AsyncIterator[Self]:
         """direct 模式(DESIGN §8.6):绕 server 直连上游。"""
@@ -85,7 +85,7 @@ class ProxyClient:
                 base_url=base_url.rstrip("/"),
                 mode="direct",
                 _direct_api_key=api_key,
-                _direct_format=format,
+                _direct_server_api=server_api,
                 _direct_model=model,
             )
         finally:
@@ -147,7 +147,7 @@ class ProxyClient:
         resp.raise_for_status()
 
     async def set_default_upstream(self, name: str) -> UpstreamOut:
-        """把 `name` 设为其 protocol 的 default;同 protocol 旧 default 自动清零。"""
+        """把 `name` 设为其 ServerApi 的 default;同 ServerApi 旧 default 自动清零。"""
         self._require_server("set_default_upstream")
         resp = await self.http.put(
             f"{self.base_url}/admin/upstreams/{name}/default",
@@ -210,13 +210,13 @@ class ProxyClient:
 
     def _data_url_and_headers(
         self,
-        fmt: Protocol,
+        server_api: ServerApi,
         *,
         override_api_key: str | None,
         upstream_header: str | None,
     ) -> tuple[str, dict[str, str]]:
         """按 mode 拼数据面 URL + header。"""
-        path = UPSTREAM_PATH[fmt]
+        path = SERVER_API_PATHS[server_api]
         if self.mode == "server":
             url = f"{self.base_url}{path}"
             headers: dict[str, str] = {"content-type": "application/json"}
@@ -233,7 +233,7 @@ class ProxyClient:
             raise RuntimeError("direct 模式不支持 upstream_header(DESIGN §8.6 互斥)")
         url = f"{self.base_url}{path}"
         headers = {"content-type": "application/json"}
-        if fmt is Protocol.MESSAGES:
+        if server_api is ServerApi.MESSAGES:
             headers["x-api-key"] = self._direct_api_key
             headers["anthropic-version"] = "2023-06-01"
         else:
@@ -242,7 +242,7 @@ class ProxyClient:
 
     async def post_chat(
         self,
-        fmt: Protocol,
+        server_api: ServerApi,
         body: dict[str, Any],
         *,
         override_api_key: str | None = None,
@@ -250,14 +250,14 @@ class ProxyClient:
     ) -> httpx.Response:
         """非流式数据面 POST;调用方拿到 Response 自己 `.json()`。"""
         url, headers = self._data_url_and_headers(
-            fmt, override_api_key=override_api_key, upstream_header=upstream_header
+            server_api, override_api_key=override_api_key, upstream_header=upstream_header
         )
         return await self.http.post(url, json=body, headers=headers)
 
     @asynccontextmanager
     async def stream_chat(
         self,
-        fmt: Protocol,
+        server_api: ServerApi,
         body: dict[str, Any],
         *,
         override_api_key: str | None = None,
@@ -265,7 +265,7 @@ class ProxyClient:
     ) -> AsyncIterator[httpx.Response]:
         """流式数据面 POST;返回 async context,`resp.aiter_bytes()` 读流。"""
         url, headers = self._data_url_and_headers(
-            fmt, override_api_key=override_api_key, upstream_header=upstream_header
+            server_api, override_api_key=override_api_key, upstream_header=upstream_header
         )
         req = self.http.build_request("POST", url, json=body, headers=headers)
         resp = await self.http.send(req, stream=True)
@@ -275,8 +275,8 @@ class ProxyClient:
             await resp.aclose()
 
     @property
-    def direct_format(self) -> Protocol | None:
-        return self._direct_format
+    def direct_server_api(self) -> ServerApi | None:
+        return self._direct_server_api
 
     @property
     def direct_model(self) -> str | None:

@@ -103,7 +103,7 @@ async def test_list_upstreams(echo_client: tuple[ProxyClient, dict[str, Any]]) -
             {
                 "id": "some-id",
                 "name": "ant",
-                "protocol": "messages",
+                "native_api": "messages",
                 "provider": "anthropic",
                 "base_url": "https://api.anthropic.com",
                 "enabled": True,
@@ -127,7 +127,7 @@ async def test_create_upstream(echo_client: tuple[ProxyClient, dict[str, Any]]) 
         json={
             "id": "new-id",
             "name": "ant-new",
-            "protocol": "messages",
+            "native_api": "messages",
             "provider": "anthropic",
             "base_url": "https://api.anthropic.com",
             "enabled": True,
@@ -138,7 +138,7 @@ async def test_create_upstream(echo_client: tuple[ProxyClient, dict[str, Any]]) 
     )
     payload = UpstreamCreate(
         name="ant-new",
-        protocol="messages",
+        native_api="messages",
         provider="anthropic",
         api_key="sk-xxx",
         base_url="https://api.anthropic.com",
@@ -182,7 +182,7 @@ async def test_update_upstream(echo_client: tuple[ProxyClient, dict[str, Any]]) 
         json={
             "id": "p1-id",
             "name": "renamed",
-            "protocol": "messages",
+            "native_api": "messages",
             "provider": "anthropic",
             "base_url": "https://api.anthropic.com",
             "enabled": True,
@@ -213,7 +213,7 @@ async def test_set_default_upstream(
         json={
             "id": "p1-id",
             "name": "p1",
-            "protocol": "messages",
+            "native_api": "messages",
             "provider": "anthropic",
             "base_url": "https://api.anthropic.com",
             "enabled": True,
