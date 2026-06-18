@@ -3,8 +3,8 @@
 两种连接模式
 ------------
 - server 模式(默认):通过本地 rosetta-server 转发;`--upstream` 指定上游,
-  未给则不传 `x-rosetta-upstream` header,server 按入口 protocol 选 default upstream
-  (DESIGN §8.4 fallback);该 protocol 没有 default 时 server 返 400,提示去
+  未给则不传 `x-rosetta-upstream` header,server 按入口 server_api 选 default upstream
+  (DESIGN §8.4 fallback);该 server_api 没有 default 时 server 返 400,提示去
   `rosetta upstream set-default <name>` 设一个。
   `--model` 同样可选,留空时不发 `body.model`,server forwarder 用 `upstream.model`
   兜底(与 `--api-key` 行为对称)。
@@ -24,7 +24,7 @@ import typer
 from rosetta.cli.core.context import ChatContext
 from rosetta.cli.core.render import Renderer
 from rosetta.sdk.client import ProxyClient
-from rosetta.shared.protocols import Protocol
+from rosetta.shared.server_api import ServerApi
 
 
 def chat_cmd(
@@ -32,14 +32,21 @@ def chat_cmd(
         str | None,
         typer.Argument(help="要发送的消息;省略进入 REPL"),
     ] = None,
-    protocol: Annotated[
-        str, typer.Option("--protocol", help="messages | completions | responses")
+    server_api_value: Annotated[
+        str,
+        typer.Option(
+            "--server-api",
+            help=(
+                "server_api: messages(/v1/messages) | "
+                "completions(/v1/chat/completions) | responses(/v1/responses)"
+            ),
+        ),
     ] = "messages",
     upstream: Annotated[
         str | None,
         typer.Option(
             "--upstream",
-            help="server 模式 upstream 名;未给则取 protocol 的 default;--base-url 给时失效",
+            help="server 模式 upstream 名;未给则取 server_api 的 default;--base-url 给时失效",
         ),
     ] = None,
     base_url: Annotated[
@@ -65,9 +72,11 @@ def chat_cmd(
     ] = 1024,
 ) -> None:
     try:
-        fmt = Protocol(protocol)
+        server_api = ServerApi(server_api_value)
     except ValueError:
-        Renderer.die(f"--protocol 必须是 messages/completions/responses,收到 {protocol!r}")
+        Renderer.die(
+            f"--server-api 必须是 messages/completions/responses,收到 {server_api_value!r}"
+        )
         return
 
     if base_url is not None:
@@ -86,14 +95,14 @@ def chat_cmd(
         effective_upstream: str | None = None
     else:
         # server 模式:--upstream / --model 都不缺省;None 让 server 走 fallback
-        # (--upstream 走 protocol default;--model 走 upstream.model)
+        # (--upstream 走 server_api default;--model 走 upstream.model)
         effective_upstream = upstream
         effective_model = model
 
     asyncio.run(
         _run(
             text=text,
-            fmt=fmt,
+            server_api=server_api,
             model=effective_model,
             upstream=effective_upstream,
             api_key=api_key,
@@ -106,7 +115,7 @@ def chat_cmd(
 @asynccontextmanager
 async def _session(
     *,
-    fmt: Protocol,
+    server_api: ServerApi,
     model: str | None,
     api_key: str | None,
     base_url: str | None,
@@ -119,7 +128,7 @@ async def _session(
         async with ProxyClient.direct_session(
             base_url=base_url,
             api_key=api_key,
-            format=fmt,
+            server_api=server_api,
             model=model,
         ) as client:
             yield client
@@ -131,7 +140,7 @@ async def _session(
 async def _run(
     *,
     text: str | None,
-    fmt: Protocol,
+    server_api: ServerApi,
     model: str | None,
     upstream: str | None,
     api_key: str | None,
@@ -139,10 +148,12 @@ async def _run(
     max_tokens: int,
 ) -> None:
     try:
-        async with _session(fmt=fmt, model=model, api_key=api_key, base_url=base_url) as client:
+        async with _session(
+            server_api=server_api, model=model, api_key=api_key, base_url=base_url
+        ) as client:
             ctx = ChatContext(
                 client=client,
-                fmt=fmt,
+                server_api=server_api,
                 model=model,
                 upstream=upstream,
                 api_key=api_key,

@@ -74,14 +74,14 @@ def test_unknown_subcommand_fails() -> None:
 
 
 def test_upstream_add_missing_required() -> None:
-    """upstream add 缺 --name / --protocol / --api-key 必须报参数错,不发请求。"""
+    """upstream add 缺 --name / --base-url 必须报参数错,不发请求。"""
     result = runner.invoke(app, ["upstream", "add"])
     assert result.exit_code != 0
 
 
-def test_chat_invalid_protocol_fails() -> None:
-    """--protocol 必须是 messages/completions/responses;其它值在 argparse 前就报错。"""
-    result = runner.invoke(app, ["chat", "--protocol", "bogus", "hi"])
+def test_chat_invalid_server_api_fails() -> None:
+    """--server-api 必须是 messages/completions/responses;其它值在命令入口报错。"""
+    result = runner.invoke(app, ["chat", "--server-api", "bogus", "hi"])
     assert result.exit_code != 0
 
 
@@ -103,7 +103,7 @@ def test_quiet_flag_sets_renderer_state() -> None:
 
     Renderer.QUIET = False  # 保险丝
     # 用一个必然失败的子命令快速走完 callback + 子命令参数校验(不触 server)
-    runner.invoke(app, ["--quiet", "chat", "--protocol", "bogus", "hi"])
+    runner.invoke(app, ["--quiet", "chat", "--server-api", "bogus", "hi"])
     assert Renderer.QUIET is True
     Renderer.QUIET = False  # 复位,避免污染后续 test
 
@@ -112,6 +112,6 @@ def test_short_quiet_flag() -> None:
     from rosetta.cli.core.render import Renderer
 
     Renderer.QUIET = False
-    runner.invoke(app, ["-q", "chat", "--protocol", "bogus", "hi"])
+    runner.invoke(app, ["-q", "chat", "--server-api", "bogus", "hi"])
     assert Renderer.QUIET is True
     Renderer.QUIET = False

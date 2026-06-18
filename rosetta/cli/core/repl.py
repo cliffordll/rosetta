@@ -4,17 +4,17 @@
 - 读用户输入(`input()`)
 - `/` 开头分派 slash 命令,否则作为新一轮 user message
 - 每轮调 `ctx.run_turn()` 流式打印 assistant + meta 行
-- slash 命令:`/exit`(`/quit` 别名) / `/reset` / `/model <name>` / `/format <m|c|r>` / `/help`
+- slash 命令:`/exit`(`/quit` 别名) / `/reset` / `/model <name>` / `/server_api <m|c|r>` / `/help`
 
 状态持有
 --------
-会话状态(fmt / model / upstream / api_key / max_tokens / messages)全部
+会话状态(server_api / model / upstream / api_key / max_tokens / messages)全部
 在 `ChatContext` 实例里。本类只负责"输入分派 + 打印"。
 
 格式切换安全性
 --------------
-v0.1 REPL 只存纯文本(`content: str`),切 format 时结构无损;未来引入 tool_use /
-thinking 等结构化块后,`/format` 切换需要丢弃这些块并警告(`DESIGN.md` §5.4)。
+v0.1 REPL 只存纯文本(`content: str`),切 server_api 时结构无损;未来引入 tool_use /
+thinking 等结构化块后,`/server_api` 切换需要丢弃这些块并警告(`DESIGN.md` §5.4)。
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from typing import ClassVar
 
 from rosetta.cli.core.context import ChatContext, ChatError
 from rosetta.cli.core.render import Renderer
-from rosetta.shared.protocols import Protocol
+from rosetta.shared.server_api import ServerApi
 
 
 @dataclass
@@ -41,7 +41,7 @@ class ChatRepl:
         "  /exit, /quit             退出 REPL\n"
         "  /reset                   清空对话历史\n"
         "  /model <name>            切换模型;空参数 = auto(走 upstream.model 兜底)\n"
-        "  /format messages|completions|responses  切换 API 格式\n"
+        "  /server_api messages|completions|responses  切换 API 格式\n"
         "  /help                    本说明"
     )
 
@@ -51,7 +51,7 @@ class ChatRepl:
         Ctrl+C / EOF / `/exit` / `/quit` 退出。
         """
         Renderer.out(
-            f"rosetta chat · format={self.ctx.fmt.value} · "
+            f"rosetta chat · server_api={self.ctx.server_api.value} · "
             f"model={self.ctx.model or 'auto'} · /help 查看命令"
         )
 
@@ -92,7 +92,7 @@ class ChatRepl:
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
             latency_ms=result.latency_ms,
-            path=self.ctx.fmt.value,
+            path=self.ctx.server_api.value,
         )
 
     def _handle_slash(self, line: str) -> bool:
@@ -123,14 +123,16 @@ class ChatRepl:
             Renderer.out(f"model → {self.ctx.model}")
             return False
 
-        if cmd == "/format":
+        if cmd == "/server_api":
             try:
-                new_fmt = Protocol(arg)
+                new_server_api = ServerApi(arg)
             except ValueError:
-                Renderer.error_bubble(f"format 必须是 messages/completions/responses,收到 {arg!r}")
+                Renderer.error_bubble(
+                    f"server_api 必须是 messages/completions/responses,收到 {arg!r}"
+                )
                 return False
-            self.ctx.set_fmt(new_fmt)
-            Renderer.out(f"format → {new_fmt.value}")
+            self.ctx.set_server_api(new_server_api)
+            Renderer.out(f"server_api → {new_server_api.value}")
             return False
 
         Renderer.error_bubble(f"未知命令 {cmd!r};/help 查看可用命令")

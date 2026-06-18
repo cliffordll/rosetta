@@ -36,5 +36,5 @@ class ChatOnce:
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
             latency_ms=result.latency_ms,
-            path=self.ctx.fmt.value,
+            path=self.ctx.server_api.value,
         )

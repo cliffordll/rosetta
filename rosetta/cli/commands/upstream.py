@@ -15,13 +15,14 @@ from rosetta.cli.core.render import Renderer
 from rosetta.sdk.client import ProxyClient
 from rosetta.server.controller.upstreams import (
     UpstreamCreate,
-    UpstreamProtocolCreatable,
+    UpstreamNativeApiCreatable,
     UpstreamUpdate,
 )
 from rosetta.server.database.models import UpstreamProvider
 
-_ALLOWED_PROTOCOLS = get_args(UpstreamProtocolCreatable)
+_ALLOWED_NATIVE_APIS = get_args(UpstreamNativeApiCreatable)
 _ALLOWED_PROVIDERS = get_args(UpstreamProvider)
+_NATIVE_API_ERR = "--native-api 必须是 messages/completions/responses"
 
 app = typer.Typer(
     help="upstream 管理",
@@ -48,12 +49,12 @@ async def _list() -> None:
         Renderer.out("no upstreams yet")
         return
     Renderer.table(
-        ["id", "name", "protocol", "provider", "model", "base_url", "enabled", "default"],
+        ["id", "name", "native_api", "provider", "model", "base_url", "enabled", "default"],
         [
             [
                 u.id,
                 u.name,
-                u.protocol,
+                u.native_api,
                 u.provider,
                 u.model or "-",
                 u.base_url,
@@ -69,9 +70,15 @@ async def _list() -> None:
 def add_cmd(
     name: Annotated[str, typer.Option("--name", help="upstream 名")],
     base_url: Annotated[str, typer.Option("--base-url", help="上游根地址(必填)")],
-    protocol: Annotated[
+    native_api: Annotated[
         str,
-        typer.Option("--protocol", help="messages | completions | responses(默认 messages)"),
+        typer.Option(
+            "--native-api",
+            help=(
+                "upstream native API: messages(/v1/messages) | "
+                "completions(/v1/chat/completions) | responses(/v1/responses)"
+            ),
+        ),
     ] = "messages",
     api_key: Annotated[str | None, typer.Option("--api-key", help="上游 api key(可选)")] = None,
     model: Annotated[
@@ -90,15 +97,15 @@ def add_cmd(
     ] = "custom",
 ) -> None:
     """新增一个 upstream。"""
-    if protocol not in _ALLOWED_PROTOCOLS:
-        Renderer.die(f"--protocol 必须是 messages/completions/responses,收到 {protocol!r}")
+    if native_api not in _ALLOWED_NATIVE_APIS:
+        Renderer.die(f"{_NATIVE_API_ERR},收到 {native_api!r}")
         return
     if provider not in _ALLOWED_PROVIDERS:
         Renderer.die(f"--provider 必须是 {'/'.join(_ALLOWED_PROVIDERS)},收到 {provider!r}")
         return
     payload = UpstreamCreate(
         name=name,
-        protocol=protocol,  # type: ignore[arg-type]
+        native_api=native_api,  # type: ignore[arg-type]
         provider=provider,  # type: ignore[arg-type]
         api_key=api_key,
         model=model,
@@ -119,7 +126,7 @@ async def _create(payload: UpstreamCreate) -> None:
         return
     Renderer.out(
         f"upstream '{created.name}' created "
-        f"(id={created.id}, protocol={created.protocol}, enabled={created.enabled})"
+        f"(id={created.id}, native_api={created.native_api}, enabled={created.enabled})"
     )
 
 
@@ -128,9 +135,15 @@ def update_cmd(
     upstream_id: Annotated[str, typer.Argument(help="要更新的 upstream id")],
     name: Annotated[str | None, typer.Option("--name", help="新 name")] = None,
     base_url: Annotated[str | None, typer.Option("--base-url", help="新 base_url")] = None,
-    protocol: Annotated[
+    native_api: Annotated[
         str | None,
-        typer.Option("--protocol", help="新 protocol(改了且原行是 default 会自动清 default)"),
+        typer.Option(
+            "--native-api",
+            help=(
+                "新 upstream native API: messages(/v1/messages) | "
+                "completions(/v1/chat/completions) | responses(/v1/responses)"
+            ),
+        ),
     ] = None,
     provider: Annotated[str | None, typer.Option("--provider", help="新 provider")] = None,
     api_key: Annotated[
@@ -145,8 +158,8 @@ def update_cmd(
     ] = None,
 ) -> None:
     """部分更新 upstream;只改传入的字段。要清空 api_key / model 请走 GUI。"""
-    if protocol is not None and protocol not in _ALLOWED_PROTOCOLS:
-        Renderer.die(f"--protocol 必须是 messages/completions/responses,收到 {protocol!r}")
+    if native_api is not None and native_api not in _ALLOWED_NATIVE_APIS:
+        Renderer.die(f"{_NATIVE_API_ERR},收到 {native_api!r}")
         return
     if provider is not None and provider not in _ALLOWED_PROVIDERS:
         Renderer.die(f"--provider 必须是 {'/'.join(_ALLOWED_PROVIDERS)},收到 {provider!r}")
@@ -157,8 +170,8 @@ def update_cmd(
         fields["name"] = name
     if base_url is not None:
         fields["base_url"] = base_url
-    if protocol is not None:
-        fields["protocol"] = protocol
+    if native_api is not None:
+        fields["native_api"] = native_api
     if provider is not None:
         fields["provider"] = provider
     if api_key is not None:
@@ -187,7 +200,7 @@ async def _update(upstream_id: str, payload: UpstreamUpdate) -> None:
         return
     Renderer.out(
         f"upstream '{updated.name}' updated "
-        f"(id={updated.id}, protocol={updated.protocol}, model={updated.model or '-'})"
+        f"(id={updated.id}, native_api={updated.native_api}, model={updated.model or '-'})"
     )
 
 
@@ -212,9 +225,9 @@ async def _remove(upstream_id: str) -> None:
 
 @app.command("set-default")
 def set_default_cmd(
-    name: Annotated[str, typer.Argument(help="要设为该协议默认的 upstream name")],
+    name: Annotated[str, typer.Argument(help="要设为该 native API 默认的 upstream name")],
 ) -> None:
-    """把 upstream 设为其 protocol 的默认上游(`x-rosetta-upstream` header 缺失时回退用)。"""
+    """把 upstream 设为其 native API 的默认上游(`x-rosetta-upstream` header 缺失时回退用)。"""
     asyncio.run(_set_default(name))
 
 
@@ -228,7 +241,7 @@ async def _set_default(name: str) -> None:
     except RuntimeError as e:
         Renderer.die(f"server 未就绪: {e}")
         return
-    Renderer.out(f"upstream '{updated.name}' is now default for protocol={updated.protocol}")
+    Renderer.out(f"upstream '{updated.name}' is now default for native_api={updated.native_api}")
 
 
 @app.command("restore-mock")
