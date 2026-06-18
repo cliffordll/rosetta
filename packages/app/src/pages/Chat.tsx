@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, ServerApi, api, serverApiLabel, type UpstreamOut } from "@/lib/api";
+import { changeServerApiSelection, initialUpstreamChoice } from "@/lib/chat-selection";
 import { ChatError, runTurn, type ChatTurnMsg } from "@/lib/chat";
 
 const NO_UPSTREAM_SELECTED = "__none__";
@@ -51,7 +52,6 @@ export default function Chat() {
   // v0 不再硬编码 client 端"默认模型推荐";placeholder 显示 upstream.model 提示
   const [model, setModel] = useState<string>("");
   const [upstreamChoice, setUpstreamChoice] = useState<string>(NO_UPSTREAM_SELECTED);
-  const [showAllUpstreams, setShowAllUpstreams] = useState(false);
 
   const [upstreams, setUpstreams] = useState<UpstreamOut[]>([]);
   const [upstreamsErr, setUpstreamsErr] = useState<string | null>(null);
@@ -67,8 +67,7 @@ export default function Chat() {
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  // mount-only 拉取 upstreams 列表;切 server_api 时的预选由 onServerApiChange 接手,
-  // 避免重新 fetch 覆盖用户已经手选的 upstreamChoice
+  // mount-only 拉取 upstreams 列表,避免重新 fetch 覆盖用户已经手选的 upstreamChoice
   useEffect(() => {
     (async () => {
       try {
@@ -76,37 +75,26 @@ export default function Chat() {
         // 后端按 created_at 升序返回;UI 倒序让最新创建的排在最前
         const sorted = [...list].reverse();
         setUpstreams(sorted);
-        // 优先选当前 server_api(初始 MESSAGES)的 default(enabled);没有则
-        // 保留 NO_UPSTREAM_SELECTED(用户可手选,或不选直接发让 server fallback)
-        const dft = sorted.find(
-          (u) => u.native_api === ServerApi.MESSAGES && u.is_default && u.enabled,
-        );
-        if (dft) {
-          setUpstreamChoice(String(dft.id));
-        }
+        // server_api 与 upstream 解耦:按列表顺序默认选择第一个启用项。
+        setUpstreamChoice(initialUpstreamChoice(sorted, NO_UPSTREAM_SELECTED));
       } catch (e) {
         setUpstreamsErr(extractErr(e));
       }
     })();
   }, []);
 
-  // 切 server_api:回到 auto + 重选当前 server_api 的 upstream。优先级:
-  //   default(若有) → 该 server_api 第一个 enabled → mock(any)→ NO_UPSTREAM_SELECTED
-  // 真正发请求时若 model 留空不带 body.model,由 forwarder 走 upstream.model
+  // server_api 和 upstream 独立选择;切 API 时保留当前 upstream,只清空客户端 model override。
   const onServerApiChange = useCallback(
     (next: ServerApi) => {
-      setServerApi(next);
-      setModel("");
-      const matches = upstreams.filter(
-        (u) => (u.native_api === next || u.native_api === "any") && u.enabled,
+      const selection = changeServerApiSelection(
+        { serverApi, upstreamChoice, model },
+        next,
       );
-      const dft = matches.find((u) => u.native_api === next && u.is_default);
-      const first =
-        matches.find((u) => u.native_api === next) ?? matches.find((u) => u.native_api === "any");
-      const picked = dft ?? first ?? null;
-      setUpstreamChoice(picked ? String(picked.id) : NO_UPSTREAM_SELECTED);
+      setServerApi(selection.serverApi);
+      setUpstreamChoice(selection.upstreamChoice);
+      setModel(selection.model);
     },
-    [upstreams],
+    [model, serverApi, upstreamChoice],
   );
 
   // 当前 server_api 是否在 server 端配了 default(用于"未选 upstream 仍可发送"的判断)
@@ -130,16 +118,6 @@ export default function Chat() {
     for (const u of upstreams) map.set(u.id, u);
     return map;
   }, [upstreams]);
-
-  // 默认只显示当前 server_api 匹配 + any 的 upstream(mock 跨格式接受)。
-  // showAllUpstreams 打开后显示全部,用于显式验证跨 API 类型 IR 翻译路径。
-  const filteredUpstreams = useMemo(
-    () =>
-      showAllUpstreams
-        ? upstreams
-        : upstreams.filter((u) => u.native_api === serverApi || u.native_api === "any"),
-    [upstreams, serverApi, showAllUpstreams],
-  );
 
   const resolvedUpstream = useMemo<UpstreamOut | null>(() => {
     if (upstreamChoice === NO_UPSTREAM_SELECTED) return null;
@@ -346,20 +324,9 @@ export default function Chat() {
         </div>
 
         <div>
-          <div className="mb-1 flex items-center justify-between gap-3">
-            <Label className="block text-xs uppercase tracking-wide text-muted-foreground">
-              Upstream
-            </Label>
-            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={showAllUpstreams}
-                onChange={(e) => setShowAllUpstreams(e.target.checked)}
-                className="h-3.5 w-3.5"
-              />
-              show all
-            </label>
-          </div>
+          <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
+            Upstream
+          </Label>
           <Select value={upstreamChoice} onValueChange={setUpstreamChoice}>
             <SelectTrigger>
               <SelectValue placeholder="请选择 upstream" />
@@ -371,7 +338,7 @@ export default function Chat() {
               sideOffset={4}
               avoidCollisions={false}
             >
-              {filteredUpstreams.map((u) => (
+              {upstreams.map((u) => (
                 <SelectItem key={u.id} value={String(u.id)}>
                   {formatUpstreamLabel(u)}
                 </SelectItem>
@@ -392,14 +359,6 @@ export default function Chat() {
             hasDefaultForServerApi && (
               <p className="mt-1 text-xs text-muted-foreground">
                 未选 upstream → 走 server_api={serverApi} 的 default(server 端 fallback)。
-              </p>
-            )}
-          {!upstreamsErr &&
-            upstreams.length > 0 &&
-            !resolvedUpstream &&
-            !hasDefaultForServerApi && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                server_api={serverApi} 无 default upstream;选一行,或去 Upstreams 页"Set default"。
               </p>
             )}
         </div>
