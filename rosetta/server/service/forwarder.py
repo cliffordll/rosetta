@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 import time
 from collections.abc import AsyncIterator
 from typing import Any, cast
@@ -104,21 +103,6 @@ class Forwarder:
                 "anthropic-version": "2023-06-01",
             }
         return {"authorization": f"Bearer {key}"}
-
-    @staticmethod
-    def _debug_log_upstream_key(headers: dict[str, str]) -> None:
-        """TODO(阶段 3.2 验证通过后删):打印发给上游的 key 前 10 字符。
-
-        用途:人肉验证"客户端带 key → 透传 / 不带 → DB fallback"两条分支的实际走向。
-        本函数写到 stderr 而非 logger,等阶段 4 logger 落地后再决定是否保留到 debug 级别。
-        """
-        key = headers.get("x-api-key")
-        if not key:
-            auth = headers.get("authorization", "")
-            if auth.lower().startswith("bearer "):
-                key = auth[7:].strip()
-        if key:
-            print(f"[rosetta.debug] upstream key prefix = {key[:10]}...", file=sys.stderr)
 
     @staticmethod
     def _with_extra_headers(resp: Response, extra: dict[str, str] | None) -> Response:
@@ -267,7 +251,6 @@ class Forwarder:
             "content-type": "application/json",
             **self._auth_headers(upstream, override_key=client_api_key),
         }
-        self._debug_log_upstream_key(headers)
 
         _log.debug(
             "forward: source=%s target=%s stream=%s",

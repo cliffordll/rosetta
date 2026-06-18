@@ -18,10 +18,11 @@
 
 ## 当前状态
 
-**pre-v0 · 设计评审中,未开始编码**。
+**v0.2.3 · 核心链路已实现,持续打磨中**。
 
-- 架构已定稿:见 [`docs/DESIGN.md`](./docs/DESIGN.md)
-- 分阶段实施清单:[`docs/FEATURE.md`](./docs/FEATURE.md)(v0 共 8 阶段 30 步 · heading emoji 标进度,预估 13-20 人日)
+- 已落地:FastAPI 数据面 / 管理面、三协议 IR 翻译、CLI/SDK、React 管理台、Tauri 桌面壳、PyInstaller 打包脚本
+- 架构真源:见 [`docs/DESIGN.md`](./docs/DESIGN.md)
+- 分阶段实施清单:[`docs/FEATURE.md`](./docs/FEATURE.md)
 
 ---
 
@@ -59,11 +60,29 @@
 
 ## 开发
 
-> 代码尚未开始编写。下列命令是 v0 目标形态,阶段 0-1 落地后生效。
-
 ```bash
 # 装依赖
 uv sync
+
+# 开发测试环境启动(推荐开多个终端)
+
+# 终端 1:启动本地 server(写入 ~/.rosetta/endpoint.json)
+uv run python -m rosetta.server
+
+# 终端 2:启动 Web 管理台(Vite 会动态代理 /admin 和 /v1 到本地 server)
+cd packages/app
+bun install
+bun run dev
+
+# 终端 3:用 mock upstream 做最小链路自测
+uv run rosetta upstream restore-mock
+uv run rosetta chat --upstream mock "hello"
+
+# 桌面壳开发模式(需要先准备 Tauri sidecar)
+uv run --group build python scripts/build.py --target server --sync-sidecar
+cd packages/desktop
+bun install
+bun run dev
 
 # 起 server(默认 127.0.0.1 + 系统分配端口,客户端从 endpoint.json 发现)
 uv run python -m rosetta.server

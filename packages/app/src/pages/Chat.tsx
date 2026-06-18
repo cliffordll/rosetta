@@ -51,6 +51,7 @@ export default function Chat() {
   // v0 不再硬编码 client 端"默认模型推荐";placeholder 显示 upstream.model 提示
   const [model, setModel] = useState<string>("");
   const [upstreamChoice, setUpstreamChoice] = useState<string>(NO_UPSTREAM_SELECTED);
+  const [showAllUpstreams, setShowAllUpstreams] = useState(false);
 
   const [upstreams, setUpstreams] = useState<UpstreamOut[]>([]);
   const [upstreamsErr, setUpstreamsErr] = useState<string | null>(null);
@@ -130,12 +131,14 @@ export default function Chat() {
     return map;
   }, [upstreams]);
 
-  // 下拉只显示当前 protocol 匹配 + protocol="any" 的 upstream(mock 跨协议接受)。
-  // server 仍支持跨协议 IR 翻译,但 Chat UX 上按 protocol 过滤更直觉,避免误选
+  // 默认只显示当前 protocol 匹配 + protocol="any" 的 upstream(mock 跨协议接受)。
+  // showAllUpstreams 打开后显示全部,用于显式验证跨协议 IR 翻译路径。
   const filteredUpstreams = useMemo(
     () =>
-      upstreams.filter((u) => u.protocol === protocol || u.protocol === "any"),
-    [upstreams, protocol],
+      showAllUpstreams
+        ? upstreams
+        : upstreams.filter((u) => u.protocol === protocol || u.protocol === "any"),
+    [upstreams, protocol, showAllUpstreams],
   );
 
   const resolvedUpstream = useMemo<UpstreamOut | null>(() => {
@@ -337,9 +340,20 @@ export default function Chat() {
         </div>
 
         <div>
-          <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
-            Upstream
-          </Label>
+          <div className="mb-1 flex items-center justify-between gap-3">
+            <Label className="block text-xs uppercase tracking-wide text-muted-foreground">
+              Upstream
+            </Label>
+            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={showAllUpstreams}
+                onChange={(e) => setShowAllUpstreams(e.target.checked)}
+                className="h-3.5 w-3.5"
+              />
+              show all
+            </label>
+          </div>
           <Select value={upstreamChoice} onValueChange={setUpstreamChoice}>
             <SelectTrigger>
               <SelectValue placeholder="请选择 upstream" />

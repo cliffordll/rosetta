@@ -177,6 +177,27 @@ async def test_client_api_key_overrides_db(mock_client: dict[str, Any]) -> None:
     assert req.headers["x-api-key"] == "sk-CLIENT-override"
 
 
+async def test_client_api_key_override_does_not_log_key_prefix(
+    mock_client: dict[str, Any],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """透传客户端 key 时不应向 stderr 打印 key 前缀。"""
+    mock_client["handler"] = lambda req: httpx.Response(200, json={})
+
+    body = json.dumps({"model": "claude-haiku-4-5"}).encode("utf-8")
+    await forwarder.forward(
+        upstream=_anthropic_upstream(api_key="sk-DB-value"),
+        request_protocol=Protocol.MESSAGES,
+        body=body,
+        content_type="application/json",
+        client_api_key="sk-CLIENT-override",
+    )
+
+    captured = capsys.readouterr()
+    assert "rosetta.debug" not in captured.err
+    assert "sk-CLIENT" not in captured.err
+
+
 async def test_client_none_falls_back_to_db(mock_client: dict[str, Any]) -> None:
     mock_client["handler"] = lambda req: httpx.Response(200, json={})
 
