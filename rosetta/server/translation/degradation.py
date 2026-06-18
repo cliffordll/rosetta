@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, cast
 
-from rosetta.shared.protocols import Protocol
+from rosetta.shared.server_api import ServerApi
 
 
 class StatefulNotTranslatableError(ValueError):
@@ -53,15 +53,13 @@ _KNOWN_BUILTIN_TOOL_TYPES = frozenset(
 )
 
 
-def degrade_responses_request(
-    body: dict[str, Any], *, target_protocol: Protocol
-) -> DegradationResult:
+def degrade_responses_request(body: dict[str, Any], *, target_api: ServerApi) -> DegradationResult:
     """对 Responses 请求 body 做降级。
 
-    - 若 `target_protocol is Protocol.RESPONSES`:不降级,原样返回(仍剥 warning 标记为空)
+    - 若 `target_api is ServerApi.RESPONSES`:不降级,原样返回(仍剥 warning 标记为空)
     - 否则按规则剥除 / 抛错
     """
-    if target_protocol is Protocol.RESPONSES:
+    if target_api is ServerApi.RESPONSES:
         return DegradationResult(body=body, warnings=[])
 
     new_body = dict(body)

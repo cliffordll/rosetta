@@ -6,7 +6,7 @@
   取 session_maker 按需开 session。与 `count_upstreams` 同套路
 - 失败兜底:写 log 出任何异常都不向上冒(主请求已经完成),只 `logger.warning`
   —— DB 坏了不能把业务路径也拖垮
-- model 提取惯例:非 responses 协议看 body_dict["model"];responses 同上
+- model 提取惯例:非 responses 看 body_dict["model"];responses 同上
 - 不做采样 / 批量,单机场景下 SQLite INSERT 成本可接受(~ms 级)
 
 用法

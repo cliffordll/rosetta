@@ -2,14 +2,14 @@
 
 与 `migrations/*.sql` 字段对齐;SQL 是 schema 真源,ORM 镜像它。
 
-`Upstream.protocol` 对齐 `rosetta.shared.protocols.Protocol` 枚举值:
-`messages` / `completions` / `responses`,与 CLI `--protocol` / HTTP path 四层一致。
-额外有一个特殊值 `any`,专供 mock 上游占位 —— 表示"协议不适用"(mock 不发 HTTP,
-也不走 adapter 的 upstream_protocol 分支);用户不可通过管理 API / CLI 创建 `any`
+`Upstream.native_api` 对齐内置 API 类型枚举值:
+`messages` / `completions` / `responses`,与 upstream 原生 HTTP path 一致。
+额外有一个特殊值 `any`,专供 mock 上游占位 —— 表示"API 类型不适用"(mock 不发 HTTP,
+也不走 adapter 的 upstream native API 分支);用户不可通过管理 API / CLI 创建 `any`
 的 upstream,只由 DB seed / `restore_mock` 写入。
 
 `Upstream.provider` 表达厂商身份(anthropic / openai / openrouter / google /
-ollama / vllm / custom / mock),默认 `custom`。protocol 和 provider 正交:
+ollama / vllm / custom / mock),默认 `custom`。native_api 和 provider 正交:
 OpenRouter 既可能暴露 `messages` 也可能暴露 `completions`,靠两字段独立描述。
 `mock` 是内置的假上游(DB seed 一条 name=mock 的记录),forwarder 检测到后
 短路掉 HTTP,本地生成 echo 响应供开发 / 演示。
@@ -26,7 +26,7 @@ from uuid import uuid4
 from sqlalchemy import ForeignKey, Index
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-UpstreamProtocol = Literal["messages", "completions", "responses", "any"]
+UpstreamNativeApi = Literal["messages", "completions", "responses", "any"]
 UpstreamProvider = Literal[
     "anthropic",
     "openai",
@@ -54,13 +54,22 @@ class Upstream(Base):
 
     id: Mapped[str] = mapped_column(primary_key=True, default=_new_id)
     name: Mapped[str] = mapped_column(unique=True)
-    protocol: Mapped[str]
+    native_api: Mapped[str]
     provider: Mapped[str] = mapped_column(default="custom")
     base_url: Mapped[str]
     api_key: Mapped[str | None] = mapped_column(default=None)
     model: Mapped[str | None] = mapped_column(default=None)
     enabled: Mapped[bool] = mapped_column(default=True)
     is_default: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
+class ApiType(Base):
+    __tablename__ = "api_types"
+
+    name: Mapped[str] = mapped_column(primary_key=True)
+    path: Mapped[str] = mapped_column(unique=True)
+    enabled: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
 
 

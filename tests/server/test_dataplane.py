@@ -3,8 +3,8 @@
 用 `httpx.MockTransport` 直接拦截 httpx 请求,不启真实 HTTP server;
 覆盖:
 - 同格式直通(messages/completions/responses)的 URL 组装 + header
-- upstream.protocol=messages:鉴权头用 `x-api-key` + `anthropic-version`
-- upstream.protocol=completions / responses:`Authorization: Bearer`
+- upstream.native_api=messages:鉴权头用 `x-api-key` + `anthropic-version`
+- upstream.native_api=completions / responses:`Authorization: Bearer`
 - client_api_key 透传 vs upstream.api_key 兜底
 - 跨格式翻译(messages → completions)的请求 / 响应都被翻译
 - extra_response_headers(x-rosetta-warnings)注入响应
@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from rosetta.server.database.models import LogEntry, Upstream
 from rosetta.server.service.forwarder import forwarder
-from rosetta.shared.protocols import Protocol
+from rosetta.shared.server_api import ServerApi
 
 RequestHandler = Callable[[httpx.Request], httpx.Response]
 
@@ -60,7 +60,7 @@ def _anthropic_upstream(**overrides: Any) -> Upstream:
     base = {
         "id": "ant-fixed-id",
         "name": "ant",
-        "protocol": "messages",
+        "native_api": "messages",
         "provider": "anthropic",
         "api_key": "sk-ant-dbkey",
         "base_url": "https://api.anthropic.com",
@@ -75,7 +75,7 @@ def _openai_upstream(**overrides: Any) -> Upstream:
     base = {
         "id": "oai-fixed-id",
         "name": "oai",
-        "protocol": "completions",
+        "native_api": "completions",
         "provider": "openai",
         "api_key": "sk-oai-dbkey",
         "base_url": "https://api.openai.com",
@@ -108,7 +108,7 @@ async def test_anthropic_passthrough_url_and_headers(
     body = json.dumps({"model": "claude-haiku-4-5", "messages": []}).encode("utf-8")
     resp = await forwarder.forward(
         upstream=_anthropic_upstream(),
-        request_protocol=Protocol.MESSAGES,
+        server_api=ServerApi.MESSAGES,
         body=body,
         content_type="application/json",
     )
@@ -120,6 +120,34 @@ async def test_anthropic_passthrough_url_and_headers(
     assert req.headers["x-api-key"] == "sk-ant-dbkey"
     assert req.headers["anthropic-version"] == "2023-06-01"
     assert "authorization" not in req.headers
+
+
+async def test_forwarder_uses_api_type_path_mapping(
+    mock_client: dict[str, Any],
+) -> None:
+    mock_client["handler"] = lambda req: httpx.Response(
+        200,
+        json={
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-haiku-4-5",
+            "content": [{"type": "text", "text": "hi"}],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 5, "output_tokens": 2},
+        },
+    )
+
+    body = json.dumps({"model": "claude-haiku-4-5", "messages": []}).encode("utf-8")
+    resp = await forwarder.forward(
+        upstream=_anthropic_upstream(),
+        server_api=ServerApi.MESSAGES,
+        api_type_paths={"messages": "/custom/messages"},
+        body=body,
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+    assert mock_client["request"].url.path == "/custom/messages"
 
 
 async def test_openai_passthrough_url_and_headers(
@@ -146,7 +174,7 @@ async def test_openai_passthrough_url_and_headers(
     body = json.dumps({"model": "gpt-4o-mini", "messages": []}).encode("utf-8")
     resp = await forwarder.forward(
         upstream=_openai_upstream(),
-        request_protocol=Protocol.CHAT_COMPLETIONS,
+        server_api=ServerApi.CHAT_COMPLETIONS,
         body=body,
         content_type="application/json",
     )
@@ -168,7 +196,7 @@ async def test_client_api_key_overrides_db(mock_client: dict[str, Any]) -> None:
     body = json.dumps({"model": "claude-haiku-4-5"}).encode("utf-8")
     await forwarder.forward(
         upstream=_anthropic_upstream(api_key="sk-DB-value"),
-        request_protocol=Protocol.MESSAGES,
+        server_api=ServerApi.MESSAGES,
         body=body,
         content_type="application/json",
         client_api_key="sk-CLIENT-override",
@@ -187,7 +215,7 @@ async def test_client_api_key_override_does_not_log_key_prefix(
     body = json.dumps({"model": "claude-haiku-4-5"}).encode("utf-8")
     await forwarder.forward(
         upstream=_anthropic_upstream(api_key="sk-DB-value"),
-        request_protocol=Protocol.MESSAGES,
+        server_api=ServerApi.MESSAGES,
         body=body,
         content_type="application/json",
         client_api_key="sk-CLIENT-override",
@@ -204,7 +232,7 @@ async def test_client_none_falls_back_to_db(mock_client: dict[str, Any]) -> None
     body = json.dumps({"model": "gpt-4o-mini"}).encode("utf-8")
     await forwarder.forward(
         upstream=_openai_upstream(api_key="sk-DB-bearer"),
-        request_protocol=Protocol.CHAT_COMPLETIONS,
+        server_api=ServerApi.CHAT_COMPLETIONS,
         body=body,
         content_type="application/json",
         client_api_key=None,
@@ -222,7 +250,7 @@ async def test_custom_base_url_used(mock_client: dict[str, Any]) -> None:
     body = json.dumps({"model": "claude-haiku-4-5"}).encode("utf-8")
     await forwarder.forward(
         upstream=_anthropic_upstream(base_url="http://127.0.0.1:8765/"),
-        request_protocol=Protocol.MESSAGES,
+        server_api=ServerApi.MESSAGES,
         body=body,
         content_type="application/json",
     )
@@ -239,7 +267,7 @@ async def test_cross_format_messages_to_completions(
 ) -> None:
     """messages 请求 + completions upstream → 请求翻成 completions,响应再翻回 messages。"""
 
-    # 上游按 completions 方言响应(因为 upstream.protocol=completions)
+    # 上游按 completions 方言响应(因为 upstream.native_api=completions)
     def _upstream(req: httpx.Request) -> httpx.Response:
         # 确认发上去的是 completions 形状
         body = json.loads(req.content)
@@ -280,7 +308,7 @@ async def test_cross_format_messages_to_completions(
     ).encode("utf-8")
     resp = await forwarder.forward(
         upstream=_openai_upstream(),
-        request_protocol=Protocol.MESSAGES,  # 客户端发的是 messages 格式
+        server_api=ServerApi.MESSAGES,  # 客户端发的是 messages 格式
         body=client_body,
         content_type="application/json",
     )
@@ -302,7 +330,7 @@ async def test_model_fallback_when_body_missing(mock_client: dict[str, Any]) -> 
     body = json.dumps({"messages": []}).encode("utf-8")
     await forwarder.forward(
         upstream=_anthropic_upstream(model="claude-haiku-4-5"),
-        request_protocol=Protocol.MESSAGES,
+        server_api=ServerApi.MESSAGES,
         body=body,
         content_type="application/json",
     )
@@ -317,7 +345,7 @@ async def test_model_fallback_when_body_empty_string(mock_client: dict[str, Any]
     body = json.dumps({"model": "", "messages": []}).encode("utf-8")
     await forwarder.forward(
         upstream=_anthropic_upstream(model="claude-sonnet-4-5"),
-        request_protocol=Protocol.MESSAGES,
+        server_api=ServerApi.MESSAGES,
         body=body,
         content_type="application/json",
     )
@@ -334,7 +362,7 @@ async def test_model_explicit_overrides_upstream_default(
     body = json.dumps({"model": "claude-opus-4-5", "messages": []}).encode("utf-8")
     await forwarder.forward(
         upstream=_anthropic_upstream(model="claude-haiku-4-5"),
-        request_protocol=Protocol.MESSAGES,
+        server_api=ServerApi.MESSAGES,
         body=body,
         content_type="application/json",
     )
@@ -351,7 +379,7 @@ async def test_model_no_fallback_when_upstream_has_no_model(
     body = json.dumps({"messages": []}).encode("utf-8")
     await forwarder.forward(
         upstream=_anthropic_upstream(model=None),
-        request_protocol=Protocol.MESSAGES,
+        server_api=ServerApi.MESSAGES,
         body=body,
         content_type="application/json",
     )
@@ -368,7 +396,7 @@ async def test_extra_response_headers_injected(mock_client: dict[str, Any]) -> N
     body = json.dumps({"model": "claude-haiku-4-5"}).encode("utf-8")
     resp = await forwarder.forward(
         upstream=_anthropic_upstream(),
-        request_protocol=Protocol.MESSAGES,
+        server_api=ServerApi.MESSAGES,
         body=body,
         content_type="application/json",
         extra_response_headers={"x-rosetta-warnings": "store_ignored"},
@@ -386,10 +414,23 @@ async def test_forward_without_open_raises() -> None:
     with pytest.raises(RuntimeError, match="httpx client 未初始化"):
         await forwarder.forward(
             upstream=_anthropic_upstream(),
-            request_protocol=Protocol.MESSAGES,
+            server_api=ServerApi.MESSAGES,
             body=body,
             content_type="application/json",
         )
+
+
+async def test_forwarder_open_disables_trust_env() -> None:
+    """上游转发 client 不读取系统代理环境,避免内网 upstream 被代理劫持。"""
+    from rosetta.server.service.forwarder import Forwarder
+
+    fwd = Forwarder()
+    try:
+        await fwd.open()
+        client = fwd._get_client()
+        assert client._trust_env is False  # pyright: ignore[reportPrivateUsage]
+    finally:
+        await fwd.close()
 
 
 # ---------- provider=mock 短路 ----------
@@ -399,7 +440,7 @@ def _mock_upstream() -> Upstream:
     return Upstream(
         id="m" * 32,
         name="mock",
-        protocol="any",  # mock 不发 HTTP,protocol 语义不适用
+        native_api="any",  # mock 不发 HTTP,ServerApi 语义不适用
         provider="mock",
         api_key=None,
         base_url="mock://",
@@ -490,7 +531,7 @@ async def test_mock_provider_messages_stream_echoes_user_text() -> None:
     ).encode("utf-8")
     resp = await forwarder.forward(
         upstream=_mock_upstream(),
-        request_protocol=Protocol.MESSAGES,
+        server_api=ServerApi.MESSAGES,
         body=body,
         content_type="application/json",
     )
@@ -502,7 +543,7 @@ async def test_mock_provider_messages_stream_echoes_user_text() -> None:
     assert "content_block_delta" in raw
     assert "message_delta" in raw
     assert "message_stop" in raw
-    # 拼回文本后断言 echo 前缀(含 protocol)+ 用户输入
+    # 拼回文本后断言 echo 前缀(含 ServerApi)+ 用户输入
     reply = _concat_messages_text(raw)
     assert reply.startswith("[mock:messages] echo:")
     assert "hello mock" in reply
@@ -521,7 +562,7 @@ async def test_mock_provider_completions_stream_has_usage_chunk() -> None:
     ).encode("utf-8")
     resp = await forwarder.forward(
         upstream=_mock_upstream(),
-        request_protocol=Protocol.CHAT_COMPLETIONS,
+        server_api=ServerApi.CHAT_COMPLETIONS,
         body=body,
         content_type="application/json",
     )
@@ -546,7 +587,7 @@ async def test_mock_provider_responses_stream_has_completed_usage() -> None:
     ).encode("utf-8")
     resp = await forwarder.forward(
         upstream=_mock_upstream(),
-        request_protocol=Protocol.RESPONSES,
+        server_api=ServerApi.RESPONSES,
         body=body,
         content_type="application/json",
     )
@@ -570,7 +611,7 @@ async def test_mock_provider_messages_non_stream_returns_json() -> None:
     ).encode("utf-8")
     resp = await forwarder.forward(
         upstream=_mock_upstream(),
-        request_protocol=Protocol.MESSAGES,
+        server_api=ServerApi.MESSAGES,
         body=body,
         content_type="application/json",
     )
@@ -591,7 +632,7 @@ async def test_mock_provider_bypasses_httpx_client() -> None:
     body = json.dumps({"model": "x", "max_tokens": 16, "messages": []}).encode("utf-8")
     resp = await forwarder.forward(
         upstream=_mock_upstream(),
-        request_protocol=Protocol.MESSAGES,
+        server_api=ServerApi.MESSAGES,
         body=body,
         content_type="application/json",
     )
@@ -607,7 +648,7 @@ async def test_forward_writes_log_on_success(session: AsyncSession) -> None:
     mock_up = Upstream(
         id="a" * 32,
         name="mock-log-ok",
-        protocol="any",
+        native_api="any",
         provider="mock",
         api_key=None,
         base_url="mock://",
@@ -625,7 +666,7 @@ async def test_forward_writes_log_on_success(session: AsyncSession) -> None:
     ).encode("utf-8")
     resp = await forwarder.forward(
         upstream=mock_up,
-        request_protocol=Protocol.MESSAGES,
+        server_api=ServerApi.MESSAGES,
         body=body,
         content_type="application/json",
         client_addr="127.0.0.1:54321",
@@ -655,7 +696,7 @@ async def test_forward_writes_log_on_service_error(session: AsyncSession) -> Non
     mock_up = Upstream(
         id="b" * 32,
         name="mock-log-err",
-        protocol="any",
+        native_api="any",
         provider="mock",
         api_key=None,
         base_url="mock://",
@@ -668,7 +709,7 @@ async def test_forward_writes_log_on_service_error(session: AsyncSession) -> Non
     with pytest.raises(ServiceError):
         await forwarder.forward(
             upstream=mock_up,
-            request_protocol=Protocol.MESSAGES,
+            server_api=ServerApi.MESSAGES,
             body=b"not-json",
             content_type="application/json",
         )

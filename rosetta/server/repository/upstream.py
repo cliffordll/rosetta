@@ -16,18 +16,18 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rosetta.server.database.models import Upstream
+from rosetta.server.database.models import ApiType, Upstream
 
 MOCK_UPSTREAM_FIELDS: dict[str, Any] = {
     "id": "0" * 32,
     "name": "mock",
-    "protocol": "any",  # mock 不发 HTTP,protocol 字段语义不适用
+    "native_api": "any",  # mock 不发 HTTP,native_api 字段语义不适用
     "provider": "mock",
     "base_url": "mock://",
     "api_key": None,
     "model": None,  # mock 路径不走 forwarder model fallback;client 自带
     "enabled": True,
-    "is_default": False,  # mock 不参与协议默认路由
+    "is_default": False,  # mock 不参与默认 upstream 路由
 }
 
 
@@ -52,11 +52,18 @@ class UpstreamRepo:
         result = await self.session.execute(select(func.count()).select_from(Upstream))
         return int(result.scalar_one())
 
+    async def api_type_paths(self) -> dict[str, str]:
+        """读取启用的 API 类型 name → path 映射,供 forwarder 拼上游 URL。"""
+        result = await self.session.execute(
+            select(ApiType).where(ApiType.enabled.is_(True)).order_by(ApiType.name)
+        )
+        return {api_type.name: api_type.path for api_type in result.scalars().all()}
+
     async def create(
         self,
         *,
         name: str,
-        protocol: str,
+        native_api: str,
         provider: str,
         base_url: str,
         api_key: str | None,
@@ -66,7 +73,7 @@ class UpstreamRepo:
         """创建 upstream;name 冲突时 rollback 并抛 `IntegrityError`(调用方转 409)。"""
         upstream = Upstream(
             name=name,
-            protocol=protocol,
+            native_api=native_api,
             provider=provider,
             base_url=base_url,
             api_key=api_key,
@@ -87,7 +94,7 @@ class UpstreamRepo:
         upstream_id: str,
         *,
         name: str | None = None,
-        protocol: str | None = None,
+        native_api: str | None = None,
         provider: str | None = None,
         base_url: str | None = None,
         api_key: str | None | EllipsisType = ...,
@@ -98,7 +105,7 @@ class UpstreamRepo:
 
         - id 不存在 → `LookupError`(调用方转 404)
         - name 冲突 → `IntegrityError`(调用方转 409)
-        - protocol 改了且原行 `is_default=True` → 自动清掉 is_default(原 protocol
+        - native_api 改了且原行 `is_default=True` → 自动清掉 is_default(原 native_api
           的 default 槽位空缺),避免"messages 的 default 突然变成 completions 的"
           这种隐式语义跳变;调用方应在 UI 提示用户重新 set-default
         - api_key / model 用 sentinel `...`(Ellipsis) 区分"传 None 显式清空"和
@@ -120,9 +127,9 @@ class UpstreamRepo:
             target.model = model
         if enabled is not None:
             target.enabled = enabled
-        if protocol is not None and protocol != target.protocol:
-            target.protocol = protocol
-            # 旧 protocol 的 default 槽位被该行占用过的话,改 protocol 后清掉
+        if native_api is not None and native_api != target.native_api:
+            target.native_api = native_api
+            # 旧 native_api 的 default 槽位被该行占用过的话,改 native_api 后清掉
             target.is_default = False
 
         try:
@@ -137,15 +144,15 @@ class UpstreamRepo:
         await self.session.delete(upstream)
         await self.session.commit()
 
-    async def get_default(self, protocol: str) -> Upstream | None:
-        """按 protocol 查 enabled 的 default upstream(没设 / 被禁 / 不存在 → None)。
+    async def get_default(self, native_api: str) -> Upstream | None:
+        """按 native_api 查 enabled 的 default upstream(没设 / 被禁 / 不存在 → None)。
 
-        DB 层有 partial unique index `(protocol) WHERE is_default=1` 兜底唯一,
+        DB 层有 partial unique index `(native_api) WHERE is_default=1` 兜底唯一,
         所以这里 `scalar_one_or_none()` 安全;命中行若 enabled=False,视为没 default。
         """
         result = await self.session.execute(
             select(Upstream).where(
-                Upstream.protocol == protocol,
+                Upstream.native_api == native_api,
                 Upstream.is_default.is_(True),
                 Upstream.enabled.is_(True),
             )
@@ -153,16 +160,16 @@ class UpstreamRepo:
         return result.scalar_one_or_none()
 
     async def set_default(self, name: str) -> Upstream:
-        """把 `name` 设为其 protocol 的 default;同 protocol 的旧 default 自动清零。
+        """把 `name` 设为其 native_api 的 default;同 native_api 的旧 default 自动清零。
 
         两步发 SQL(同事务):
-          1. UPDATE upstreams SET is_default=0 WHERE protocol=<target> AND id != <target.id>
+          1. UPDATE upstreams SET is_default=0 WHERE native_api=<target> AND id != <target.id>
           2. UPDATE upstreams SET is_default=1 WHERE id = <target.id>
         SQLite 默认 immediate 约束,partial unique index 在每条 statement 后检查,
         先清零再 set 不会瞬时冲突。
 
         - name 不存在 → `LookupError`(调用方转 404)
-        - mock 行(protocol='any')也允许设,但 selector 不会查 'any';无副作用
+        - mock 行(native_api='any')也允许设,但 selector 不会查 'any';无副作用
         """
         target = await self.get_by_name(name)
         if target is None:
@@ -170,7 +177,7 @@ class UpstreamRepo:
 
         await self.session.execute(
             update(Upstream)
-            .where(Upstream.protocol == target.protocol, Upstream.id != target.id)
+            .where(Upstream.native_api == target.native_api, Upstream.id != target.id)
             .values(is_default=False)
         )
         await self.session.execute(

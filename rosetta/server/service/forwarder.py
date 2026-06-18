@@ -3,15 +3,15 @@
 层次
 ----
 
-1. `Forwarder.forward()`:dataplane 入口,接收客户端 format + body + upstream + 流/非流标志
-2. 按 `upstream.protocol` 决定上游 format;若与客户端 format 一致 → 走 `_forward_passthrough_once`
-   / `_forward_passthrough_stream` 原样转发(兼容 1.3 路径,性能最优)
+1. `Forwarder.forward()`:dataplane 入口,接收客户端 server_api + body + upstream + 流/非流标志
+2. 按 `upstream.native_api` 决定上游 API 类型;若与客户端 server_api 一致
+   → 走 `_forward_passthrough_once` / `_forward_passthrough_stream` 原样转发
 3. 否则走翻译路径:
    - 非流:`_forward_translated_once` → dispatcher.translate_request → 上游 → translate_response
    - 流:`_forward_translated_stream` → 上游 SSE → translate_stream_bytes → 客户端
 
 `Forwarder` 实例由 app lifespan 管理(`open()` / `close()`),挂在 `app.state.forwarder`。
-auth header 按 upstream.protocol 分:`messages` 用 `x-api-key`,其余走 `Authorization: Bearer`。
+auth header 按 upstream.native_api 分:`messages` 用 `x-api-key`,其余走 `Authorization: Bearer`。
 """
 
 from __future__ import annotations
@@ -38,9 +38,9 @@ from rosetta.server.translation.dispatcher import (
     translate_response,
     translate_stream_bytes,
 )
-from rosetta.shared.protocols import (
-    UPSTREAM_PATH,
-    Protocol,
+from rosetta.shared.server_api import (
+    DEFAULT_SERVER_API_PATHS,
+    ServerApi,
 )
 
 _log = logging.getLogger("rosetta.server.forwarder")
@@ -60,7 +60,9 @@ class Forwarder:
         self._client: httpx.AsyncClient | None = None
 
     async def open(self) -> None:
-        self._client = httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT)
+        # rosetta 自己管理 upstream base_url;不读取系统代理配置,避免内网 upstream
+        # 被本机代理/网关误路由后返回空 502。
+        self._client = httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT, trust_env=False)
 
     async def close(self) -> None:
         if self._client is not None:
@@ -81,7 +83,7 @@ class Forwarder:
 
     @staticmethod
     def _auth_headers(upstream: Upstream, override_key: str | None = None) -> dict[str, str]:
-        """按 `upstream.protocol` 选上游鉴权头写法;`override_key` 非空则覆盖 DB 的 `api_key`。
+        """按 `upstream.native_api` 选上游鉴权头写法;`override_key` 非空则覆盖 DB 的 `api_key`。
 
         DESIGN §8.1 约定:客户端请求若带 `x-api-key` / `Authorization: Bearer`,
         server 把这把 key 透传给上游(**不做** rosetta-level 的鉴权),不带才 fallback
@@ -97,7 +99,7 @@ class Forwarder:
                     "且客户端请求也未带 x-api-key / Authorization 头"
                 ),
             )
-        if upstream.protocol == "messages":
+        if upstream.native_api == "messages":
             return {
                 "x-api-key": key,
                 "anthropic-version": "2023-06-01",
@@ -160,9 +162,10 @@ class Forwarder:
     async def forward(
         self,
         upstream: Upstream,
-        request_protocol: Protocol,
+        server_api: ServerApi,
         body: bytes,
         content_type: str,
+        api_type_paths: dict[str, str] | None = None,
         extra_response_headers: dict[str, str] | None = None,
         client_api_key: str | None = None,
         client_addr: str | None = None,
@@ -200,11 +203,12 @@ class Forwarder:
 
             # provider=mock 短路:不发 HTTP,本地 echo 生成响应
             if upstream.provider == "mock":
-                resp = await mock_responder.respond(request_protocol, body_dict, stream=is_stream)
+                resp = await mock_responder.respond(server_api, body_dict, stream=is_stream)
             else:
                 resp = await self._forward_upstream(
                     upstream=upstream,
-                    request_protocol=request_protocol,
+                    server_api=server_api,
+                    api_type_paths=api_type_paths,
                     body=body,
                     body_dict=body_dict,
                     is_stream=is_stream,
@@ -238,15 +242,24 @@ class Forwarder:
         self,
         *,
         upstream: Upstream,
-        request_protocol: Protocol,
+        server_api: ServerApi,
+        api_type_paths: dict[str, str] | None,
         body: bytes,
         body_dict: dict[str, Any],
         is_stream: bool,
         client_api_key: str | None,
     ) -> Response:
         """真实上游(非 mock)的转发路径:同格式直通 / 跨格式翻译二选一。"""
-        upstream_protocol = Protocol(upstream.protocol)
-        url = self._base_url_for(upstream) + UPSTREAM_PATH[upstream_protocol]
+        native_api = ServerApi(upstream.native_api)
+        paths = api_type_paths or DEFAULT_SERVER_API_PATHS
+        api_type_path = paths.get(native_api.value)
+        if not api_type_path:
+            raise ServiceError(
+                status=500,
+                code="api_type_path_missing",
+                message=f"api_types 缺少 native_api={native_api.value} 的 path",
+            )
+        url = self._base_url_for(upstream) + api_type_path
         headers = {
             "content-type": "application/json",
             **self._auth_headers(upstream, override_key=client_api_key),
@@ -254,13 +267,13 @@ class Forwarder:
 
         _log.debug(
             "forward: source=%s target=%s stream=%s",
-            request_protocol.value,
-            upstream_protocol.value,
+            server_api.value,
+            native_api.value,
             is_stream,
         )
 
         # 同格式直通(阶段 1.3 路径)
-        if upstream_protocol is request_protocol:
+        if native_api is server_api:
             if not is_stream:
                 return await self._forward_passthrough_once(url, headers, body)
             return await self._forward_passthrough_stream(url, headers, body)
@@ -268,9 +281,9 @@ class Forwarder:
         # 跨格式翻译(阶段 2.3+):body_dict 已 parse,直接使用
         warnings_header = ""
         # Responses → 非 Responses:先降级(剥 stateful 阻断字段、store、内置 tools)
-        if request_protocol is Protocol.RESPONSES:
+        if server_api is ServerApi.RESPONSES:
             try:
-                degraded = degrade_responses_request(body_dict, target_protocol=upstream_protocol)
+                degraded = degrade_responses_request(body_dict, target_api=native_api)
             except StatefulNotTranslatableError as e:
                 raise ServiceError(
                     status=400,
@@ -288,14 +301,12 @@ class Forwarder:
             warnings_header = degraded.warnings_header() or ""
 
         try:
-            upstream_body = translate_request(
-                body_dict, source=request_protocol, target=upstream_protocol
-            )
+            upstream_body = translate_request(body_dict, source=server_api, target=native_api)
         except ValueError as e:
             raise ServiceError(
                 status=400,
                 code="translation_failed",
-                message=f"请求翻译失败({request_protocol.value} → {upstream_protocol.value}): {e}",
+                message=f"请求翻译失败({server_api.value} → {native_api.value}): {e}",
             ) from e
 
         upstream_bytes = json.dumps(upstream_body, ensure_ascii=False).encode("utf-8")
@@ -305,16 +316,16 @@ class Forwarder:
                 url,
                 headers,
                 upstream_bytes,
-                upstream_protocol=upstream_protocol,
-                client_protocol=request_protocol,
+                native_api=native_api,
+                server_api=server_api,
             )
         else:
             resp = await self._forward_translated_stream(
                 url,
                 headers,
                 upstream_bytes,
-                upstream_protocol=upstream_protocol,
-                client_protocol=request_protocol,
+                native_api=native_api,
+                server_api=server_api,
             )
         if warnings_header:
             # 用临时属性捎带给外层 forward 拼 extra_response_headers;
@@ -411,12 +422,12 @@ class Forwarder:
         headers: dict[str, str],
         upstream_body: bytes,
         *,
-        upstream_protocol: Protocol,
-        client_protocol: Protocol,
+        native_api: ServerApi,
+        server_api: ServerApi,
     ) -> Response:
         resp = await self._send_upstream(url, headers, upstream_body, stream=False)
         if resp.status_code >= 400:
-            # 上游错误原样返回(不翻译),但保留客户端 format 语义:状态码 + body 透传
+            # 上游错误原样返回(不翻译),但保留客户端 server_api 语义:状态码 + body 透传
             return Response(
                 content=resp.content,
                 status_code=resp.status_code,
@@ -441,14 +452,14 @@ class Forwarder:
         try:
             client_body = translate_response(
                 cast(dict[str, Any], upstream_json),
-                source=upstream_protocol,
-                target=client_protocol,
+                source=native_api,
+                target=server_api,
             )
         except ValueError as e:
             raise ServiceError(
                 status=502,
                 code="translation_failed",
-                message=f"响应翻译失败({upstream_protocol.value} → {client_protocol.value}): {e}",
+                message=f"响应翻译失败({native_api.value} → {server_api.value}): {e}",
             ) from e
 
         return Response(
@@ -463,8 +474,8 @@ class Forwarder:
         headers: dict[str, str],
         upstream_body: bytes,
         *,
-        upstream_protocol: Protocol,
-        client_protocol: Protocol,
+        native_api: ServerApi,
+        server_api: ServerApi,
     ) -> Response:
         """流式翻译:上游 SSE → `translate_stream_bytes` → 客户端 SSE。
 
@@ -480,8 +491,8 @@ class Forwarder:
         async def _iter_translated() -> AsyncIterator[bytes]:
             async for out in translate_stream_bytes(
                 self._iter_and_close(upstream),
-                source=upstream_protocol,
-                target=client_protocol,
+                source=native_api,
+                target=server_api,
             ):
                 yield out
 

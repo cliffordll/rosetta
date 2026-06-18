@@ -17,7 +17,7 @@ v0.1 策略:对 Chat Completions 支持的字段子集做双向翻译;未覆盖�
 不支持(raise)
 ---------------
 - Request 侧:`stream_options` / `n` / `seed` / `logprobs` / `logit_bias`
-  / `presence_penalty` / `frequency_penalty` / `response_format` / `user`
+  / `presence_penalty` / `frequency_penalty` / `response_Server API` / `user`
   / `store` / `parallel_tool_calls` / `tools[].function.strict`
   / `image_url` / `audio` 等 content part
 - IR→OpenAI 方向遇到 `top_k` / `thinking` / `metadata` / 多条 `system` 也 raise

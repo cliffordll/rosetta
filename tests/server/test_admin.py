@@ -75,7 +75,7 @@ async def test_create_upstream_success(client: AsyncClient) -> None:
         "/admin/upstreams",
         json={
             "name": "ant-main",
-            "protocol": "messages",
+            "native_api": "messages",
             "api_key": "sk-ant-xxx",
             "base_url": "https://api.example.com/ant-main",
         },
@@ -83,16 +83,17 @@ async def test_create_upstream_success(client: AsyncClient) -> None:
     assert r.status_code == 201
     body = r.json()
     assert body["name"] == "ant-main"
-    assert body["protocol"] == "messages"
+    assert body["native_api"] == "messages"
     assert body["enabled"] is True
     assert body["is_default"] is False  # 新建默认不是 default
-    assert "api_key" not in body  # 不回显 api_key
+    assert body["api_key"] == "sk-ant-xxx"
+    assert "has_api_key" not in body
 
 
 async def test_create_upstream_name_conflict(client: AsyncClient) -> None:
     payload = {
         "name": "dup",
-        "protocol": "completions",
+        "native_api": "completions",
         "api_key": "sk-1",
         "base_url": "https://api.example.com/dup",
     }
@@ -108,7 +109,7 @@ async def test_create_upstream_unknown_type(client: AsyncClient) -> None:
         "/admin/upstreams",
         json={
             "name": "c",
-            "protocol": "unknown-protocol",
+            "native_api": "unknown-server-api",
             "api_key": "sk",
             "base_url": "https://api.example.com/c",
         },
@@ -117,13 +118,13 @@ async def test_create_upstream_unknown_type(client: AsyncClient) -> None:
     assert r.status_code == 422
 
 
-async def test_create_upstream_rejects_any_protocol(client: AsyncClient) -> None:
+async def test_create_upstream_rejects_any_native_api(client: AsyncClient) -> None:
     """`any` 是 mock 专用占位值,用户不可手动建。"""
     r = await client.post(
         "/admin/upstreams",
         json={
             "name": "c",
-            "protocol": "any",
+            "native_api": "any",
             "api_key": "sk",
             "base_url": "https://api.example.com/c",
         },
@@ -136,7 +137,7 @@ async def test_list_upstreams_after_create(client: AsyncClient) -> None:
         "/admin/upstreams",
         json={
             "name": "p1",
-            "protocol": "messages",
+            "native_api": "messages",
             "api_key": "sk-1",
             "base_url": "https://api.example.com/p1",
         },
@@ -145,7 +146,7 @@ async def test_list_upstreams_after_create(client: AsyncClient) -> None:
         "/admin/upstreams",
         json={
             "name": "p2",
-            "protocol": "completions",
+            "native_api": "completions",
             "api_key": "sk-2",
             "base_url": "https://api.example.com/p2",
         },
@@ -164,7 +165,7 @@ async def test_delete_upstream_success(client: AsyncClient, session: AsyncSessio
         "/admin/upstreams",
         json={
             "name": "doomed",
-            "protocol": "messages",
+            "native_api": "messages",
             "api_key": "sk",
             "base_url": "https://api.example.com/doomed",
         },
@@ -236,7 +237,7 @@ async def test_set_default_success(client: AsyncClient) -> None:
         "/admin/upstreams",
         json={
             "name": "p1",
-            "protocol": "messages",
+            "native_api": "messages",
             "api_key": "sk-1",
             "base_url": "https://api.example.com/p1",
         },
@@ -249,13 +250,13 @@ async def test_set_default_success(client: AsyncClient) -> None:
 
 
 async def test_set_default_switches_old_default(client: AsyncClient) -> None:
-    """同 protocol 切换 default,旧的 is_default 自动归零。"""
+    """同 ServerApi 切换 default,旧的 is_default 自动归零。"""
     for name in ("a", "b"):
         await client.post(
             "/admin/upstreams",
             json={
                 "name": name,
-                "protocol": "messages",
+                "native_api": "messages",
                 "api_key": "sk",
                 "base_url": f"https://api.example.com/{name}",
             },
@@ -284,7 +285,7 @@ async def test_update_upstream_partial(client: AsyncClient) -> None:
         "/admin/upstreams",
         json={
             "name": "u1",
-            "protocol": "messages",
+            "native_api": "messages",
             "api_key": "sk-1",
             "base_url": "https://api.example.com/u1",
         },
@@ -307,7 +308,7 @@ async def test_update_upstream_clear_api_key(client: AsyncClient) -> None:
         "/admin/upstreams",
         json={
             "name": "u2",
-            "protocol": "messages",
+            "native_api": "messages",
             "api_key": "sk-2",
             "base_url": "https://api.example.com/u2",
         },
@@ -315,25 +316,27 @@ async def test_update_upstream_clear_api_key(client: AsyncClient) -> None:
     pid = create.json()["id"]
     r = await client.put(f"/admin/upstreams/{pid}", json={"api_key": None})
     assert r.status_code == 200
+    assert r.json()["api_key"] is None
+    assert "has_api_key" not in r.json()
 
 
-async def test_update_upstream_protocol_clears_default(client: AsyncClient) -> None:
-    """改 protocol 时如果该行是 default,自动清掉 is_default。"""
+async def test_update_upstream_native_api_clears_default(client: AsyncClient) -> None:
+    """改 ServerApi 时如果该行是 default,自动清掉 is_default。"""
     create = await client.post(
         "/admin/upstreams",
         json={
             "name": "u3",
-            "protocol": "messages",
+            "native_api": "messages",
             "api_key": "sk",
             "base_url": "https://api.example.com/u3",
         },
     )
     pid = create.json()["id"]
     assert (await client.put("/admin/upstreams/u3/default")).status_code == 200
-    r = await client.put(f"/admin/upstreams/{pid}", json={"protocol": "completions"})
+    r = await client.put(f"/admin/upstreams/{pid}", json={"native_api": "completions"})
     assert r.status_code == 200
     body = r.json()
-    assert body["protocol"] == "completions"
+    assert body["native_api"] == "completions"
     assert body["is_default"] is False
 
 
@@ -348,7 +351,7 @@ async def test_update_upstream_name_conflict(client: AsyncClient) -> None:
         "/admin/upstreams",
         json={
             "name": "taken",
-            "protocol": "messages",
+            "native_api": "messages",
             "api_key": "sk",
             "base_url": "https://api.example.com/taken",
         },
@@ -357,7 +360,7 @@ async def test_update_upstream_name_conflict(client: AsyncClient) -> None:
         "/admin/upstreams",
         json={
             "name": "free",
-            "protocol": "messages",
+            "native_api": "messages",
             "api_key": "sk",
             "base_url": "https://api.example.com/free",
         },
@@ -372,7 +375,7 @@ async def test_update_upstream_empty_payload(client: AsyncClient) -> None:
         "/admin/upstreams",
         json={
             "name": "u4",
-            "protocol": "messages",
+            "native_api": "messages",
             "api_key": "sk",
             "base_url": "https://api.example.com/u4",
         },
