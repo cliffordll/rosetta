@@ -34,6 +34,10 @@ node_modules/
 .turbo/
 .parcel-cache/
 *.tsbuildinfo
+# 本地 pnpm 试跑产生的文件;项目当前以根 bun.lock 为准
+packages/app/pnpm-lock.yaml
+packages/app/pnpm-workspace.yaml
+packages/desktop/pnpm-lock.yaml
 
 # Vite / Next 等构建输出
 .next/
@@ -48,6 +52,11 @@ target/
 
 # ─── PyInstaller ─────────────────────────────────────────
 *.spec.bak
+
+# ─── 本地发布/素材临时文件 ───────────────────────────────
+assets/releases/
+assets/url.md
+assets/logo-icon.png
 
 # ─── SQLite 运行时文件(不该被提交) ──────────────────────
 *.db

@@ -24,6 +24,8 @@ Protocol 枚举(沿用 `rosetta.shared.formats.Protocol`):
 
 from __future__ import annotations
 
+import asyncio
+import queue
 from collections.abc import AsyncIterable, AsyncIterator, Iterable, Iterator
 from typing import Any
 
@@ -58,7 +60,7 @@ from rosetta.server.translation.responses.response import (
     responses_response_to_ir,
     responses_stream_to_ir,
 )
-from rosetta.server.translation.sse import encode_sse_stream, parse_sse_stream
+from rosetta.server.translation.sse import encode_sse_event, parse_sse_stream_async
 from rosetta.shared.protocols import Protocol
 
 # Adapter 表:按方向 x 消息类型 共 6 张
@@ -150,13 +152,57 @@ async def translate_stream_bytes(
     - 生成器中途抛异常(上游断连 / 解析失败)由调用方捕获:已发 200 的情况下应断 TCP,
       不追加伪造事件
     """
-    # 将 async bytes 聚合成同步可迭代(简单实现:内存缓冲按帧 yield)
-    # 真正低延迟的实现要把 SSE 解析做成 async 生成器;v0.1 先以正确为先,后续按需优化
-    collected: list[bytes] = []
-    async for chunk in raw_chunks:
-        collected.append(chunk)
 
-    parsed_events = (event_dict for _name, event_dict in parse_sse_stream(iter(collected)))
-    translated = translate_stream_events(parsed_events, source=source, target=target)
-    for frame in encode_sse_stream(translated, protocol_=target):
-        yield frame
+    class _Sentinel:
+        pass
+
+    sentinel = _Sentinel()
+    in_q: queue.Queue[dict[str, Any] | BaseException | _Sentinel] = queue.Queue()
+    out_q: queue.Queue[dict[str, Any] | BaseException | _Sentinel] = queue.Queue()
+
+    def _source_iter() -> Iterator[dict[str, Any]]:
+        while True:
+            item = in_q.get()
+            if isinstance(item, _Sentinel):
+                return
+            if isinstance(item, BaseException):
+                raise item
+            yield item
+
+    def _worker() -> None:
+        try:
+            for event in translate_stream_events(_source_iter(), source=source, target=target):
+                out_q.put(event)
+        except BaseException as e:
+            out_q.put(e)
+        finally:
+            out_q.put(sentinel)
+
+    async def _produce() -> None:
+        try:
+            async for _name, event_dict in parse_sse_stream_async(raw_chunks):
+                await asyncio.to_thread(in_q.put, event_dict)
+        except BaseException as e:
+            await asyncio.to_thread(in_q.put, e)
+        finally:
+            await asyncio.to_thread(in_q.put, sentinel)
+
+    worker_task = asyncio.create_task(asyncio.to_thread(_worker))
+    producer_task = asyncio.create_task(_produce())
+    try:
+        while True:
+            item = await asyncio.to_thread(out_q.get)
+            if isinstance(item, _Sentinel):
+                break
+            if isinstance(item, BaseException):
+                raise item
+            yield encode_sse_event(item, protocol_=target)
+
+        if target is Protocol.CHAT_COMPLETIONS:
+            yield b"data: [DONE]\n\n"
+        await producer_task
+        await worker_task
+    finally:
+        if not producer_task.done():
+            producer_task.cancel()
+        await asyncio.to_thread(in_q.put, sentinel)

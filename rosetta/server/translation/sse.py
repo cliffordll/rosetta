@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Iterator
+from collections.abc import AsyncIterable, AsyncIterator, Iterable, Iterator
 from typing import Any
 
 from rosetta.shared.protocols import Protocol
@@ -52,6 +52,45 @@ def parse_sse_stream(raw: Iterable[bytes]) -> Iterator[tuple[str | None, dict[st
             yield parsed
 
 
+async def parse_sse_stream_async(
+    raw: AsyncIterable[bytes],
+) -> AsyncIterator[tuple[str | None, dict[str, Any]]]:
+    """异步解码 SSE 字节流为 `(event_name, data_dict)` 序列。
+
+    与 `parse_sse_stream` 语义一致,但在每个完整帧到达后立即 yield,
+    避免跨格式流式翻译等待上游响应结束。
+    """
+    buffer = b""
+    async for chunk in raw:
+        buffer += chunk
+        while True:
+            sep_idx, sep_len = _find_frame_separator(buffer)
+            if sep_idx == -1:
+                break
+            frame = buffer[:sep_idx]
+            buffer = buffer[sep_idx + sep_len :]
+            parsed = _parse_frame(frame)
+            if parsed is not None:
+                yield parsed
+
+    if buffer.strip():
+        parsed = _parse_frame(buffer)
+        if parsed is not None:
+            yield parsed
+
+
+def _find_frame_separator(buffer: bytes) -> tuple[int, int]:
+    """返回下一个 SSE 帧边界位置和分隔符长度;找不到返回 `(-1, 0)`。"""
+    sep_idx = -1
+    sep_len = 0
+    for sep in (b"\r\n\r\n", b"\n\n"):
+        idx = buffer.find(sep)
+        if idx != -1 and (sep_idx == -1 or idx < sep_idx):
+            sep_idx = idx
+            sep_len = len(sep)
+    return sep_idx, sep_len
+
+
 def _parse_frame(frame: bytes) -> tuple[str | None, dict[str, Any]] | None:
     event_name: str | None = None
     data_lines: list[str] = []
@@ -86,14 +125,16 @@ def encode_sse_stream(events: Iterable[dict[str, Any]], *, protocol_: Protocol) 
       流末尾补 `data: [DONE]\\n\\n`
     """
     for ev in events:
-        etype = ev.get("type") if isinstance(ev.get("type"), str) else None
-        if protocol_ is Protocol.CHAT_COMPLETIONS:
-            yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n".encode()
-        else:
-            if etype:
-                yield f"event: {etype}\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n".encode()
-            else:
-                yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n".encode()
-
+        yield encode_sse_event(ev, protocol_=protocol_)
     if protocol_ is Protocol.CHAT_COMPLETIONS:
         yield b"data: [DONE]\n\n"
+
+
+def encode_sse_event(ev: dict[str, Any], *, protocol_: Protocol) -> bytes:
+    """单个 dict 事件 → 单个 SSE 帧,不追加 Chat Completions 的 `[DONE]`。"""
+    etype = ev.get("type") if isinstance(ev.get("type"), str) else None
+    if protocol_ is Protocol.CHAT_COMPLETIONS:
+        return f"data: {json.dumps(ev, ensure_ascii=False)}\n\n".encode()
+    if etype:
+        return f"event: {etype}\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n".encode()
+    return f"data: {json.dumps(ev, ensure_ascii=False)}\n\n".encode()
