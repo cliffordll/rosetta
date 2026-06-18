@@ -42,19 +42,20 @@ import {
   ApiError,
   UPSTREAM_PROVIDERS,
   api,
+  serverApiLabel,
   type UpstreamCreate,
   type UpstreamOut,
-  type UpstreamProtocol,
+  type UpstreamNativeApi,
   type UpstreamProvider,
   type UpstreamUpdate,
 } from "@/lib/api";
 
-const PROTOCOLS: UpstreamProtocol[] = ["messages", "completions", "responses"];
+const NATIVE_APIS: UpstreamNativeApi[] = ["messages", "completions", "responses"];
 
-// 分组渲染顺序;`any` 是 mock 占位,放最后
+// native API 分组渲染顺序;`any` 是 mock 占位,放最后
 const GROUP_ORDER: string[] = ["messages", "completions", "responses", "any"];
 
-const COLUMN_COUNT = 8;
+const COLUMN_COUNT = 9;
 
 export default function Upstreams() {
   const [items, setItems] = useState<UpstreamOut[] | null>(null);
@@ -82,17 +83,17 @@ export default function Upstreams() {
     void load();
   }, [load]);
 
-  // 按 protocol 分组(messages → completions → responses → any),空组不渲染
+  // 按 upstream native API 分组(messages → completions → responses → any),空组不渲染
   const grouped = useMemo(() => {
-    if (!items) return [] as Array<{ protocol: string; rows: UpstreamOut[] }>;
+    if (!items) return [] as Array<{ nativeApi: string; rows: UpstreamOut[] }>;
     const buckets = new Map<string, UpstreamOut[]>();
     for (const u of items) {
-      const arr = buckets.get(u.protocol) ?? [];
+      const arr = buckets.get(u.native_api) ?? [];
       arr.push(u);
-      buckets.set(u.protocol, arr);
+      buckets.set(u.native_api, arr);
     }
     return GROUP_ORDER.filter((p) => buckets.has(p)).map((p) => ({
-      protocol: p,
+      nativeApi: p,
       rows: buckets.get(p) ?? [],
     }));
   }, [items]);
@@ -113,7 +114,7 @@ export default function Upstreams() {
     setLoadErr(null);
     try {
       const updated = await api.setDefaultUpstream(name);
-      setInfo(`upstream '${updated.name}' is now default for protocol=${updated.protocol}`);
+      setInfo(`upstream '${updated.name}' is now default for native_api=${updated.native_api}`);
       await load();
     } catch (e) {
       setLoadErr(e instanceof Error ? e.message : String(e));
@@ -184,6 +185,7 @@ export default function Upstreams() {
                 <TableHead className="w-[10%]">provider</TableHead>
                 <TableHead className="w-[18%]">model</TableHead>
                 <TableHead>base_url</TableHead>
+                <TableHead className="w-[18%]">api_key</TableHead>
                 <TableHead className="w-16">enabled</TableHead>
                 <TableHead className="w-16">default</TableHead>
                 <TableHead className="w-32">created_at</TableHead>
@@ -193,8 +195,8 @@ export default function Upstreams() {
             <TableBody>
               {grouped.map((group) => (
                 <GroupSection
-                  key={group.protocol}
-                  protocol={group.protocol}
+                  key={group.nativeApi}
+                  nativeApi={group.nativeApi}
                   rows={group.rows}
                   onSetDefault={(u) => void handleSetDefault(u.name)}
                   onEdit={(u) => setToEdit(u)}
@@ -265,14 +267,14 @@ export default function Upstreams() {
 }
 
 function GroupSection({
-  protocol,
+  nativeApi,
   rows,
   onSetDefault,
   onEdit,
   onCopy,
   onDelete,
 }: {
-  protocol: string;
+  nativeApi: string;
   rows: UpstreamOut[];
   onSetDefault: (u: UpstreamOut) => void;
   onEdit: (u: UpstreamOut) => void;
@@ -286,7 +288,8 @@ function GroupSection({
           colSpan={COLUMN_COUNT}
           className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
         >
-          {protocol} <span className="text-muted-foreground/70">· {rows.length}</span>
+          native_api={serverApiLabel(nativeApi)}{" "}
+          <span className="text-muted-foreground/70">· {rows.length}</span>
         </TableCell>
       </TableRow>
       {rows.map((u) => (
@@ -309,6 +312,12 @@ function GroupSection({
           >
             {u.base_url}
           </TableCell>
+          <TableCell
+            className="truncate font-mono text-xs text-muted-foreground"
+            title={u.api_key ?? ""}
+          >
+            {u.api_key ?? "-"}
+          </TableCell>
           <TableCell className="text-xs">
             <span className="inline-flex items-center gap-1.5">
               <span
@@ -323,14 +332,14 @@ function GroupSection({
             </span>
           </TableCell>
           <TableCell>
-            {u.protocol !== "any" && (
+            {u.native_api !== "any" && (
               <Button
                 variant="ghost"
                 size="icon-sm"
                 title={
                   u.is_default
-                    ? "Default for this protocol"
-                    : "Set as default for this protocol"
+                    ? "Default for this native API"
+                    : "Set as default for this native API"
                 }
                 disabled={u.is_default}
                 onClick={() => onSetDefault(u)}
@@ -417,7 +426,7 @@ type FormMode = "add" | "edit" | "copy";
  * Add / Edit / Copy 共用对话框。
  *
  * - `add`:空白表单 → POST createUpstream
- * - `edit`:initial 预填 → PUT updateUpstream(只发改过的字段;protocol 变化时
+ * - `edit`:initial 预填 → PUT updateUpstream(只发改过的字段;native API 变化时
  *   server 自动清 is_default;api_key 留空 = 不动)
  * - `copy`:initial 预填(name 加 `-copy` 后缀,api_key 不带) → POST createUpstream;
  *   等价于"以选中行为模板新建一个"
@@ -436,7 +445,7 @@ function UpstreamFormDialog({
   onSubmitted: () => void | Promise<void>;
 }) {
   const [name, setName] = useState("");
-  const [protocol, setProtocol] = useState<UpstreamProtocol>("messages");
+  const [nativeApi, setNativeApi] = useState<UpstreamNativeApi>("messages");
   const [provider, setProvider] = useState<UpstreamProvider>("custom");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
@@ -452,22 +461,20 @@ function UpstreamFormDialog({
     if ((mode === "edit" || mode === "copy") && initial) {
       // copy 时 name 加后缀避免 UNIQUE 冲突;edit 时保留原 name
       setName(mode === "copy" ? `${initial.name}-copy` : initial.name);
-      // initial.protocol 可能是 "any"(mock),但 mock 不让编辑/复制,这里保险下
-      setProtocol(
-        (PROTOCOLS as readonly string[]).includes(initial.protocol)
-          ? (initial.protocol as UpstreamProtocol)
+      // initial.native_api 可能是 "any"(mock),但 mock 不让编辑/复制,这里保险下
+      setNativeApi(
+        (NATIVE_APIS as readonly string[]).includes(initial.native_api)
+          ? (initial.native_api as UpstreamNativeApi)
           : "messages",
       );
       setProvider(initial.provider as UpstreamProvider);
-      // api_key 永不回填:UpstreamOut 不返回 api_key;
-      // edit 留空 = 不动,copy 留空 = 新行无 key(用户重新填或留空让客户端透传)
-      setApiKey("");
+      setApiKey(initial.api_key ?? "");
       setModel(initial.model ?? "");
       setBaseUrl(initial.base_url);
       setEnabled(initial.enabled);
     } else {
       setName("");
-      setProtocol("messages");
+      setNativeApi("messages");
       setProvider("custom");
       setApiKey("");
       setModel("");
@@ -489,7 +496,7 @@ function UpstreamFormDialog({
       if (mode === "add" || mode === "copy") {
         const payload: UpstreamCreate = {
           name: name.trim(),
-          protocol,
+          native_api: nativeApi,
           provider,
           api_key: apiKey.trim() || undefined,
           model: model.trim() || undefined,
@@ -497,14 +504,18 @@ function UpstreamFormDialog({
         };
         await api.createUpstream(payload);
       } else if (initial) {
-        // 只发与原值不同的字段;api_key 留空表示不动(不发字段)
+        // 只发与原值不同的字段;api_key 为空表示清空该字段
         const payload: UpstreamUpdate = {};
         if (name.trim() !== initial.name) payload.name = name.trim();
-        if (protocol !== initial.protocol) payload.protocol = protocol;
+        if (nativeApi !== initial.native_api) payload.native_api = nativeApi;
         if (provider !== initial.provider) payload.provider = provider;
         if (baseUrl.trim() !== initial.base_url) payload.base_url = baseUrl.trim();
         if (enabled !== initial.enabled) payload.enabled = enabled;
-        if (apiKey.trim()) payload.api_key = apiKey.trim();
+        const trimmedApiKey = apiKey.trim();
+        const initialApiKey = initial.api_key ?? "";
+        if (trimmedApiKey !== initialApiKey) {
+          payload.api_key = trimmedApiKey || null;
+        }
         const trimmedModel = model.trim();
         const initialModel = initial.model ?? "";
         if (trimmedModel !== initialModel) {
@@ -534,10 +545,17 @@ function UpstreamFormDialog({
 
   const title = isEdit ? "Edit upstream" : isCopy ? "Copy upstream" : "Add upstream";
   const description = isEdit
-    ? "修改字段后保存;api_key 留空 = 不动,填值 = 更新。改 protocol 时如果该行是 default,会自动清掉。"
+    ? "修改字段后保存;api_key 会回显,留空保存会清空。改 upstream native API 时如果该行是 default,会自动清掉。"
     : isCopy
-      ? `以 '${initial?.name}' 为模板新建一行;name 已加 -copy 后缀避免冲突,api_key 出于安全不会带过来,需要的话自行填。`
-      : "新建上游 upstream;model 留空时,客户端必须自带 body.model。";
+      ? `以 '${initial?.name}' 为模板新建一行;name 已加 -copy 后缀避免冲突,api_key 会带过来,可按需修改。`
+      : "新建上游 upstream;model 留空时,客户端必须自带 body.model。base_url 填根地址,不要带 /v1 或具体 API 路径。";
+
+  const keyStatus =
+    isEdit && initial
+      ? initial.api_key
+        ? "当前已保存 api_key;此处已回显。清空后保存会删除该 key。"
+        : "当前未保存 api_key;填值后保存。"
+      : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -558,15 +576,15 @@ function UpstreamFormDialog({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="u-protocol">protocol</Label>
-            <Select value={protocol} onValueChange={(v) => setProtocol(v as UpstreamProtocol)}>
-              <SelectTrigger id="u-protocol">
+            <Label htmlFor="u-native-api">upstream native API</Label>
+            <Select value={nativeApi} onValueChange={(v) => setNativeApi(v as UpstreamNativeApi)}>
+              <SelectTrigger id="u-native-api">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {PROTOCOLS.map((t) => (
+                {NATIVE_APIS.map((t) => (
                   <SelectItem key={t} value={t}>
-                    {t}
+                    {serverApiLabel(t)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -592,19 +610,20 @@ function UpstreamFormDialog({
               api_key{" "}
               <span className="text-xs text-muted-foreground">
                 {isEdit
-                  ? "(留空 = 不动)"
+                  ? "(已回显 · 清空保存 = 删除)"
                   : isCopy
-                    ? "(原值不带过来 · 重新填或留空)"
+                    ? "(从原 upstream 带过来 · 可修改)"
                     : "(可选)"}
               </span>
             </Label>
             <Input
               id="u-key"
-              type="password"
+              type="text"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               placeholder="sk-..."
             />
+            {keyStatus && <p className="text-xs text-muted-foreground">{keyStatus}</p>}
           </div>
           <div className="space-y-2">
             <Label htmlFor="u-model">
@@ -623,8 +642,12 @@ function UpstreamFormDialog({
               id="u-base"
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="https://api.example.com"
+              placeholder="https://api.example.com (不要带 /v1)"
             />
+            <p className="text-xs text-muted-foreground">
+              rosetta 会按 upstream native API 自动追加 /v1/messages、/v1/chat/completions 或
+              /v1/responses。
+            </p>
           </div>
           {(isEdit || isCopy) && (
             <div className="flex items-center gap-2">

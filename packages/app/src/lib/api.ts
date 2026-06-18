@@ -1,4 +1,4 @@
-/**
+﻿/**
  * rosetta server admin API 薄封装。
  *
  * - 浏览器 / vite dev:相对路径 `/admin/*` + vite.config proxy 转到 server
@@ -10,15 +10,26 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-/** 客户端侧 API 协议;与 `rosetta.shared.protocols.Protocol` 的 str 值严格一致。 */
-export const Protocol = {
+/** server_api;与后端格式枚举的 str 值严格一致。 */
+export const ServerApi = {
   MESSAGES: "messages",
   CHAT_COMPLETIONS: "completions",
   RESPONSES: "responses",
 } as const;
-export type Protocol = (typeof Protocol)[keyof typeof Protocol];
+export type ServerApi = (typeof ServerApi)[keyof typeof ServerApi];
 
-export type UpstreamProtocol = Protocol;
+export type UpstreamNativeApi = ServerApi;
+
+export const SERVER_API_PATHS: Record<ServerApi, string> = {
+  [ServerApi.MESSAGES]: "/v1/messages",
+  [ServerApi.CHAT_COMPLETIONS]: "/v1/chat/completions",
+  [ServerApi.RESPONSES]: "/v1/responses",
+};
+
+export function serverApiLabel(value: string): string {
+  const path = SERVER_API_PATHS[value as ServerApi];
+  return path ? `${value} (${path})` : value;
+}
 
 /** 厂商标识(对齐 `rosetta.server.database.models.UpstreamProvider`)。
  *  `MOCK` 是内置假上游,由 server 端 seed 在 DB 里;不出现在 Add 下拉,
@@ -57,20 +68,22 @@ export interface StatusResponse {
 export interface UpstreamOut {
   id: string;
   name: string;
-  protocol: string;
+  native_api: string;
   provider: string;
   base_url: string;
+  /** 管理面回显 api_key,便于本地测试;生产/共享环境注意不要截图或外传。 */
+  api_key: string | null;
   /** 该 upstream 的默认模型;client body 不传 model 时 server fallback 用这个。可空。 */
   model: string | null;
   enabled: boolean;
-  /** 该 upstream 是否为其 protocol 的默认上游(`x-rosetta-upstream` header 缺失时回退用)。 */
+  /** 该 upstream 是否为其 native API 的默认上游(`x-rosetta-upstream` header 缺失时回退用)。 */
   is_default: boolean;
   created_at: string;
 }
 
 export interface UpstreamCreate {
   name: string;
-  protocol: UpstreamProtocol;
+  native_api: UpstreamNativeApi;
   provider: UpstreamProvider;
   api_key?: string;
   model?: string;
@@ -81,11 +94,11 @@ export interface UpstreamCreate {
 /** PUT /admin/upstreams/{id} body;只发显式 set 的字段。
  *
  * - `api_key` / `model` 显式 `null` → 清空该字段;未传 → 不动
- * - `protocol` 改了且原行是 default → server 自动清 is_default
+ * - `native_api` 改了且原行是 default → server 自动清 is_default
  */
 export interface UpstreamUpdate {
   name?: string;
-  protocol?: UpstreamProtocol;
+  native_api?: UpstreamNativeApi;
   provider?: UpstreamProvider;
   base_url?: string;
   api_key?: string | null;

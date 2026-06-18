@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 浏览器侧 SSE 解析:`fetch` 的 `ReadableStream` → `(event, data)` 异步迭代器。
  *
  * 与 `rosetta/sdk/streams.py::_iter_sse` 对称,差异只在语言:
@@ -7,7 +7,7 @@
  * - `data: [DONE]` sentinel 跳过
  * - 空帧 / 以 `:` 开头的注释帧跳过
  *
- * 只负责解帧;format → 文本增量 / usage 的抽取放 `streams.ts`。
+ * 只负责解帧;server_api → 文本增量 / usage 的抽取放 `streams.ts`。
  */
 
 export interface SseFrame {
