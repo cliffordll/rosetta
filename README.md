@@ -1,4 +1,4 @@
-# Rosetta
+﻿# Rosetta
 
 > 本地跑的 LLM API 格式转换中枢 · Claude Messages / OpenAI Chat Completions / OpenAI Responses **三格式任意互译**
 
@@ -9,7 +9,7 @@
 ## 能做什么
 
 - **跨生态调用**:客户端用任一主流 API 格式写,上游可以是任一主流 LLM 服务,中间格式差异由代理透明翻译
-- **多 upstream 集中管理**:一个地方管所有 key / 用量统计;客户端通过 `x-rosetta-upstream` header 显式选,或按入口 protocol 走 default upstream(每协议至多一个 default,`rosetta upstream set-default <name>` 配置)
+- **多 upstream 集中管理**:一个地方管所有 key / 用量统计;客户端通过 `x-rosetta-upstream` header 显式选,或按入口 server_api 走 default upstream(每个 server_api 至多一个 default,`rosetta upstream set-default <name>` 配置)
 - **开箱即用**:CLI 一次性对话、REPL 多轮、桌面 GUI 三种交互,SSE 流式全程原生转发
 
 **类比**:cc-switch 的"AI 配置管家"概念 + 自研的格式翻译引擎。cc-switch 切的是配置文件,本项目切的是运行时流量并做格式转换。
@@ -20,7 +20,7 @@
 
 **v0.2.3 · 核心链路已实现,持续打磨中**。
 
-- 已落地:FastAPI 数据面 / 管理面、三协议 IR 翻译、CLI/SDK、React 管理台、Tauri 桌面壳、PyInstaller 打包脚本
+- 已落地:FastAPI 数据面 / 管理面、三 API 类型 IR 翻译、CLI/SDK、React 管理台、Tauri 桌面壳、PyInstaller 打包脚本
 - 架构真源:见 [`docs/DESIGN.md`](./docs/DESIGN.md)
 - 分阶段实施清单:[`docs/FEATURE.md`](./docs/FEATURE.md)
 
@@ -41,7 +41,7 @@
 
 **核心**:不是点对点翻译(6 条单向路径),而是 **一个统一的中间表示(IR)+ 三套 adapter**。同格式直通零翻译,异格式经 IR 桥接,流式和非流式都走。
 
-详细 3×3 翻译矩阵、协议映射表、流式状态机设计见 [`docs/DESIGN.md`](./docs/DESIGN.md) §8.3。
+详细 3×3 翻译矩阵、API 映射表、流式状态机设计见 [`docs/DESIGN.md`](./docs/DESIGN.md) §8.3。
 
 ---
 
@@ -96,13 +96,17 @@ uv run rosetta chat "hello"
 
 # 想配真实上游:添 upstream 后按 name 选
 # `--model` 可选,作为该 upstream 的默认模型;client body 不传 model 时由 server 兜底
-uv run rosetta upstream add --name anthropic-main --protocol messages --api-key sk-ant-XXX --base-url https://api.anthropic.com --model claude-haiku-4-5
+# `--base-url` 填上游根地址,不要带 API 路径;rosetta 会按 upstream native API 自动追加
+# /v1/messages、/v1/chat/completions 或 /v1/responses。
+# 这些路径来自 api_types 字典表:messages=/v1/messages,completions=/v1/chat/completions,responses=/v1/responses。
+# 例:填 https://api.example.com,不要填 https://api.example.com/v1
+uv run rosetta upstream add --name anthropic-main --native-api messages --api-key sk-ant-XXX --base-url https://api.anthropic.com --model claude-haiku-4-5
 uv run rosetta chat --upstream anthropic-main "hello"   # 不传 --model 也跑,用 upstream.model
 
 # 改字段(部分更新;留空不动)
 uv run rosetta upstream update <id> --model claude-sonnet-4-5
 
-# 设为 messages 协议的默认上游;之后 chat 不传 --upstream 也能跑
+# 设为 messages server_api 的默认上游;之后 chat 不传 --upstream 也能跑
 uv run rosetta upstream set-default anthropic-main
 uv run rosetta chat "hello"   # 不传 --upstream / --model,全靠 upstream 默认值
 

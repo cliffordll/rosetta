@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -19,7 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError, Protocol, api, type UpstreamOut } from "@/lib/api";
+import { ApiError, ServerApi, api, serverApiLabel, type UpstreamOut } from "@/lib/api";
 import { ChatError, runTurn, type ChatTurnMsg } from "@/lib/chat";
 
 const NO_UPSTREAM_SELECTED = "__none__";
@@ -45,7 +45,7 @@ type DisplayMsg =
     };
 
 export default function Chat() {
-  const [protocol, setProtocol] = useState<Protocol>(Protocol.MESSAGES);
+  const [serverApi, setServerApi] = useState<ServerApi>(ServerApi.MESSAGES);
   // model 留空(空字符串) → 不发 body.model,server 用 upstream.model 兜底;与
   // override api-key 的"留空 = 用 DB,填值 = 覆盖"语义对齐。
   // v0 不再硬编码 client 端"默认模型推荐";placeholder 显示 upstream.model 提示
@@ -67,7 +67,7 @@ export default function Chat() {
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  // mount-only 拉取 upstreams 列表;切 protocol 时的预选由 onProtocolChange 接手,
+  // mount-only 拉取 upstreams 列表;切 server_api 时的预选由 onServerApiChange 接手,
   // 避免重新 fetch 覆盖用户已经手选的 upstreamChoice
   useEffect(() => {
     (async () => {
@@ -76,10 +76,10 @@ export default function Chat() {
         // 后端按 created_at 升序返回;UI 倒序让最新创建的排在最前
         const sorted = [...list].reverse();
         setUpstreams(sorted);
-        // 优先选当前 protocol(初始 MESSAGES)的 default(enabled);没有则
+        // 优先选当前 server_api(初始 MESSAGES)的 default(enabled);没有则
         // 保留 NO_UPSTREAM_SELECTED(用户可手选,或不选直接发让 server fallback)
         const dft = sorted.find(
-          (u) => u.protocol === Protocol.MESSAGES && u.is_default && u.enabled,
+          (u) => u.native_api === ServerApi.MESSAGES && u.is_default && u.enabled,
         );
         if (dft) {
           setUpstreamChoice(String(dft.id));
@@ -90,29 +90,29 @@ export default function Chat() {
     })();
   }, []);
 
-  // 切 protocol:回到 auto + 重选当前 protocol 的 upstream。优先级:
-  //   default(若有) → 该 protocol 第一个 enabled → mock(protocol=any)→ NO_UPSTREAM_SELECTED
+  // 切 server_api:回到 auto + 重选当前 server_api 的 upstream。优先级:
+  //   default(若有) → 该 server_api 第一个 enabled → mock(any)→ NO_UPSTREAM_SELECTED
   // 真正发请求时若 model 留空不带 body.model,由 forwarder 走 upstream.model
-  const onProtocolChange = useCallback(
-    (next: Protocol) => {
-      setProtocol(next);
+  const onServerApiChange = useCallback(
+    (next: ServerApi) => {
+      setServerApi(next);
       setModel("");
       const matches = upstreams.filter(
-        (u) => (u.protocol === next || u.protocol === "any") && u.enabled,
+        (u) => (u.native_api === next || u.native_api === "any") && u.enabled,
       );
-      const dft = matches.find((u) => u.protocol === next && u.is_default);
+      const dft = matches.find((u) => u.native_api === next && u.is_default);
       const first =
-        matches.find((u) => u.protocol === next) ?? matches.find((u) => u.protocol === "any");
+        matches.find((u) => u.native_api === next) ?? matches.find((u) => u.native_api === "any");
       const picked = dft ?? first ?? null;
       setUpstreamChoice(picked ? String(picked.id) : NO_UPSTREAM_SELECTED);
     },
     [upstreams],
   );
 
-  // 当前 protocol 是否在 server 端配了 default(用于"未选 upstream 仍可发送"的判断)
-  const hasDefaultForProtocol = useMemo(
-    () => upstreams.some((u) => u.protocol === protocol && u.is_default && u.enabled),
-    [upstreams, protocol],
+  // 当前 server_api 是否在 server 端配了 default(用于"未选 upstream 仍可发送"的判断)
+  const hasDefaultForServerApi = useMemo(
+    () => upstreams.some((u) => u.native_api === serverApi && u.is_default && u.enabled),
+    [upstreams, serverApi],
   );
 
   // auto-scroll to bottom unless user is scrolled up
@@ -131,14 +131,14 @@ export default function Chat() {
     return map;
   }, [upstreams]);
 
-  // 默认只显示当前 protocol 匹配 + protocol="any" 的 upstream(mock 跨协议接受)。
-  // showAllUpstreams 打开后显示全部,用于显式验证跨协议 IR 翻译路径。
+  // 默认只显示当前 server_api 匹配 + any 的 upstream(mock 跨格式接受)。
+  // showAllUpstreams 打开后显示全部,用于显式验证跨 API 类型 IR 翻译路径。
   const filteredUpstreams = useMemo(
     () =>
       showAllUpstreams
         ? upstreams
-        : upstreams.filter((u) => u.protocol === protocol || u.protocol === "any"),
-    [upstreams, protocol, showAllUpstreams],
+        : upstreams.filter((u) => u.native_api === serverApi || u.native_api === "any"),
+    [upstreams, serverApi, showAllUpstreams],
   );
 
   const resolvedUpstream = useMemo<UpstreamOut | null>(() => {
@@ -147,17 +147,17 @@ export default function Chat() {
   }, [upstreamChoice, upstreamById]);
 
   // 显式选了一行 → 发送 OK
-  // 没选(NO_UPSTREAM_SELECTED)→ 仅当当前 protocol 有 default 时允许,走 server fallback
+  // 没选(NO_UPSTREAM_SELECTED)→ 仅当当前 server_api 有 default 时允许,走 server fallback
   // model 不再要求非空:留空时 server 用 upstream.model 兜底
   const canSend =
     !inFlight &&
     input.trim().length > 0 &&
-    (resolvedUpstream !== null || hasDefaultForProtocol);
+    (resolvedUpstream !== null || hasDefaultForServerApi);
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text || inFlight) return;
-    if (!resolvedUpstream && !hasDefaultForProtocol) return;
+    if (!resolvedUpstream && !hasDefaultForServerApi) return;
     setInput("");
 
     const nextMsgs: DisplayMsg[] = [
@@ -183,12 +183,12 @@ export default function Chat() {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
-    // 没选 upstream → 不传 header,server 按 protocol default fallback
+    // 没选 upstream → 不传 header,server 按 server_api default fallback
     const upstreamName = resolvedUpstream ? resolvedUpstream.name : null;
-    const upstreamLabel = resolvedUpstream ? resolvedUpstream.name : "default";
+    const upstreamLabel = resolvedUpstream ? formatUpstreamLabel(resolvedUpstream) : "default";
     const pathLabel = resolvedUpstream
-      ? computePathLabel(protocol, resolvedUpstream)
-      : protocol;
+      ? computePathLabel(serverApi, resolvedUpstream)
+      : serverApi;
     // model 留空 → runTurn 不发 body.model;meta 行显示估算的 effective model
     // (client 输入 → upstream.model → "auto";server 实际 resolve 可能不同)
     const trimmedModel = model.trim();
@@ -196,7 +196,7 @@ export default function Chat() {
 
     try {
       const result = await runTurn(history, {
-        fmt: protocol,
+        serverApi: serverApi,
         model: trimmedModel || null,
         upstreamName,
         overrideApiKey: overrideKey,
@@ -253,10 +253,10 @@ export default function Chat() {
     input,
     inFlight,
     messages,
-    protocol,
+    serverApi,
     model,
     resolvedUpstream,
-    hasDefaultForProtocol,
+    hasDefaultForServerApi,
     overrideKey,
   ]);
 
@@ -325,16 +325,22 @@ export default function Chat() {
       <div className="mb-4 grid grid-cols-3 gap-3">
         <div>
           <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
-            Protocol
+            server_api
           </Label>
-          <Select value={protocol} onValueChange={(v) => onProtocolChange(v as Protocol)}>
+          <Select value={serverApi} onValueChange={(v) => onServerApiChange(v as ServerApi)}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={Protocol.MESSAGES}>messages</SelectItem>
-              <SelectItem value={Protocol.CHAT_COMPLETIONS}>completions</SelectItem>
-              <SelectItem value={Protocol.RESPONSES}>responses</SelectItem>
+              <SelectItem value={ServerApi.MESSAGES}>
+                {serverApiLabel(ServerApi.MESSAGES)}
+              </SelectItem>
+              <SelectItem value={ServerApi.CHAT_COMPLETIONS}>
+                {serverApiLabel(ServerApi.CHAT_COMPLETIONS)}
+              </SelectItem>
+              <SelectItem value={ServerApi.RESPONSES}>
+                {serverApiLabel(ServerApi.RESPONSES)}
+              </SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -367,7 +373,7 @@ export default function Chat() {
             >
               {filteredUpstreams.map((u) => (
                 <SelectItem key={u.id} value={String(u.id)}>
-                  {u.name} · {u.protocol}
+                  {formatUpstreamLabel(u)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -383,17 +389,17 @@ export default function Chat() {
           {!upstreamsErr &&
             upstreams.length > 0 &&
             !resolvedUpstream &&
-            hasDefaultForProtocol && (
+            hasDefaultForServerApi && (
               <p className="mt-1 text-xs text-muted-foreground">
-                未选 upstream → 走 protocol={protocol} 的 default(server 端 fallback)。
+                未选 upstream → 走 server_api={serverApi} 的 default(server 端 fallback)。
               </p>
             )}
           {!upstreamsErr &&
             upstreams.length > 0 &&
             !resolvedUpstream &&
-            !hasDefaultForProtocol && (
+            !hasDefaultForServerApi && (
               <p className="mt-1 text-xs text-muted-foreground">
-                protocol={protocol} 无 default upstream;选一行,或去 Upstreams 页"Set default"。
+                server_api={serverApi} 无 default upstream;选一行,或去 Upstreams 页"Set default"。
               </p>
             )}
         </div>
@@ -420,7 +426,7 @@ export default function Chat() {
       >
         {messages.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            {resolvedUpstream || hasDefaultForProtocol
+            {resolvedUpstream || hasDefaultForServerApi
               ? "输入消息开始对话;流式逐 token 渲染。"
               : "先在上方选一个 upstream(或去 Upstreams 设 default),再开始对话。"}
           </p>
@@ -446,7 +452,7 @@ export default function Chat() {
         <Textarea
           value={input}
           placeholder={
-            resolvedUpstream || hasDefaultForProtocol
+            resolvedUpstream || hasDefaultForServerApi
               ? "发消息…(Enter 发送,Shift+Enter 换行)"
               : "请先选择 upstream(或去 Upstreams 设 default)"
           }
@@ -457,7 +463,7 @@ export default function Chat() {
               if (canSend) void handleSend();
             }
           }}
-          disabled={inFlight || (!resolvedUpstream && !hasDefaultForProtocol)}
+          disabled={inFlight || (!resolvedUpstream && !hasDefaultForServerApi)}
           className="min-h-20 flex-1"
         />
         {inFlight ? (
@@ -557,10 +563,14 @@ function MetaLine({ meta }: { meta: MetaInfo }) {
   );
 }
 
-function computePathLabel(fmt: Protocol, upstream: UpstreamOut): string {
-  const nativeProto = upstream.protocol as Protocol;
-  if (fmt === nativeProto) return `${fmt}↔${nativeProto}`;
-  return `${fmt}→IR→${nativeProto}`;
+function computePathLabel(serverApi: ServerApi, upstream: UpstreamOut): string {
+  const nativeApi = upstream.native_api as ServerApi;
+  if (serverApi === nativeApi) return `${serverApi}↔${nativeApi}`;
+  return `${serverApi}→IR→${nativeApi}`;
+}
+
+function formatUpstreamLabel(upstream: UpstreamOut): string {
+  return `${upstream.name}(${upstream.model ?? "auto"}+${upstream.native_api})`;
 }
 
 function extractErr(e: unknown): string {

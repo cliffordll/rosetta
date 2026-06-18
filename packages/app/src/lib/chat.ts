@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Chat 页的核心:历史消息 → 请求体构造 + 一轮流式请求。
  *
  * 对齐 `rosetta/cli/commands/chat_core.py` 的 `_build_body` + `run_turn`:
@@ -7,7 +7,7 @@
  * - 返回 `(assistantText, inputTokens, outputTokens, latencyMs)`;非 2xx 抛 `ChatError`
  */
 
-import { apiBase, Protocol } from "@/lib/api";
+import { apiBase, ServerApi } from "@/lib/api";
 import { ChatStream } from "@/lib/streams";
 
 export interface ChatTurnMsg {
@@ -16,7 +16,7 @@ export interface ChatTurnMsg {
 }
 
 export interface ChatTurnOpts {
-  fmt: Protocol;
+  serverApi: ServerApi;
   /** 留空(null/"")则不发 body.model,server forwarder 用 upstream.model 兜底 */
   model: string | null;
   upstreamName: string | null;
@@ -46,18 +46,18 @@ export class ChatError extends Error {
   }
 }
 
-/** protocol → 数据面路径(对齐 `rosetta.shared.protocols.UPSTREAM_PATH`,但这里是本地 server 路由)。 */
-const URL_BY_PROTOCOL: Record<Protocol, string> = {
-  [Protocol.MESSAGES]: "/v1/messages",
-  [Protocol.CHAT_COMPLETIONS]: "/v1/chat/completions",
-  [Protocol.RESPONSES]: "/v1/responses",
+/** server_api → 本地 server 数据面路径。 */
+const URL_BY_SERVER_API: Record<ServerApi, string> = {
+  [ServerApi.MESSAGES]: "/v1/messages",
+  [ServerApi.CHAT_COMPLETIONS]: "/v1/chat/completions",
+  [ServerApi.RESPONSES]: "/v1/responses",
 };
 
 export async function runTurn(
   messages: ChatTurnMsg[],
   opts: ChatTurnOpts,
 ): Promise<ChatTurnResult> {
-  const body = buildBody(opts.fmt, messages, opts.model, opts.maxTokens);
+  const body = buildBody(opts.serverApi, messages, opts.model, opts.maxTokens);
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (opts.upstreamName) headers["x-rosetta-upstream"] = opts.upstreamName;
   if (opts.overrideApiKey) headers["x-api-key"] = opts.overrideApiKey;
@@ -66,7 +66,7 @@ export async function runTurn(
   const t0 = performance.now();
   let resp: Response;
   try {
-    resp = await fetch(base + URL_BY_PROTOCOL[opts.fmt], {
+    resp = await fetch(base + URL_BY_SERVER_API[opts.serverApi], {
       method: "POST",
       headers,
       body: JSON.stringify(body),
@@ -84,7 +84,7 @@ export async function runTurn(
     throw new ChatError(resp.status, text);
   }
 
-  const stream = new ChatStream(opts.fmt);
+  const stream = new ChatStream(opts.serverApi);
   const buf: string[] = [];
   let aborted = false;
   try {
@@ -110,17 +110,17 @@ export async function runTurn(
 }
 
 function buildBody(
-  fmt: Protocol,
+  serverApi: ServerApi,
   messages: ChatTurnMsg[],
   model: string | null,
   maxTokens: number,
 ): Record<string, unknown> {
   // model 留空 → 不发字段,让 forwarder 兜底到 upstream.model
   const modelField: Record<string, unknown> = model ? { model } : {};
-  if (fmt === Protocol.MESSAGES) {
+  if (serverApi === ServerApi.MESSAGES) {
     return { ...modelField, max_tokens: maxTokens, stream: true, messages };
   }
-  if (fmt === Protocol.CHAT_COMPLETIONS) {
+  if (serverApi === ServerApi.CHAT_COMPLETIONS) {
     // rosetta 翻译层 adapter 要求 max_tokens 必填;沿用 messages 的 maxTokens 一次给齐
     return {
       ...modelField,

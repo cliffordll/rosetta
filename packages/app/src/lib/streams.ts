@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 三格式 SSE 文本增量 + usage 抽取。
  *
  * 对齐 `rosetta/sdk/streams.py`(Python 端的 `ChatStream`):
@@ -15,22 +15,22 @@
  */
 
 import { iterSse, type SseFrame } from "@/lib/sse";
-import { Protocol } from "@/lib/api";
+import { ServerApi } from "@/lib/api";
 
 /** 消费一条流:边 yield 文本增量,边把 usage 累积到 `usage` 对象。 */
 export class ChatStream {
-  readonly fmt: Protocol;
+  readonly serverApi: ServerApi;
   inputTokens = 0;
   outputTokens = 0;
 
-  constructor(fmt: Protocol) {
-    this.fmt = fmt;
+  constructor(serverApi: ServerApi) {
+    this.serverApi = serverApi;
   }
 
   async *textDeltas(resp: Response, signal?: AbortSignal): AsyncGenerator<string> {
     for await (const frame of iterSse(resp, signal)) {
       this.updateUsage(frame);
-      const t = extractText(this.fmt, frame);
+      const t = extractText(this.serverApi, frame);
       if (t) yield t;
     }
   }
@@ -38,7 +38,7 @@ export class ChatStream {
   private updateUsage(frame: SseFrame): void {
     const { event, data } = frame;
 
-    if (this.fmt === Protocol.MESSAGES) {
+    if (this.serverApi === ServerApi.MESSAGES) {
       const etype = event ?? (typeof data.type === "string" ? data.type : null);
       if (etype === "message_start") {
         const msg = data.message;
@@ -59,7 +59,7 @@ export class ChatStream {
       return;
     }
 
-    if (this.fmt === Protocol.CHAT_COMPLETIONS) {
+    if (this.serverApi === ServerApi.CHAT_COMPLETIONS) {
       const u = data.usage;
       if (isObj(u)) {
         this.inputTokens = toInt(u.prompt_tokens);
@@ -83,10 +83,10 @@ export class ChatStream {
   }
 }
 
-function extractText(fmt: Protocol, frame: SseFrame): string {
+function extractText(serverApi: ServerApi, frame: SseFrame): string {
   const { event, data } = frame;
 
-  if (fmt === Protocol.MESSAGES) {
+  if (serverApi === ServerApi.MESSAGES) {
     const etype = event ?? (typeof data.type === "string" ? data.type : null);
     if (etype !== "content_block_delta") return "";
     const delta = data.delta;
@@ -94,7 +94,7 @@ function extractText(fmt: Protocol, frame: SseFrame): string {
     return typeof delta.text === "string" ? delta.text : "";
   }
 
-  if (fmt === Protocol.CHAT_COMPLETIONS) {
+  if (serverApi === ServerApi.CHAT_COMPLETIONS) {
     const choices = data.choices;
     if (!Array.isArray(choices) || choices.length === 0) return "";
     const c0 = choices[0];
