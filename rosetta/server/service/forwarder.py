@@ -63,6 +63,12 @@ class UpstreamProbeResult:
     detail: str | None = None
 
 
+@dataclass(frozen=True)
+class _UsageSnapshot:
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+
 class Forwarder:
     """dataplane 转发器。封装 httpx client 生命周期与四条转发路径。
 
@@ -368,11 +374,14 @@ class Forwarder:
                     client_addr=client_addr,
                 )
             else:
+                usage = self._response_usage_for_log(server_api, resp)
                 await self._record_log(
                     upstream,
                     model,
                     "ok",
                     t0,
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
                     client_addr=client_addr,
                     request_text=request_text,
                     response_text=self._response_text_for_log(server_api, resp),
@@ -503,6 +512,8 @@ class Forwarder:
         status: str,
         t0: float,
         *,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
         error: str | None = None,
         client_addr: str | None = None,
         request_text: str | None = None,
@@ -516,6 +527,8 @@ class Forwarder:
             upstream_id=upstream.id,
             model=model,
             status=status,  # type: ignore[arg-type]
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
             latency_ms=latency_ms,
             error=error,
             client_addr=client_addr,
@@ -536,6 +549,18 @@ class Forwarder:
             return None
         return response_text_for(server_api, cast(dict[str, Any], payload))
 
+    def _response_usage_for_log(self, server_api: ServerApi, resp: Response) -> _UsageSnapshot:
+        body = getattr(resp, "body", b"")
+        if not isinstance(body, (bytes, bytearray)) or not body:
+            return _UsageSnapshot()
+        try:
+            payload = json.loads(bytes(body))
+        except (TypeError, ValueError):
+            return _UsageSnapshot()
+        if not isinstance(payload, dict):
+            return _UsageSnapshot()
+        return _usage_snapshot_for(server_api, cast(dict[str, Any], payload))
+
     def _wrap_streaming_response_for_logging(
         self,
         resp: StreamingResponse,
@@ -548,6 +573,7 @@ class Forwarder:
         client_addr: str | None,
     ) -> StreamingResponse:
         collector = SseTextCollector(server_api)
+        usage_collector = _SseUsageCollector(server_api)
         original_iter = resp.body_iterator
 
         async def _iter() -> AsyncIterator[bytes]:
@@ -555,14 +581,18 @@ class Forwarder:
                 async for chunk in original_iter:
                     data = self._stream_chunk_to_bytes(chunk)
                     collector.feed(data)
+                    usage_collector.feed(data)
                     yield data
             finally:
                 collector.finish()
+                usage_collector.finish()
                 await self._record_log(
                     upstream,
                     model,
                     "ok",
                     t0,
+                    input_tokens=usage_collector.input_tokens,
+                    output_tokens=usage_collector.output_tokens,
                     client_addr=client_addr,
                     request_text=request_text,
                     response_text=collector.text,
@@ -738,6 +768,124 @@ class Forwarder:
 
 # 模块级单例:app lifespan 负责 open/close;routes / 测试直接 import 使用
 forwarder = Forwarder()
+
+
+def _usage_snapshot_for(server_api: ServerApi, data: dict[str, Any]) -> _UsageSnapshot:
+    usage = data.get("usage")
+    if not isinstance(usage, dict):
+        return _UsageSnapshot()
+    u = cast(dict[str, Any], usage)
+    if server_api is ServerApi.CHAT_COMPLETIONS:
+        return _UsageSnapshot(
+            input_tokens=int(u.get("prompt_tokens", 0) or 0),
+            output_tokens=int(u.get("completion_tokens", 0) or 0),
+        )
+    return _UsageSnapshot(
+        input_tokens=int(u.get("input_tokens", 0) or 0),
+        output_tokens=int(u.get("output_tokens", 0) or 0),
+    )
+
+
+class _SseUsageCollector:
+    def __init__(self, server_api: ServerApi) -> None:
+        self.server_api = server_api
+        self._buffer = b""
+        self.input_tokens: int | None = None
+        self.output_tokens: int | None = None
+
+    def feed(self, chunk: bytes) -> None:
+        self._buffer += chunk
+        while True:
+            sep_idx = -1
+            sep_len = 0
+            for sep in (b"\r\n\r\n", b"\n\n"):
+                idx = self._buffer.find(sep)
+                if idx != -1 and (sep_idx == -1 or idx < sep_idx):
+                    sep_idx = idx
+                    sep_len = len(sep)
+            if sep_idx == -1:
+                break
+            frame = self._buffer[:sep_idx]
+            self._buffer = self._buffer[sep_idx + sep_len :]
+            self._consume_frame(frame)
+
+    def finish(self) -> None:
+        if self._buffer.strip():
+            self._consume_frame(self._buffer)
+        self._buffer = b""
+
+    def _consume_frame(self, frame: bytes) -> None:
+        parsed = _parse_sse_usage_frame(frame)
+        if parsed is None:
+            return
+        event_name, data = parsed
+        self._update_usage(event_name, data)
+
+    def _update_usage(self, event_name: str | None, data: dict[str, Any]) -> None:
+        if self.server_api is ServerApi.MESSAGES:
+            etype = event_name or data.get("type")
+            if etype == "message_start":
+                message = data.get("message")
+                if isinstance(message, dict):
+                    usage = cast(dict[str, Any], message).get("usage")
+                    if isinstance(usage, dict):
+                        ud = cast(dict[str, Any], usage)
+                        self.input_tokens = int(ud.get("input_tokens", 0) or 0)
+                        self.output_tokens = int(ud.get("output_tokens", 0) or 0)
+            elif etype == "message_delta":
+                usage = data.get("usage")
+                if isinstance(usage, dict):
+                    ud = cast(dict[str, Any], usage)
+                    output_tokens = ud.get("output_tokens")
+                    if isinstance(output_tokens, int):
+                        self.output_tokens = output_tokens
+            return
+
+        if self.server_api is ServerApi.CHAT_COMPLETIONS:
+            usage = data.get("usage")
+            if isinstance(usage, dict):
+                ud = cast(dict[str, Any], usage)
+                self.input_tokens = int(ud.get("prompt_tokens", 0) or 0)
+                self.output_tokens = int(ud.get("completion_tokens", 0) or 0)
+            return
+
+        etype = event_name or data.get("type")
+        if etype != "response.completed":
+            return
+        response = data.get("response")
+        if not isinstance(response, dict):
+            return
+        usage = cast(dict[str, Any], response).get("usage")
+        if not isinstance(usage, dict):
+            return
+        ud = cast(dict[str, Any], usage)
+        self.input_tokens = int(ud.get("input_tokens", 0) or 0)
+        self.output_tokens = int(ud.get("output_tokens", 0) or 0)
+
+
+def _parse_sse_usage_frame(frame: bytes) -> tuple[str | None, dict[str, Any]] | None:
+    event_name: str | None = None
+    data_lines: list[str] = []
+    for raw_line in frame.split(b"\n"):
+        line = raw_line.rstrip(b"\r").decode("utf-8", errors="replace")
+        if not line or line.startswith(":"):
+            continue
+        if line.startswith("event:"):
+            event_name = line[len("event:") :].strip()
+        elif line.startswith("data:"):
+            data_lines.append(line[len("data:") :].lstrip())
+    if not data_lines:
+        return None
+    payload = "\n".join(data_lines)
+    if payload.strip() == "[DONE]":
+        return None
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    return event_name, cast(dict[str, Any], data)
 
 
 def _response_text(resp: httpx.Response, limit: int = 400) -> str:
