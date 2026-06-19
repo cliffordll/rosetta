@@ -1,7 +1,8 @@
-﻿import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -17,20 +18,25 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api, type LogOut, type UpstreamOut } from "@/lib/api";
+import { api, type LogOut, type LogsConfigOut, type UpstreamOut } from "@/lib/api";
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
+const DEFAULT_LOG_CONTENT = "summary";
 const UPSTREAM_ALL = "__all__";
 
 export default function Logs() {
   const [items, setItems] = useState<LogOut[] | null>(null);
   const [total, setTotal] = useState<number>(0);
   const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [upstreams, setUpstreams] = useState<UpstreamOut[]>([]);
   const [upstreamFilter, setUpstreamFilter] = useState<string>(UPSTREAM_ALL);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+  const [logContent, setLogContent] =
+    useState<LogsConfigOut["log_content"]>(DEFAULT_LOG_CONTENT);
   const [offset, setOffset] = useState(0);
+  const [configSaving, setConfigSaving] = useState(false);
 
   const load = useCallback(
     async (opts: { upstream: string; offset: number; limit: number }) => {
@@ -53,11 +59,12 @@ export default function Logs() {
   );
 
   useEffect(() => {
-    // upstream 下拉候选:只拉一次,之后用户 Restore mock / Add upstream 可点刷新
     (async () => {
       try {
-        const list = await api.listUpstreams();
+        const [list, config] = await Promise.all([api.listUpstreams(), api.logsConfig()]);
         setUpstreams([...list].reverse());
+        setPageSize(config.page_size);
+        setLogContent(config.log_content);
       } catch {
         // 拉不到不致命;过滤器保持 ALL
       }
@@ -69,21 +76,35 @@ export default function Logs() {
   }, [load, upstreamFilter, offset, pageSize]);
 
   function onUpstreamChange(value: string) {
-    setOffset(0); // 换过滤重置分页
+    setOffset(0);
     setUpstreamFilter(value);
   }
 
   function onPageSizeChange(value: string) {
-    const next = Number(value);
-    setOffset(0); // 换页大小重置到第一页,避免 offset 落在新页面之外
-    setPageSize(next);
+    void saveConfig({ page_size: Number(value) as LogsConfigOut["page_size"] });
   }
 
   function refresh() {
     void load({ upstream: upstreamFilter, offset, limit: pageSize });
   }
 
-  // 用 total 算 page / totalPages,即使本页数据不足 pageSize 也能正确显示进度
+  async function saveConfig(patch: Partial<LogsConfigOut>) {
+    setConfigSaving(true);
+    setInfo(null);
+    setLoadErr(null);
+    try {
+      const config = await api.updateLogsConfig(patch);
+      setPageSize(config.page_size);
+      setLogContent(config.log_content);
+      setOffset(0);
+      setInfo(`logs config -> ${config.log_content}, ${config.page_size} / page`);
+    } catch (e) {
+      setLoadErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setConfigSaving(false);
+    }
+  }
+
   const page = Math.floor(offset / pageSize) + 1;
   const totalPages = total > 0 ? Math.ceil(total / pageSize) : 1;
   const canPrev = page > 1;
@@ -101,7 +122,6 @@ export default function Logs() {
     setOffset(offset + pageSize);
   }
   function gotoLast() {
-    // 最后一页起始 offset = (totalPages - 1) * pageSize,确保不超 total
     setOffset(Math.max(0, (totalPages - 1) * pageSize));
   }
 
@@ -110,6 +130,24 @@ export default function Logs() {
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Logs</h1>
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            <Label className="text-xs text-muted-foreground">log content</Label>
+            <Select
+              value={logContent}
+              onValueChange={(value) =>
+                void saveConfig({ log_content: value as LogsConfigOut["log_content"] })
+              }
+            >
+              <SelectTrigger className="h-9 w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">none</SelectItem>
+                <SelectItem value="summary">summary</SelectItem>
+                <SelectItem value="full">full</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <Select value={upstreamFilter} onValueChange={onUpstreamChange}>
             <SelectTrigger className="w-56">
               <SelectValue placeholder="Filter upstream" />
@@ -123,17 +161,11 @@ export default function Logs() {
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" onClick={refresh}>
-            Refresh
+          <Button variant="outline" onClick={refresh} disabled={configSaving}>
+            {configSaving ? "Saving…" : "Refresh"}
           </Button>
         </div>
       </div>
-
-      {loadErr && (
-        <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {loadErr}
-        </div>
-      )}
 
       {items === null ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
@@ -141,18 +173,19 @@ export default function Logs() {
         <EmptyState />
       ) : (
         <div className="rounded-lg border border-border">
-          <Table>
+          <Table className="w-full table-fixed">
             <TableHeader>
-              <TableRow>
-                <TableHead className="w-44">created_at</TableHead>
-                <TableHead className="w-32">upstream</TableHead>
-                <TableHead>model</TableHead>
-                <TableHead className="w-24">status</TableHead>
-                <TableHead className="w-20 text-right">latency</TableHead>
-                <TableHead className="w-24 text-right">in→out</TableHead>
-                <TableHead className="w-40">client_addr</TableHead>
-                <TableHead className="w-48">upstream_url</TableHead>
-                <TableHead>error</TableHead>
+              <TableRow className="bg-muted/45 hover:bg-muted/45">
+                <TableHead className="w-[13%]">created_at</TableHead>
+                <TableHead className="w-[8%]">upstream</TableHead>
+                <TableHead className="w-[10%]">model</TableHead>
+                <TableHead className="w-[7%]">status</TableHead>
+                <TableHead className="w-[6%] text-right">latency</TableHead>
+                <TableHead className="w-[7%] text-right">in→out</TableHead>
+                <TableHead className="w-[17%]">request</TableHead>
+                <TableHead className="w-[17%]">response</TableHead>
+                <TableHead className="w-[7%]">client</TableHead>
+                <TableHead className="w-[8%]">error</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -162,7 +195,7 @@ export default function Logs() {
                     {formatDate(entry.created_at)}
                   </TableCell>
                   <TableCell>{entry.upstream ?? "-"}</TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="truncate font-mono text-xs">
                     {entry.model ?? "-"}
                   </TableCell>
                   <TableCell>{statusBadge(entry.status)}</TableCell>
@@ -172,6 +205,12 @@ export default function Logs() {
                   <TableCell className="text-right font-mono text-xs">
                     {(entry.input_tokens ?? 0)}→{(entry.output_tokens ?? 0)}
                   </TableCell>
+                  <TableCell className="align-top">
+                    <LogTextCell text={entry.request_text} />
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <LogTextCell text={entry.response_text} />
+                  </TableCell>
                   <TableCell
                     className="truncate font-mono text-xs text-muted-foreground"
                     title={entry.client_addr ?? ""}
@@ -179,13 +218,10 @@ export default function Logs() {
                     {entry.client_addr ?? "-"}
                   </TableCell>
                   <TableCell
-                    className="truncate font-mono text-xs text-muted-foreground"
-                    title={entry.upstream_url ?? ""}
+                    className="truncate text-xs text-muted-foreground"
+                    title={entry.error ?? ""}
                   >
-                    {entry.upstream_url ?? "-"}
-                  </TableCell>
-                  <TableCell className="max-w-xs truncate text-xs text-muted-foreground">
-                    {entry.error ?? ""}
+                    {entry.error ?? "-"}
                   </TableCell>
                 </TableRow>
               ))}
@@ -233,6 +269,21 @@ export default function Logs() {
           </Button>
         </div>
       </div>
+
+      {(info || loadErr) && (
+        <div className="mt-4 space-y-3">
+          {info && (
+            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/8 p-3 text-sm text-emerald-700">
+              {info}
+            </div>
+          )}
+          {loadErr && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+              {loadErr}
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }
@@ -253,8 +304,28 @@ function statusBadge(s: string) {
   return <Badge variant="outline">{s}</Badge>;
 }
 
+function LogTextCell({ text }: { text: string | null }) {
+  if (!text) {
+    return <span className="text-xs text-muted-foreground">-</span>;
+  }
+  const compact = text.trim();
+  const preview = compact.length > 88 ? `${compact.slice(0, 87).trimEnd()}…` : compact;
+  return (
+    <details className="group">
+      <summary
+        className="line-clamp-2 cursor-pointer list-none text-xs text-muted-foreground marker:hidden"
+        title={compact}
+      >
+        {preview}
+      </summary>
+      <div className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded border border-border bg-muted/25 p-2 font-mono text-xs text-foreground">
+        {compact}
+      </div>
+    </details>
+  );
+}
+
 function formatDate(iso: string): string {
-  // server 存 UTC;UI 展示本地时间
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString();

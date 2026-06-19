@@ -1,4 +1,4 @@
-import { CopyIcon, PencilIcon, StarIcon, Trash2Icon } from "lucide-react";
+import { CopyIcon, FlaskConicalIcon, PencilIcon, Trash2Icon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
@@ -43,39 +43,61 @@ import {
   UPSTREAM_PROVIDERS,
   api,
   serverApiLabel,
+  type ServerApi,
   type UpstreamCreate,
+  type UpstreamDefaultsOut,
   type UpstreamOut,
   type UpstreamNativeApi,
   type UpstreamProvider,
   type UpstreamUpdate,
 } from "@/lib/api";
+import {
+  defaultBindingRows,
+  formatUpstreamOptionLabel,
+  type UpstreamDefaultScope,
+} from "@/lib/upstream-defaults";
 
 const NATIVE_APIS: UpstreamNativeApi[] = ["messages", "completions", "responses"];
 
-// native API 分组渲染顺序;`any` 是 mock 占位,放最后
-const GROUP_ORDER: string[] = ["messages", "completions", "responses", "any"];
-
-const COLUMN_COUNT = 9;
-
 export default function Upstreams() {
   const [items, setItems] = useState<UpstreamOut[] | null>(null);
+  const [defaults, setDefaults] = useState<UpstreamDefaultsOut | null>(null);
+  const [defaultDrafts, setDefaultDrafts] = useState<Record<UpstreamDefaultScope, string>>({
+    global: "",
+    messages: "",
+    completions: "",
+    responses: "",
+  });
+  const [savingScope, setSavingScope] = useState<UpstreamDefaultScope | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [openAdd, setOpenAdd] = useState(false);
   const [toEdit, setToEdit] = useState<UpstreamOut | null>(null);
   const [toCopy, setToCopy] = useState<UpstreamOut | null>(null);
   const [toDelete, setToDelete] = useState<UpstreamOut | null>(null);
   const [restoringMock, setRestoringMock] = useState(false);
+  const [testingUpstreamId, setTestingUpstreamId] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoadErr(null);
     try {
-      const list = await api.listUpstreams();
-      // 后端按 created_at 升序返回;UI 倒序让最新创建的排在最前
+      const [list, bindings] = await Promise.all([
+        api.listUpstreams(),
+        api.listUpstreamDefaults(),
+      ]);
       setItems([...list].reverse());
+      setDefaults(bindings);
+      setDefaultDrafts(defaultsToDrafts(bindings));
     } catch (e) {
       setLoadErr(e instanceof Error ? e.message : String(e));
       setItems([]);
+      setDefaults(null);
+      setDefaultDrafts({
+        global: "",
+        messages: "",
+        completions: "",
+        responses: "",
+      });
     }
   }, []);
 
@@ -83,20 +105,14 @@ export default function Upstreams() {
     void load();
   }, [load]);
 
-  // 按 upstream native API 分组(messages → completions → responses → any),空组不渲染
-  const grouped = useMemo(() => {
-    if (!items) return [] as Array<{ nativeApi: string; rows: UpstreamOut[] }>;
-    const buckets = new Map<string, UpstreamOut[]>();
-    for (const u of items) {
-      const arr = buckets.get(u.native_api) ?? [];
-      arr.push(u);
-      buckets.set(u.native_api, arr);
-    }
-    return GROUP_ORDER.filter((p) => buckets.has(p)).map((p) => ({
-      nativeApi: p,
-      rows: buckets.get(p) ?? [],
-    }));
-  }, [items]);
+  const upstreamOptions = useMemo(
+    () =>
+      (items ?? []).map((upstream) => ({
+        name: upstream.name,
+        label: formatUpstreamOptionLabel(upstream),
+      })),
+    [items],
+  );
 
   async function handleDelete(id: string) {
     try {
@@ -109,15 +125,24 @@ export default function Upstreams() {
     }
   }
 
-  async function handleSetDefault(name: string) {
+  async function handleSaveDefault(scope: UpstreamDefaultScope) {
+    const nextName = defaultDrafts[scope];
+    if (!nextName) return;
+
     setInfo(null);
     setLoadErr(null);
+    setSavingScope(scope);
     try {
-      const updated = await api.setDefaultUpstream(name);
-      setInfo(`upstream '${updated.name}' is now default for native_api=${updated.native_api}`);
+      const updated = await api.setDefaultUpstream(
+        nextName,
+        scope === "global" ? undefined : (scope as ServerApi),
+      );
+      setInfo(`default ${scope} -> ${updated.name}`);
       await load();
     } catch (e) {
       setLoadErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingScope(null);
     }
   }
 
@@ -140,6 +165,28 @@ export default function Upstreams() {
     }
   }
 
+  async function handleTestUpstream(upstream: UpstreamOut) {
+    setInfo(null);
+    setLoadErr(null);
+    setTestingUpstreamId(upstream.id);
+    try {
+      const result = await api.testUpstream(upstream.id);
+      if (result.ok) {
+        setInfo(`Test OK · ${upstream.name} · ${result.summary}`);
+      } else {
+        setLoadErr(
+          `Test FAIL · ${upstream.name} · ${result.summary}${
+            result.detail ? ` · ${result.detail}` : ""
+          }`,
+        );
+      }
+    } catch (e) {
+      setLoadErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTestingUpstreamId(null);
+    }
+  }
+
   return (
     <section>
       <div className="mb-6 flex items-center justify-between">
@@ -156,18 +203,6 @@ export default function Upstreams() {
         </div>
       </div>
 
-      {info && (
-        <div className="mb-4 rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
-          {info}
-        </div>
-      )}
-
-      {loadErr && (
-        <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {loadErr}
-        </div>
-      )}
-
       {items === null ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : items.length === 0 && !loadErr ? (
@@ -177,35 +212,145 @@ export default function Upstreams() {
           restoringMock={restoringMock}
         />
       ) : (
-        <div className="rounded-lg border border-border overflow-x-auto">
-          <Table className="w-full table-fixed">
+        <>
+          {defaults && (
+            <DefaultsPanel
+              defaults={defaults}
+              drafts={defaultDrafts}
+              options={upstreamOptions}
+              savingScope={savingScope}
+              onDraftChange={(scope, name) =>
+                setDefaultDrafts((current) => ({ ...current, [scope]: name }))
+              }
+              onSave={(scope) => void handleSaveDefault(scope)}
+            />
+          )}
+
+          <div className="rounded-lg border border-border">
+            <Table className="w-full table-fixed">
             <TableHeader>
-              <TableRow>
-                <TableHead className="w-[14%]">name</TableHead>
-                <TableHead className="w-[10%]">provider</TableHead>
-                <TableHead className="w-[18%]">model</TableHead>
-                <TableHead>base_url</TableHead>
-                <TableHead className="w-[18%]">api_key</TableHead>
-                <TableHead className="w-16">enabled</TableHead>
-                <TableHead className="w-16">default</TableHead>
-                <TableHead className="w-32">created_at</TableHead>
-                <TableHead className="w-28 text-right">actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {grouped.map((group) => (
-                <GroupSection
-                  key={group.nativeApi}
-                  nativeApi={group.nativeApi}
-                  rows={group.rows}
-                  onSetDefault={(u) => void handleSetDefault(u.name)}
-                  onEdit={(u) => setToEdit(u)}
-                  onCopy={(u) => setToCopy(u)}
-                  onDelete={(u) => setToDelete(u)}
-                />
-              ))}
-            </TableBody>
-          </Table>
+              <TableRow className="bg-muted/45 hover:bg-muted/45">
+                <TableHead className="w-[10%]">name</TableHead>
+                <TableHead className="w-[7%]">provider</TableHead>
+                <TableHead className="w-[15%]">native_api</TableHead>
+                <TableHead className="w-[10%]">model</TableHead>
+                  <TableHead>base_url</TableHead>
+                  <TableHead className="w-[9%]">api_key</TableHead>
+                  <TableHead className="w-16">enabled</TableHead>
+                  <TableHead className="w-48">created_at</TableHead>
+                  <TableHead className="w-32 text-right">actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((u) => (
+                  <TableRow key={u.id}>
+                    <TableCell className="truncate font-medium" title={u.name}>
+                      {u.name}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{u.provider}</Badge>
+                    </TableCell>
+                    <TableCell
+                      className="truncate text-xs text-muted-foreground"
+                      title={serverApiLabel(u.native_api)}
+                    >
+                      {serverApiLabel(u.native_api)}
+                    </TableCell>
+                    <TableCell
+                      className="truncate font-mono text-xs text-muted-foreground"
+                      title={u.model ?? ""}
+                    >
+                      {u.model ?? "-"}
+                    </TableCell>
+                    <TableCell className="truncate text-xs text-muted-foreground" title={u.base_url}>
+                      {u.base_url}
+                    </TableCell>
+                    <TableCell
+                      className="truncate font-mono text-xs text-muted-foreground"
+                      title={u.api_key ?? ""}
+                    >
+                      {u.api_key ?? "-"}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className={`size-2 rounded-full ${
+                            u.enabled ? "bg-emerald-500" : "bg-muted-foreground/40"
+                          }`}
+                          aria-hidden
+                        />
+                        <span className={u.enabled ? "font-medium" : "text-muted-foreground"}>
+                          {u.enabled ? "on" : "off"}
+                        </span>
+                      </span>
+                    </TableCell>
+                    <TableCell
+                      className="truncate font-mono text-xs text-muted-foreground"
+                      title={u.created_at}
+                    >
+                      {formatDate(u.created_at)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        {u.provider !== "mock" && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              title="Edit"
+                              onClick={() => setToEdit(u)}
+                            >
+                              <PencilIcon />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              title="Copy as new"
+                              onClick={() => setToCopy(u)}
+                            >
+                              <CopyIcon />
+                            </Button>
+                          </>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          title="Test"
+                          disabled={testingUpstreamId === u.id}
+                          onClick={() => void handleTestUpstream(u)}
+                        >
+                          <FlaskConicalIcon />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          title="Delete"
+                          onClick={() => setToDelete(u)}
+                        >
+                          <Trash2Icon />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </>
+      )}
+
+      {(info || loadErr) && (
+        <div className="mt-4 space-y-3">
+          {info && (
+            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/8 p-3 text-sm text-emerald-700">
+              {info}
+            </div>
+          )}
+          {loadErr && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+              {loadErr}
+            </div>
+          )}
         </div>
       )}
 
@@ -266,135 +411,82 @@ export default function Upstreams() {
   );
 }
 
-function GroupSection({
-  nativeApi,
-  rows,
-  onSetDefault,
-  onEdit,
-  onCopy,
-  onDelete,
+function DefaultsPanel({
+  defaults,
+  drafts,
+  options,
+  savingScope,
+  onDraftChange,
+  onSave,
 }: {
-  nativeApi: string;
-  rows: UpstreamOut[];
-  onSetDefault: (u: UpstreamOut) => void;
-  onEdit: (u: UpstreamOut) => void;
-  onCopy: (u: UpstreamOut) => void;
-  onDelete: (u: UpstreamOut) => void;
+  defaults: UpstreamDefaultsOut;
+  drafts: Record<UpstreamDefaultScope, string>;
+  options: Array<{ name: string; label: string }>;
+  savingScope: UpstreamDefaultScope | null;
+  onDraftChange: (scope: UpstreamDefaultScope, name: string) => void;
+  onSave: (scope: UpstreamDefaultScope) => void;
 }) {
   return (
-    <>
-      <TableRow className="bg-muted/40 hover:bg-muted/40">
-        <TableCell
-          colSpan={COLUMN_COUNT}
-          className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-        >
-          native_api={serverApiLabel(nativeApi)}{" "}
-          <span className="text-muted-foreground/70">· {rows.length}</span>
-        </TableCell>
-      </TableRow>
-      {rows.map((u) => (
-        <TableRow key={u.id}>
-          <TableCell className="truncate font-medium" title={u.name}>
-            {u.name}
-          </TableCell>
-          <TableCell>
-            <Badge variant="outline">{u.provider}</Badge>
-          </TableCell>
-          <TableCell
-            className="truncate font-mono text-xs text-muted-foreground"
-            title={u.model ?? ""}
-          >
-            {u.model ?? "-"}
-          </TableCell>
-          <TableCell
-            className="truncate text-xs text-muted-foreground"
-            title={u.base_url}
-          >
-            {u.base_url}
-          </TableCell>
-          <TableCell
-            className="truncate font-mono text-xs text-muted-foreground"
-            title={u.api_key ?? ""}
-          >
-            {u.api_key ?? "-"}
-          </TableCell>
-          <TableCell className="text-xs">
-            <span className="inline-flex items-center gap-1.5">
-              <span
-                className={`size-2 rounded-full ${
-                  u.enabled ? "bg-emerald-500" : "bg-muted-foreground/40"
-                }`}
-                aria-hidden
-              />
-              <span className={u.enabled ? "font-medium" : "text-muted-foreground"}>
-                {u.enabled ? "on" : "off"}
-              </span>
-            </span>
-          </TableCell>
-          <TableCell>
-            {u.native_api !== "any" && (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                title={
-                  u.is_default
-                    ? "Default for this native API"
-                    : "Set as default for this native API"
-                }
-                disabled={u.is_default}
-                onClick={() => onSetDefault(u)}
-              >
-                <StarIcon
-                  className={
-                    u.is_default
-                      ? "fill-amber-400 text-amber-500"
-                      : "text-muted-foreground"
-                  }
-                />
-              </Button>
-            )}
-          </TableCell>
-          <TableCell
-            className="truncate font-mono text-xs text-muted-foreground"
-            title={u.created_at}
-          >
-            {formatDate(u.created_at)}
-          </TableCell>
-          <TableCell className="text-right">
-            <div className="flex justify-end gap-1">
-              {u.provider !== "mock" && (
-                <>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    title="Edit"
-                    onClick={() => onEdit(u)}
+    <div className="mb-6 rounded-lg border border-border">
+      <div className="border-b border-border px-4 py-3">
+        <h2 className="text-sm font-semibold">Defaults</h2>
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow className="bg-muted/45 hover:bg-muted/45">
+            <TableHead className="w-32">server_api</TableHead>
+            <TableHead className="w-[22%]">current</TableHead>
+            <TableHead>upstream</TableHead>
+            <TableHead className="w-24 text-right">action</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {defaultBindingRows(defaults).map((row) => {
+            const draft = drafts[row.scope];
+            const unchanged = draft === (row.upstreamName ?? "");
+            const saving = savingScope === row.scope;
+            return (
+              <TableRow key={row.scope}>
+                <TableCell className="font-medium">
+                  {row.scope === "global" ? "global" : serverApiLabel(row.scope)}
+                </TableCell>
+                <TableCell className="truncate text-xs text-muted-foreground">
+                  {row.upstreamName ?? "-"}
+                </TableCell>
+                <TableCell>
+                  <Select
+                    value={draft || undefined}
+                    onValueChange={(value) => onDraftChange(row.scope, value)}
                   >
-                    <PencilIcon />
-                  </Button>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Select upstream" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {options.map((option) => (
+                        <SelectItem key={`${row.scope}-${option.name}`} value={option.name}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </TableCell>
+                <TableCell className="text-right">
                   <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    title="Copy as new"
-                    onClick={() => onCopy(u)}
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    disabled={!draft || unchanged || saving}
+                    onClick={() => onSave(row.scope)}
                   >
-                    <CopyIcon />
+                    {saving ? "Saving…" : "Save"}
                   </Button>
-                </>
-              )}
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                title="Delete"
-                onClick={() => onDelete(u)}
-              >
-                <Trash2Icon />
-              </Button>
-            </div>
-          </TableCell>
-        </TableRow>
-      ))}
-    </>
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
   );
 }
 
@@ -454,14 +546,11 @@ function UpstreamFormDialog({
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // open 翻 true 时按 initial 填表;关闭时 reset
   useEffect(() => {
     if (!open) return;
     setErr(null);
     if ((mode === "edit" || mode === "copy") && initial) {
-      // copy 时 name 加后缀避免 UNIQUE 冲突;edit 时保留原 name
       setName(mode === "copy" ? `${initial.name}-copy` : initial.name);
-      // initial.native_api 可能是 "any"(mock),但 mock 不让编辑/复制,这里保险下
       setNativeApi(
         (NATIVE_APIS as readonly string[]).includes(initial.native_api)
           ? (initial.native_api as UpstreamNativeApi)
@@ -492,7 +581,6 @@ function UpstreamFormDialog({
     }
     setSubmitting(true);
     try {
-      // add 和 copy 都走 createUpstream,语义都是"新建一行";copy 仅在预填上不同
       if (mode === "add" || mode === "copy") {
         const payload: UpstreamCreate = {
           name: name.trim(),
@@ -504,7 +592,6 @@ function UpstreamFormDialog({
         };
         await api.createUpstream(payload);
       } else if (initial) {
-        // 只发与原值不同的字段;api_key 为空表示清空该字段
         const payload: UpstreamUpdate = {};
         if (name.trim() !== initial.name) payload.name = name.trim();
         if (nativeApi !== initial.native_api) payload.native_api = nativeApi;
@@ -522,7 +609,6 @@ function UpstreamFormDialog({
           payload.model = trimmedModel || null;
         }
         if (Object.keys(payload).length === 0) {
-          // 没改动,直接关
           await onSubmitted();
           return;
         }
@@ -545,7 +631,7 @@ function UpstreamFormDialog({
 
   const title = isEdit ? "Edit upstream" : isCopy ? "Copy upstream" : "Add upstream";
   const description = isEdit
-    ? "修改字段后保存;api_key 会回显,留空保存会清空。改 upstream native API 时如果该行是 default,会自动清掉。"
+    ? "修改字段后保存;api_key 会回显,留空保存会清空。"
     : isCopy
       ? `以 '${initial?.name}' 为模板新建一行;name 已加 -copy 后缀避免冲突,api_key 会带过来,可按需修改。`
       : "新建上游 upstream;model 留空时,客户端必须自带 body.model。base_url 填根地址,不要带 /v1 或具体 API 路径。";
@@ -688,8 +774,16 @@ function UpstreamFormDialog({
 }
 
 function formatDate(iso: string): string {
-  // server 存 UTC;UI 展示本地时间
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString();
+}
+
+function defaultsToDrafts(defaults: UpstreamDefaultsOut): Record<UpstreamDefaultScope, string> {
+  return {
+    global: defaults.global ?? "",
+    messages: defaults.messages ?? "",
+    completions: defaults.completions ?? "",
+    responses: defaults.responses ?? "",
+  };
 }

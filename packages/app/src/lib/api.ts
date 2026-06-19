@@ -81,6 +81,24 @@ export interface UpstreamOut {
   created_at: string;
 }
 
+export interface UpstreamDefaultsOut {
+  global: string | null;
+  messages: string | null;
+  completions: string | null;
+  responses: string | null;
+}
+
+export interface UpstreamProbeOut {
+  ok: boolean;
+  upstream_id: string;
+  upstream_name: string;
+  native_api: string;
+  status_code: number | null;
+  category: string;
+  summary: string;
+  detail: string | null;
+}
+
 export interface UpstreamCreate {
   name: string;
   native_api: UpstreamNativeApi;
@@ -127,6 +145,8 @@ export interface LogOut {
   client_addr: string | null;
   /** 请求当时的 upstream.base_url 快照(mock 路径写 'mock://')。 */
   upstream_url: string | null;
+  request_text: string | null;
+  response_text: string | null;
 }
 
 export interface ListLogsParams {
@@ -141,6 +161,11 @@ export interface ListLogsParams {
 export interface LogListResponse {
   items: LogOut[];
   total: number;
+}
+
+export interface LogsConfigOut {
+  log_content: "none" | "summary" | "full";
+  page_size: 10 | 20 | 50 | 100;
 }
 
 export class ApiError extends Error {
@@ -210,8 +235,17 @@ export const api = {
   deleteUpstream(id: string): Promise<void> {
     return request(`/admin/upstreams/${id}`, { method: "DELETE" });
   },
-  setDefaultUpstream(name: string): Promise<UpstreamOut> {
-    return request(`/admin/upstreams/${encodeURIComponent(name)}/default`, {
+  listUpstreamDefaults(): Promise<UpstreamDefaultsOut> {
+    return request("/admin/upstreams/defaults");
+  },
+  testUpstream(id: string): Promise<UpstreamProbeOut> {
+    return request(`/admin/upstreams/${id}/test`, {
+      method: "POST",
+    });
+  },
+  setDefaultUpstream(name: string, serverApi?: ServerApi): Promise<UpstreamOut> {
+    const query = serverApi ? `?server_api=${encodeURIComponent(serverApi)}` : "";
+    return request(`/admin/upstreams/${encodeURIComponent(name)}/default${query}`, {
       method: "PUT",
     });
   },
@@ -229,6 +263,15 @@ export const api = {
     if (params.since) q.set("since", params.since);
     const qs = q.toString();
     return request(`/admin/logs${qs ? "?" + qs : ""}`);
+  },
+  logsConfig(): Promise<LogsConfigOut> {
+    return request("/admin/logs/config");
+  },
+  updateLogsConfig(payload: Partial<LogsConfigOut>): Promise<LogsConfigOut> {
+    return request("/admin/logs/config", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
   },
   restoreMockUpstream(force = false): Promise<RestoreMockResult> {
     return request(

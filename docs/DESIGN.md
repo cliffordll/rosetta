@@ -260,7 +260,7 @@ rosetta/
 │   │   │   ├── __init__.py      # admin_router + dataplane_router + register_exception_handlers
 │   │   │   ├── runtime.py       # /admin/ping · /admin/status · /admin/shutdown
 │   │   │   ├── upstreams.py     # /admin/upstreams CRUD + /admin/upstreams/restore-mock
-│   │   │   ├── logs.py          # GET /admin/logs(limit/offset/upstream/since/until)
+│   │   │   ├── logs.py          # GET /admin/logs + GET/PUT /admin/logs/config
 │   │   │   ├── stats.py         # GET /admin/stats?period=today|week|month
 │   │   │   ├── dataplane.py     # POST /v1/messages · /v1/chat/completions · /v1/responses
 │   │   │   └── errors.py        # rosetta_error(code, message, **extra) 错误响应体工厂
@@ -274,13 +274,14 @@ rosetta/
 │   │   │   └── exceptions.py    # ServiceError(status, code, message, **extra) domain exception
 │   │   │
 │   │   ├── repository/          # 数据访问层:ORM 查询封装
-│   │   │   ├── __init__.py      # re-export + UpstreamRepoDep / LogRepoDep FastAPI 依赖别名
+│   │   │   ├── __init__.py      # re-export + UpstreamRepoDep / LogRepoDep / SettingsRepoDep
 │   │   │   ├── upstream.py      # UpstreamRepo + MOCK_UPSTREAM_FIELDS(mock seed 身份)
-│   │   │   └── log.py           # LogRepo(create / list_with_upstream / aggregate_stats)
+│   │   │   ├── log.py           # LogRepo(create / list_with_upstream / aggregate_stats)
+│   │   │   └── settings.py      # SettingsRepo(全局 logs/default 配置)
 │   │   │
 │   │   ├── database/            # infra:engine / session / ORM / migrations
 │   │   │   ├── __init__.py
-│   │   │   ├── models.py        # Base + Upstream(provider + protocol 含 any)+ LogEntry
+│   │   │   ├── models.py        # Base + Upstream + Setting + LogEntry
 │   │   │   ├── session.py       # async engine + session_maker + init_db/dispose_db
 │   │   │   └── migrations/
 │   │   │       ├── __init__.py
@@ -447,7 +448,7 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 
 ### 8.4 路由规则
 
-**rosetta 不做 model-based 自动路由**;选 upstream 走**两段策略**:**显式 header 优先**,**header 缺失时按入口路径 protocol 取 default upstream**(protocol → upstream 1:N,但每个 protocol 至多一行 `is_default=true`;DB 用 partial unique index `(protocol) WHERE is_default=1` 兜底唯一)。原设计里按 `model_glob` 自动匹配 upstream 的 `routes` 表已经移除(2026-04 简化)。
+**rosetta 不做 model-based 自动路由**;选 upstream 走**两段策略**:**显式 header 优先**,**header 缺失时按入口 server_api 取 default upstream**。default 采用两层配置:先查 `default_upstream_id:<server_api>`,没有再查全局 `default_upstream_id`;原设计里按 `model_glob` 自动匹配 upstream 的 `routes` 表已经移除(2026-04 简化)。
 
 ```
 1. header 有 x-rosetta-upstream: <name>?
@@ -455,18 +456,23 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
       · 找到 enabled → 用它
       · 不存在 → 400 upstream_not_found
       · 被禁用 → 400 upstream_disabled
-   · 没有 → 按入口路径的 protocol 找 enabled 的 is_default=true 行
-      · 命中 → 用它
-      · 没设(或 default 被禁用) → 400 missing_rosetta_upstream
+   · 没有 → 先按入口 server_api 找 per-server_api default
+      · 没有 → 再查 global default
+      · 命中 enabled upstream → 用它
+      · 都没设(或 default 被禁用) → 400 missing_rosetta_upstream
 ```
 
-**严格同 protocol fallback**:default 查询锁死同 protocol(打 `/v1/messages` 只在 `protocol='messages'` 的行里找 default,不允许跨协议借用)。这避免了"客户端期望走某协议的 default,意外被翻译到另一协议"的隐式行为;要跨协议必须显式带 header。
+**允许跨 API 借用**:default upstream 的 `native_api` 可与入口 server_api 不同;命中后照常走 §8.3 翻译。这样一个 global default 可以同时服务多个入口 API,显式 `x-rosetta-upstream` 仍然优先。
 
-**default 的写入**:`PUT /admin/upstreams/{name}/default` / `rosetta upstream set-default <name>` / GUI Upstreams 页 "Set default" 按钮三选一。事务内"先清同 protocol 旧 default → 再 set 目标",partial unique index 在每条 statement 后检查,先清后 set 不会瞬时冲突。
+**default 的写入**:`PUT /admin/upstreams/{name}/default` / `rosetta upstream default <name> [--server-api ...]` / GUI Upstreams 页 Defaults 区块三选一。default 直接写 settings 表,不再把状态塞进 upstream 列表本身。
 
 **关于选中的 upstream 与入口 format**:选中 upstream 的 `protocol` 与入口 format 不一致时,自动走 §8.3 翻译(对角线直通仅发生在两者一致的情况)。例如入口 `/v1/messages` + upstream `protocol=completions` → IR 翻译为 Chat Completions 请求。
 
 **provider=mock 短路**:`forwarder.forward` 入口判 `upstream.provider == "mock"`,命中就**不发 HTTP**,直接调 `MockResponder.respond(fmt, body, stream=...)` 本地合成 echo 响应。mock 的请求侧仍走 `_REQ_TO_IR[fmt]` 严格 Pydantic 校验(schema 不合规返 400 `mock_invalid_request`);响应侧按客户端入口 fmt 走对应的 `_IR_TO_RESP` / `_IR_TO_STREAM` 出口 + `encode_sse_stream`,三协议共用一条 IR 流水(见 `rosetta/server/service/mock.py`)。`upstream.protocol=any` 只是占位,mock 不读它。
+
+**upstream 连通性测试**:`POST /admin/upstreams/{id}/test` 由 server 按该 upstream 自己的 `native_api` 发一个最小探测请求。成功时确认 `base_url + api_key + model` 组合可用;失败时尽量归类为 `network` / `auth` / `model` / `config` / `upstream_error` / `invalid_response`。CLI `rosetta upstream test <id>` 和 GUI Upstreams 页 `Test` 按钮都走这条接口,保证诊断口径一致且不污染正常业务 logs。
+
+**logs 全局配置**:`settings` 表同时承载 `log_content` 与 `logs_page_size` 两个全局键。`log_content` 取 `none | summary | full`,控制是否记录请求/响应文本以及摘要截断;`logs_page_size` 取 `10 | 20 | 50 | 100`,作为 CLI `rosetta logs` 和 GUI Logs 页的统一默认分页条数。管理入口统一是 `GET/PUT /admin/logs/config` 与 CLI `rosetta logs config`。
 
 **错误响应体**:
 
