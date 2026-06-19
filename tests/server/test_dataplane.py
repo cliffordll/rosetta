@@ -689,6 +689,46 @@ async def test_forward_writes_log_on_success(session: AsyncSession) -> None:
     assert entry.upstream_url == "mock://"
     assert entry.request_text == "hi"
     assert entry.response_text == "hi"
+    assert entry.input_tokens is not None and entry.input_tokens > 0
+    assert entry.output_tokens is not None and entry.output_tokens > 0
+
+
+async def test_forward_writes_log_tokens_on_stream_success(session: AsyncSession) -> None:
+    mock_up = Upstream(
+        id="c" * 32,
+        name="mock-log-stream",
+        native_api="any",
+        provider="mock",
+        api_key=None,
+        base_url="mock://",
+        enabled=True,
+    )
+    session.add(mock_up)
+    await session.commit()
+
+    body = json.dumps(
+        {
+            "model": "claude-haiku-4-5",
+            "max_tokens": 32,
+            "stream": True,
+            "messages": [{"role": "user", "content": "hello stream"}],
+        }
+    ).encode("utf-8")
+    resp = await forwarder.forward(
+        upstream=mock_up,
+        server_api=ServerApi.MESSAGES,
+        body=body,
+        content_type="application/json",
+    )
+    await _drain_stream(resp)
+
+    stmt = select(LogEntry).where(LogEntry.upstream_id == mock_up.id)
+    rows = (await session.execute(stmt)).scalars().all()
+    assert len(rows) == 1
+    entry = rows[0]
+    assert entry.status == "ok"
+    assert entry.input_tokens is not None and entry.input_tokens > 0
+    assert entry.output_tokens is not None and entry.output_tokens > 0
 
 
 async def test_forward_writes_log_on_service_error(session: AsyncSession) -> None:
@@ -742,12 +782,24 @@ async def test_streaming_log_accepts_memoryview_chunks() -> None:
         status: str,
         t0: float,
         *,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
         error: str | None = None,
         client_addr: str | None = None,
         request_text: str | None = None,
         response_text: str | None = None,
     ) -> None:
-        del upstream, model, status, t0, error, client_addr, request_text
+        del (
+            upstream,
+            model,
+            status,
+            t0,
+            input_tokens,
+            output_tokens,
+            error,
+            client_addr,
+            request_text,
+        )
         captured["response_text"] = response_text
 
     original = forwarder._record_log
