@@ -12,11 +12,16 @@ from collections.abc import Sequence
 from types import EllipsisType
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rosetta.server.database.models import ApiType, Upstream
+from rosetta.server.database.models import (
+    DEFAULT_UPSTREAM_KEY,
+    ApiType,
+    Setting,
+    Upstream,
+)
 
 MOCK_UPSTREAM_FIELDS: dict[str, Any] = {
     "id": "0" * 32,
@@ -27,7 +32,6 @@ MOCK_UPSTREAM_FIELDS: dict[str, Any] = {
     "api_key": None,
     "model": None,  # mock 路径不走 forwarder model fallback;client 自带
     "enabled": True,
-    "is_default": False,  # mock 不参与默认 upstream 路由
 }
 
 
@@ -105,11 +109,10 @@ class UpstreamRepo:
 
         - id 不存在 → `LookupError`(调用方转 404)
         - name 冲突 → `IntegrityError`(调用方转 409)
-        - native_api 改了且原行 `is_default=True` → 自动清掉 is_default(原 native_api
-          的 default 槽位空缺),避免"messages 的 default 突然变成 completions 的"
-          这种隐式语义跳变;调用方应在 UI 提示用户重新 set-default
         - api_key / model 用 sentinel `...`(Ellipsis) 区分"传 None 显式清空"和
           "未传保持原值";其他字段用 None 即"未传"
+        - `is_default` 已迁到 `settings` 表维护,这里不再清 is_default;改 native_api
+          后若该 upstream 仍是全局 default,forwarder 会按新 native_api 走 IR 翻译
         """
         target = await self.get_by_id(upstream_id)
         if target is None:
@@ -129,8 +132,6 @@ class UpstreamRepo:
             target.enabled = enabled
         if native_api is not None and native_api != target.native_api:
             target.native_api = native_api
-            # 旧 native_api 的 default 槽位被该行占用过的话,改 native_api 后清掉
-            target.is_default = False
 
         try:
             await self.session.commit()
@@ -144,47 +145,33 @@ class UpstreamRepo:
         await self.session.delete(upstream)
         await self.session.commit()
 
-    async def get_default(self, native_api: str) -> Upstream | None:
-        """按 native_api 查 enabled 的 default upstream(没设 / 被禁 / 不存在 → None)。
+    async def default_upstream_id(self) -> str | None:
+        """从 settings 表读当前全局 default upstream id。"""
+        setting = await self.session.get(Setting, DEFAULT_UPSTREAM_KEY)
+        return setting.value if setting is not None else None
 
-        DB 层有 partial unique index `(native_api) WHERE is_default=1` 兜底唯一,
-        所以这里 `scalar_one_or_none()` 安全;命中行若 enabled=False,视为没 default。
-        """
-        result = await self.session.execute(
-            select(Upstream).where(
-                Upstream.native_api == native_api,
-                Upstream.is_default.is_(True),
-                Upstream.enabled.is_(True),
-            )
-        )
-        return result.scalar_one_or_none()
+    async def get_default(self) -> Upstream | None:
+        """查 enabled 的全局 default upstream(没设 / 被禁 / 不存在 → None)。"""
+        upstream_id = await self.default_upstream_id()
+        if upstream_id is None:
+            return None
+        upstream = await self.get_by_id(upstream_id)
+        if upstream is None or not upstream.enabled:
+            return None
+        return upstream
 
     async def set_default(self, name: str) -> Upstream:
-        """把 `name` 设为其 native_api 的 default;同 native_api 的旧 default 自动清零。
-
-        两步发 SQL(同事务):
-          1. UPDATE upstreams SET is_default=0 WHERE native_api=<target> AND id != <target.id>
-          2. UPDATE upstreams SET is_default=1 WHERE id = <target.id>
-        SQLite 默认 immediate 约束,partial unique index 在每条 statement 后检查,
-        先清零再 set 不会瞬时冲突。
+        """把 `name` 设为全局 default;写入 `settings` 表。
 
         - name 不存在 → `LookupError`(调用方转 404)
-        - mock 行(native_api='any')也允许设,但 selector 不会查 'any';无副作用
+        - mock 行(native_api='any')也允许设为全局 default
         """
         target = await self.get_by_name(name)
         if target is None:
             raise LookupError(f"upstream name={name!r} 不存在")
 
-        await self.session.execute(
-            update(Upstream)
-            .where(Upstream.native_api == target.native_api, Upstream.id != target.id)
-            .values(is_default=False)
-        )
-        await self.session.execute(
-            update(Upstream).where(Upstream.id == target.id).values(is_default=True)
-        )
+        await self.session.merge(Setting(key=DEFAULT_UPSTREAM_KEY, value=target.id))
         await self.session.commit()
-        await self.session.refresh(target)
         return target
 
     async def restore_mock(self, *, force: bool) -> tuple[bool, Upstream]:

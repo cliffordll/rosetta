@@ -26,6 +26,8 @@ from uuid import uuid4
 from sqlalchemy import ForeignKey, Index
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+DEFAULT_UPSTREAM_KEY = "default_upstream_id"
+
 UpstreamNativeApi = Literal["messages", "completions", "responses", "any"]
 UpstreamProvider = Literal[
     "anthropic",
@@ -60,8 +62,16 @@ class Upstream(Base):
     api_key: Mapped[str | None] = mapped_column(default=None)
     model: Mapped[str | None] = mapped_column(default=None)
     enabled: Mapped[bool] = mapped_column(default=True)
-    is_default: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
+class Setting(Base):
+    """通用 key-value 配置表。当前只用于存全局 default upstream id。"""
+
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(primary_key=True)
+    value: Mapped[str]
 
 
 class ApiType(Base):
