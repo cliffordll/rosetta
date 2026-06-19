@@ -9,7 +9,7 @@
 ## 能做什么
 
 - **跨生态调用**:客户端用任一主流 API 格式写,上游可以是任一主流 LLM 服务,中间格式差异由代理透明翻译
-- **多 upstream 集中管理**:一个地方管所有 key / 用量统计;客户端通过 `x-rosetta-upstream` header 显式选,或按入口 server_api 走 default upstream(每个 server_api 至多一个 default,`rosetta upstream set-default <name>` 配置)
+- **多 upstream 集中管理**:一个地方管所有 key / 用量统计;客户端通过 `x-rosetta-upstream` header 显式选,或按入口 server_api 走 default upstream(支持 global fallback + per-server_api default,`rosetta upstream default <name>` 配置)
 - **开箱即用**:CLI 一次性对话、REPL 多轮、桌面 GUI 三种交互,SSE 流式全程原生转发
 
 **类比**:cc-switch 的"AI 配置管家"概念 + 自研的格式翻译引擎。cc-switch 切的是配置文件,本项目切的是运行时流量并做格式转换。
@@ -106,9 +106,15 @@ uv run rosetta chat --upstream anthropic-main "hello"   # 不传 --model 也跑,
 # 改字段(部分更新;留空不动)
 uv run rosetta upstream update <id> --model claude-sonnet-4-5
 
-# 设为 messages server_api 的默认上游;之后 chat 不传 --upstream 也能跑
-uv run rosetta upstream set-default anthropic-main
+# 设为 global 默认上游;之后 chat 不传 --upstream 也能跑
+uv run rosetta upstream default anthropic-main
 uv run rosetta chat "hello"   # 不传 --upstream / --model,全靠 upstream 默认值
+
+# 查看 global/messages/completions/responses 默认绑定
+uv run rosetta upstream defaults
+
+# 测一下当前 upstream 的 base_url / api_key / model 是否可用
+uv run rosetta upstream test <id>
 
 # 绕 server 直连(direct 模式)
 uv run rosetta chat --base-url https://api.anthropic.com --api-key sk-ant-XXX --model claude-haiku-4-5 "hello"
@@ -117,9 +123,11 @@ uv run rosetta chat --base-url https://api.anthropic.com --api-key sk-ant-XXX --
 uv run rosetta upstream restore-mock
 
 # 看请求日志
-uv run rosetta logs              # 最近 50 条表格
+uv run rosetta logs              # 最近 N 条;默认条数走 logs config
 uv run rosetta logs -f           # 实时 follow(Ctrl+C 退出)
 uv run rosetta logs --upstream mock --limit 20
+uv run rosetta logs config
+uv run rosetta logs config --log-content summary --page-size 50
 
 # 跑测试
 uv run pytest

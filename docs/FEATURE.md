@@ -32,6 +32,23 @@
 > 运行全量自动化测试:`uv run pytest`(单元层,不打真实上游);集成测试需加 `--integration` 开关。
 >
 > **本文件除 heading 进度标记外原则上不动**;如果步骤定义需要调整,在 commit message 写清原因。
+>
+> **2026-06 当前实现补充**:
+> - upstream 默认管理已从旧的 `set-default` + 列表 `default` 列,调整为:
+>   - CLI `rosetta upstream default <name> [--server-api ...]`
+>   - CLI `rosetta upstream defaults`
+>   - GUI Upstreams 页独立 `Defaults` 区块
+> - upstream 连通性测试已落地:
+>   - `POST /admin/upstreams/{id}/test`
+>   - SDK `test_upstream(id)`
+>   - CLI `rosetta upstream test <id>`
+>   - GUI Upstreams 行级 `Test` 按钮
+> - logs 全局配置已补充:
+>   - `GET/PUT /admin/logs/config`
+>   - SDK `logs_config()` / `update_logs_config(...)`
+>   - CLI `rosetta logs config [--log-content ...] [--page-size ...]`
+>   - GUI Logs 页同步 `log_content` 与默认每页条数
+> - `logs` 表已补 `request_text` / `response_text`,Logs 页和 CLI 列表都能直接看到问答文本
 
 ---
 
