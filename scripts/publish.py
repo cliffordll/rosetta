@@ -10,7 +10,8 @@
     uv run python scripts/publish.py build               一键产 CLI + server + desktop exe
     uv run python scripts/publish.py build --installer   上述 + NSIS installer + latest.json
     uv run python scripts/publish.py tag create [--push] 打本地 tag vX.Y.Z;--push 触发 release.yml
-    uv run python scripts/publish.py tag delete [--push] 删本地 tag;--push 同时删 origin
+    uv run python scripts/publish.py tag push            单独推送当前版本 tag 到 origin
+    uv run python scripts/publish.py tag delete [--push|--remote] 删本地 tag;可同时或单独删 origin
 
 build 产物按版本号归集到 `dist/rosetta-<ver>/`(三个 exe 同目录,满足桌面侧
 "sidecar 必须跟主 exe 同目录"的硬约束;rosetta-server.exe 一份双重身份):
@@ -440,6 +441,27 @@ def _cmd_tag_create(push: bool) -> int:
     return 0
 
 
+def _cmd_tag_push() -> int:
+    version = _current_version_or_die()
+    tag = f"v{version}"
+
+    if not _local_tag_exists(tag):
+        print(
+            f"[publish] FAIL · tag {tag} 本地不存在;先 `publish.py tag create`",
+            file=sys.stderr,
+        )
+        return 1
+
+    if _git_run(["push", "origin", tag]) != 0:
+        print(
+            f"[publish] FAIL · git push origin {tag} 失败(见上方 git 输出)",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"[publish] tag {tag} 已推送到 origin(release.yml 应已开始跑)")
+    return 0
+
+
 def _cmd_tag_delete(push: bool) -> int:
     version = _current_version_or_die()
     tag = f"v{version}"
@@ -455,6 +477,24 @@ def _cmd_tag_delete(push: bool) -> int:
     if not push:
         print("[publish] 提示:加 --push 同步删远端(若远端 tag 也要清)")
         return 0
+
+    if not _remote_tag_exists(tag):
+        print(f"[publish] WARN · tag {tag} 远端不存在,跳过远端删除", file=sys.stderr)
+        return 0
+
+    if _git_run(["push", "origin", "--delete", tag]) != 0:
+        print(
+            f"[publish] FAIL · git push origin --delete {tag} 失败(见上方 git 输出)",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"[publish] tag {tag} 已从 origin 删除(GitHub Release 需在 Releases 页手动删)")
+    return 0
+
+
+def _cmd_tag_delete_remote() -> int:
+    version = _current_version_or_die()
+    tag = f"v{version}"
 
     if not _remote_tag_exists(tag):
         print(f"[publish] WARN · tag {tag} 远端不存在,跳过远端删除", file=sys.stderr)
@@ -521,11 +561,19 @@ def main() -> int:
         help="同时推送到 origin(触发 release.yml)",
     )
 
+    p_tag_sub.add_parser("push", help="单独推送当前版本号对应的本地 tag 到 origin")
+
     p_tag_delete = p_tag_sub.add_parser("delete", help="删除本地 tag vX.Y.Z")
-    p_tag_delete.add_argument(
+    delete_mode = p_tag_delete.add_mutually_exclusive_group()
+    delete_mode.add_argument(
         "--push",
         action="store_true",
         help="同时删除 origin 上的同名 tag",
+    )
+    delete_mode.add_argument(
+        "--remote",
+        action="store_true",
+        help="仅删除 origin 上的同名 tag,不删本地",
     )
 
     args = parser.parse_args()
@@ -538,7 +586,11 @@ def main() -> int:
     if args.cmd == "tag":
         if args.tag_cmd == "create":
             return _cmd_tag_create(push=args.push)
+        if args.tag_cmd == "push":
+            return _cmd_tag_push()
         if args.tag_cmd == "delete":
+            if args.remote:
+                return _cmd_tag_delete_remote()
             return _cmd_tag_delete(push=args.push)
     parser.error(f"未知命令:{args.cmd}")  # argparse 会 sys.exit
     return 2  # unreachable
