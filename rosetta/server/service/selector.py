@@ -1,16 +1,15 @@
 """数据面 upstream 选择。
 
-两段策略(显式优先 + ServerApi default fallback,DESIGN §8.4):
+两段策略(显式优先 + 全局 default fallback,DESIGN §8.4):
 
 1. `x-rosetta-upstream: <name>` header 有值 → 按 name 精确匹配
    - 不存在 → 400 `upstream_not_found`
    - 被禁用 → 400 `upstream_disabled`
-2. header 缺失 → 按入口路径的 `server_api` 找 enabled 的 `is_default=True` 行
+2. header 缺失 → 找 enabled 的全局 `is_default=True` 行
    - 命中 → 用它
    - 没设 default(或 default 被禁) → 400 `missing_rosetta_upstream`
 
-跨 API 类型桥接是显式禁止的:fallback 严格按入口 server_api 找同 API 类型的 default,
-不允许跨 API 类型借用(避免隐式 IR 翻译路径)。
+default 的 native_api 可与入口 server_api 不同,由 forwarder 走 IR 翻译路径。
 """
 
 from __future__ import annotations
@@ -47,14 +46,11 @@ async def pick_upstream(
             )
         return upstream
 
-    default = await repo.get_default(server_api.value)
+    default = await repo.get_default()
     if default is None:
         raise ServiceError(
             status=400,
             code="missing_rosetta_upstream",
-            message=(
-                f"未传 x-rosetta-upstream header 且 server_api={server_api.value} "
-                "无可用 default upstream"
-            ),
+            message="未传 x-rosetta-upstream header 且无可用全局 default upstream",
         )
     return default

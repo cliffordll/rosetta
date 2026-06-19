@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.exc import IntegrityError
 
-from rosetta.server.database.models import Upstream, UpstreamNativeApi, UpstreamProvider
+from rosetta.server.database.models import UpstreamNativeApi, UpstreamProvider
 from rosetta.server.repository import UpstreamRepoDep
 
 router = APIRouter()
@@ -38,7 +38,7 @@ class UpstreamUpdate(BaseModel):
 
     - 任何字段未传 → 不动
     - `api_key` / `model` 显式传 `null` → 清空该字段
-    - `native_api` 改了且原行 is_default=True → repository 层会自动清 is_default
+    - `native_api` 改了不影响全局 default(由 settings 表独立维护)
     """
 
     model_config = ConfigDict(extra="forbid", protected_namespaces=())
@@ -63,7 +63,7 @@ class UpstreamOut(BaseModel):
     base_url: str
     model: str | None
     enabled: bool
-    is_default: bool
+    is_default: bool = False
     created_at: datetime
     api_key: str | None = None
 
@@ -76,14 +76,19 @@ class RestoreMockOut(BaseModel):
 
 
 @router.get("/upstreams", response_model=list[UpstreamOut])
-async def list_upstreams(repo: UpstreamRepoDep) -> Sequence[Upstream]:
-    return await repo.list_all()
+async def list_upstreams(repo: UpstreamRepoDep) -> Sequence[UpstreamOut]:
+    upstreams = await repo.list_all()
+    default_id = await repo.default_upstream_id()
+    return [
+        UpstreamOut.model_validate(u).model_copy(update={"is_default": u.id == default_id})
+        for u in upstreams
+    ]
 
 
 @router.post("/upstreams", response_model=UpstreamOut, status_code=status.HTTP_201_CREATED)
-async def create_upstream(payload: UpstreamCreate, repo: UpstreamRepoDep) -> Upstream:
+async def create_upstream(payload: UpstreamCreate, repo: UpstreamRepoDep) -> UpstreamOut:
     try:
-        return await repo.create(
+        upstream = await repo.create(
             name=payload.name,
             native_api=payload.native_api,
             provider=payload.provider,
@@ -97,16 +102,19 @@ async def create_upstream(payload: UpstreamCreate, repo: UpstreamRepoDep) -> Ups
             status_code=status.HTTP_409_CONFLICT,
             detail=f"upstream name '{payload.name}' 已存在",
         ) from e
+    default_id = await repo.default_upstream_id()
+    return UpstreamOut.model_validate(upstream).model_copy(
+        update={"is_default": upstream.id == default_id}
+    )
 
 
 @router.put("/upstreams/{upstream_id}", response_model=UpstreamOut)
 async def update_upstream(
     upstream_id: str, payload: UpstreamUpdate, repo: UpstreamRepoDep
-) -> Upstream:
+) -> UpstreamOut:
     """部分更新 upstream;未传字段不动,`api_key`/`model` 传 null 显式清空。
 
-    `native_api` 改了且原行是该 native API 的 default → repo 自动清 is_default
-    (避免"messages 的 default 突然变成 completions 的"隐式语义跳变)。
+    `native_api` 改了不影响全局 default(由 settings 表独立维护)。
     """
     fields = payload.model_dump(exclude_unset=True)
     if not fields:
@@ -118,7 +126,7 @@ async def update_upstream(
     api_key_arg = fields.get("api_key", ...)
     model_arg = fields.get("model", ...)
     try:
-        return await repo.update(
+        upstream = await repo.update(
             upstream_id,
             name=fields.get("name"),
             native_api=fields.get("native_api"),
@@ -138,6 +146,10 @@ async def update_upstream(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"upstream name '{fields.get('name')}' 已存在",
         ) from e
+    default_id = await repo.default_upstream_id()
+    return UpstreamOut.model_validate(upstream).model_copy(
+        update={"is_default": upstream.id == default_id}
+    )
 
 
 @router.post("/upstreams/restore-mock", response_model=RestoreMockOut)
@@ -148,26 +160,30 @@ async def restore_mock_upstream(repo: UpstreamRepoDep, force: bool = False) -> R
     注册,避免被通配路径吞掉。
     """
     created, upstream = await repo.restore_mock(force=force)
+    default_id = await repo.default_upstream_id()
     return RestoreMockOut(
         created=created,
-        upstream=UpstreamOut.model_validate(upstream),
+        upstream=UpstreamOut.model_validate(upstream).model_copy(
+            update={"is_default": upstream.id == default_id}
+        ),
     )
 
 
 @router.put("/upstreams/{name}/default", response_model=UpstreamOut)
-async def set_default_upstream(name: str, repo: UpstreamRepoDep) -> Upstream:
-    """把 `name` 设为其 native_api 的 default(同 native_api 旧 default 自动清零)。
+async def set_default_upstream(name: str, repo: UpstreamRepoDep) -> UpstreamOut:
+    """把 `name` 设为全局 default(写入 settings 表)。
 
     路径用 `name` 而非 `id`:CLI / GUI 的"设为默认"是按名字操作的高频动作,绕
     `id` 反而多一步翻译;name 有 UNIQUE 约束,语义无歧义。
     """
     try:
-        return await repo.set_default(name)
+        upstream = await repo.set_default(name)
     except LookupError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"upstream name='{name}' 不存在",
         ) from e
+    return UpstreamOut.model_validate(upstream).model_copy(update={"is_default": True})
 
 
 @router.delete("/upstreams/{upstream_id}", status_code=status.HTTP_204_NO_CONTENT)
