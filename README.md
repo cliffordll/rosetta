@@ -135,6 +135,12 @@ uv run pytest
 # Lint + 格式化
 uv run ruff check . --fix
 uv run ruff format .
+
+# 提交前检查
+uv run ruff check .
+uv run ruff format --check .
+uv run pyright .
+uv run pytest
 ```
 
 ---
@@ -164,9 +170,11 @@ uv run ruff format .
   - 本地创建 tag: `uv run python scripts/publish.py tag create`
   - 创建并推送 tag: `uv run python scripts/publish.py tag create --push`
 - 提交前至少运行与改动面对应的验证:
-  - Python: `uv run pytest`
+  - Python lint: `uv run ruff check .`
+  - Python format check: `uv run ruff format --check .`
+  - Python type check: `uv run pyright .`
+  - Python tests: `uv run pytest`
   - 前端: `cd packages/app && npm run typecheck && npm run build`
-- `docs/superpowers/plans/` 属于过程记录,默认不作为功能交付物提交
 
 ---
 

@@ -91,7 +91,15 @@ class UpstreamProbeOut(BaseModel):
     upstream_name: str
     native_api: str
     status_code: int | None
-    category: Literal["ok", "network", "auth", "model", "upstream_error", "invalid_response", "config"]
+    category: Literal[
+        "ok",
+        "network",
+        "auth",
+        "model",
+        "upstream_error",
+        "invalid_response",
+        "config",
+    ]
     summary: str
     detail: str | None = None
 

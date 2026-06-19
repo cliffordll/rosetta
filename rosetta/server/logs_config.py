@@ -7,19 +7,20 @@ from typing import Any, Literal, cast
 from rosetta.shared.server_api import ServerApi
 
 LogContentMode = Literal["none", "summary", "full"]
+LogsPageSize = Literal[10, 20, 50, 100]
 
 LOG_CONTENT_KEY = "log_content"
 LOGS_PAGE_SIZE_KEY = "logs_page_size"
 LOG_CONTENT_DEFAULT: LogContentMode = "summary"
-LOGS_PAGE_SIZE_DEFAULT = 20
-LOGS_PAGE_SIZE_OPTIONS = (10, 20, 50, 100)
+LOGS_PAGE_SIZE_DEFAULT: LogsPageSize = 20
+LOGS_PAGE_SIZE_OPTIONS: tuple[LogsPageSize, ...] = (10, 20, 50, 100)
 SUMMARY_TEXT_LIMIT = 240
 
 
 @dataclass(frozen=True)
 class LogsConfig:
     log_content: LogContentMode = LOG_CONTENT_DEFAULT
-    page_size: int = LOGS_PAGE_SIZE_DEFAULT
+    page_size: LogsPageSize = LOGS_PAGE_SIZE_DEFAULT
 
 
 def normalize_log_content(value: str | None) -> LogContentMode:
@@ -28,13 +29,19 @@ def normalize_log_content(value: str | None) -> LogContentMode:
     return LOG_CONTENT_DEFAULT
 
 
-def normalize_logs_page_size(value: int | str | None) -> int:
+def normalize_logs_page_size(value: int | str | None) -> LogsPageSize:
     try:
         parsed = int(value) if value is not None else LOGS_PAGE_SIZE_DEFAULT
     except (TypeError, ValueError):
         return LOGS_PAGE_SIZE_DEFAULT
-    if parsed in LOGS_PAGE_SIZE_OPTIONS:
-        return parsed
+    if parsed == 10:
+        return 10
+    if parsed == 20:
+        return 20
+    if parsed == 50:
+        return 50
+    if parsed == 100:
+        return 100
     return LOGS_PAGE_SIZE_DEFAULT
 
 
@@ -96,7 +103,7 @@ def response_text_for(server_api: ServerApi, data: dict[str, Any]) -> str | None
     elif server_api is ServerApi.CHAT_COMPLETIONS:
         choices = data.get("choices")
         if isinstance(choices, list) and choices:
-            first = choices[0]
+            first = cast(Any, choices[0])
             if isinstance(first, dict):
                 message = cast(dict[str, Any], first).get("message")
                 if isinstance(message, dict):
@@ -106,7 +113,7 @@ def response_text_for(server_api: ServerApi, data: dict[str, Any]) -> str | None
     else:
         output = data.get("output")
         if isinstance(output, list):
-            parts = []
+            parts: list[str] = []
             for item in cast(list[Any], output):
                 if not isinstance(item, dict):
                     continue
@@ -173,7 +180,8 @@ def _content_text(value: Any) -> str:
     if isinstance(value, str):
         return value.strip()
     if isinstance(value, list):
-        parts = [_content_text(item) for item in value]
+        items = cast(list[Any], value)
+        parts = [_content_text(item) for item in items]
         return "\n".join(part for part in parts if part)
     if isinstance(value, dict):
         data = cast(dict[str, Any], value)
@@ -226,9 +234,7 @@ def _parse_sse_frame(frame: bytes) -> tuple[str | None, dict[str, Any]] | None:
     return event_name, cast(dict[str, Any], data)
 
 
-def _extract_sse_text(
-    server_api: ServerApi, event_name: str | None, data: dict[str, Any]
-) -> str:
+def _extract_sse_text(server_api: ServerApi, event_name: str | None, data: dict[str, Any]) -> str:
     if server_api is ServerApi.MESSAGES:
         etype = event_name or data.get("type")
         if etype != "content_block_delta":
@@ -246,7 +252,7 @@ def _extract_sse_text(
         choices = data.get("choices")
         if not isinstance(choices, list) or not choices:
             return ""
-        first = choices[0]
+        first = cast(Any, choices[0])
         if not isinstance(first, dict):
             return ""
         delta = cast(dict[str, Any], first).get("delta")

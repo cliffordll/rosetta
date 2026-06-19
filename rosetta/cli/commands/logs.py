@@ -56,9 +56,7 @@ def config_cmd(
     log_content: Annotated[
         str | None, typer.Option("--log-content", help="none | summary | full")
     ] = None,
-    page_size: Annotated[
-        int | None, typer.Option("--page-size", help="10 | 20 | 50 | 100")
-    ] = None,
+    page_size: Annotated[int | None, typer.Option("--page-size", help="10 | 20 | 50 | 100")] = None,
 ) -> None:
     try:
         asyncio.run(_config(log_content=log_content, page_size=page_size))
@@ -176,7 +174,10 @@ def _fmt_line(entry: LogOut) -> str:
     req = f" q={_preview(entry.request_text)}" if entry.request_text else ""
     ans = f" a={_preview(entry.response_text)}" if entry.response_text else ""
     tail = f" err={entry.error}" if entry.error else ""
-    return f"{ts} {status} upstream={up} model={model} {latency} tokens={tokens}{addr}{url}{req}{ans}{tail}"
+    return (
+        f"{ts} {status} upstream={up} model={model} "
+        f"{latency} tokens={tokens}{addr}{url}{req}{ans}{tail}"
+    )
 
 
 def _preview(text: str | None) -> str:

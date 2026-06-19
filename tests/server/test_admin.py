@@ -302,17 +302,13 @@ async def test_set_default_per_server_api(client: AsyncClient) -> None:
                 "base_url": f"https://api.example.com/{name}",
             },
         )
-    assert (
-        await client.put("/admin/upstreams/a/default?server_api=messages")
-    ).status_code == 200
+    assert (await client.put("/admin/upstreams/a/default?server_api=messages")).status_code == 200
     assert (
         await client.put("/admin/upstreams/b/default?server_api=completions")
     ).status_code == 200
 
     messages_list = (await client.get("/admin/upstreams?server_api=messages")).json()
-    completions_list = (
-        await client.get("/admin/upstreams?server_api=completions")
-    ).json()
+    completions_list = (await client.get("/admin/upstreams?server_api=completions")).json()
     a_messages = next(u for u in messages_list if u["name"] == "a")
     b_messages = next(u for u in messages_list if u["name"] == "b")
     a_completions = next(u for u in completions_list if u["name"] == "a")

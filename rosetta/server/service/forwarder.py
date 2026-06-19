@@ -26,8 +26,8 @@ from typing import Any, cast
 import httpx
 from fastapi.responses import Response, StreamingResponse
 
-from rosetta.server.logs_config import SseTextCollector, request_text_for, response_text_for
 from rosetta.server.database.models import Upstream
+from rosetta.server.logs_config import SseTextCollector, request_text_for, response_text_for
 from rosetta.server.service.exceptions import ServiceError
 from rosetta.server.service.log_writer import log_writer
 from rosetta.server.service.mock import mock_responder
@@ -553,7 +553,7 @@ class Forwarder:
         async def _iter() -> AsyncIterator[bytes]:
             try:
                 async for chunk in original_iter:
-                    data = chunk if isinstance(chunk, bytes) else chunk.encode("utf-8")
+                    data = self._stream_chunk_to_bytes(chunk)
                     collector.feed(data)
                     yield data
             finally:
@@ -577,6 +577,18 @@ class Forwarder:
         for key, value in resp.headers.items():
             wrapped.headers[key] = value
         return wrapped
+
+    @staticmethod
+    def _stream_chunk_to_bytes(chunk: object) -> bytes:
+        if isinstance(chunk, bytes):
+            return chunk
+        if isinstance(chunk, str):
+            return chunk.encode("utf-8")
+        if isinstance(chunk, bytearray):
+            return bytes(chunk)
+        if isinstance(chunk, memoryview):
+            return chunk.tobytes()
+        raise TypeError(f"unsupported streaming chunk type: {type(chunk).__name__}")
 
     # ---------- 上游 IO helper ----------
 
