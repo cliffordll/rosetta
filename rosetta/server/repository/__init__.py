@@ -17,6 +17,7 @@ from fastapi import Depends
 
 from rosetta.server.database.session import SessionDep
 from rosetta.server.repository.log import LogRepo
+from rosetta.server.repository.settings import SettingsRepo
 from rosetta.server.repository.upstream import UpstreamRepo
 
 
@@ -28,12 +29,19 @@ def _log_repo(session: SessionDep) -> LogRepo:
     return LogRepo(session)
 
 
+def _settings_repo(session: SessionDep) -> SettingsRepo:
+    return SettingsRepo(session)
+
+
 UpstreamRepoDep = Annotated[UpstreamRepo, Depends(_upstream_repo)]
 LogRepoDep = Annotated[LogRepo, Depends(_log_repo)]
+SettingsRepoDep = Annotated[SettingsRepo, Depends(_settings_repo)]
 
 __all__ = [
     "LogRepo",
     "LogRepoDep",
+    "SettingsRepo",
+    "SettingsRepoDep",
     "UpstreamRepo",
     "UpstreamRepoDep",
 ]

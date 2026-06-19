@@ -26,7 +26,12 @@ from uuid import uuid4
 from sqlalchemy import ForeignKey, Index
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-DEFAULT_UPSTREAM_KEY = "default_upstream_id"
+DEFAULT_UPSTREAM_KEY_PREFIX = "default_upstream_id"
+
+
+def default_upstream_key(server_api: str) -> str:
+    """settings 表中某个 server_api 的 default upstream key。"""
+    return f"{DEFAULT_UPSTREAM_KEY_PREFIX}:{server_api}"
 
 UpstreamNativeApi = Literal["messages", "completions", "responses", "any"]
 UpstreamProvider = Literal[
@@ -66,7 +71,7 @@ class Upstream(Base):
 
 
 class Setting(Base):
-    """通用 key-value 配置表。当前只用于存全局 default upstream id。"""
+    """通用 key-value 配置表。"""
 
     __tablename__ = "settings"
 
@@ -99,6 +104,8 @@ class LogEntry(Base):
     # upstream.base_url 快照(mock 路径写 'mock://');不与 upstream 外键联动,
     # 后续编辑 upstream.base_url 不影响历史 log
     upstream_url: Mapped[str | None] = mapped_column(default=None)
+    request_text: Mapped[str | None] = mapped_column(default=None)
+    response_text: Mapped[str | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
 
     __table_args__ = (Index("idx_logs_created_at", "created_at"),)

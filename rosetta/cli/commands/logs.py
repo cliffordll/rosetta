@@ -23,10 +23,18 @@ from rosetta.server.controller.logs import LogOut
 
 _POLL_INTERVAL_SEC = 1.0
 _POLL_BATCH_LIMIT = 200
+_TEXT_PREVIEW_LIMIT = 72
+logs_app = typer.Typer(
+    help="最近请求日志与全局日志配置",
+    invoke_without_command=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
 
 
+@logs_app.callback(invoke_without_command=True)
 def logs_cmd(
-    n: Annotated[int, typer.Option("-n", "--limit", help="最多显示多少条")] = 50,
+    ctx: typer.Context,
+    n: Annotated[int | None, typer.Option("-n", "--limit", help="最多显示多少条")] = None,
     upstream: Annotated[
         str | None, typer.Option("--upstream", help="按 upstream name 过滤")
     ] = None,
@@ -35,20 +43,57 @@ def logs_cmd(
     ] = False,
 ) -> None:
     """显示请求日志;默认表格打印 N 条,--follow 持续追加增量。"""
+    if ctx.invoked_subcommand is not None:
+        return
     try:
         asyncio.run(_run(n=n, upstream=upstream, follow=follow))
     except KeyboardInterrupt:
         Renderer.stream_newline()
 
 
-async def _run(*, n: int, upstream: str | None, follow: bool) -> None:
+@logs_app.command("config")
+def config_cmd(
+    log_content: Annotated[
+        str | None, typer.Option("--log-content", help="none | summary | full")
+    ] = None,
+    page_size: Annotated[
+        int | None, typer.Option("--page-size", help="10 | 20 | 50 | 100")
+    ] = None,
+) -> None:
+    try:
+        asyncio.run(_config(log_content=log_content, page_size=page_size))
+    except KeyboardInterrupt:
+        Renderer.stream_newline()
+
+
+async def _run(*, n: int | None, upstream: str | None, follow: bool) -> None:
     try:
         async with ProxyClient.discover_session(spawn_if_missing=False) as client:
+            limit = n if n is not None else (await client.logs_config()).page_size
             if not follow:
-                result = await client.list_logs(limit=n, upstream=upstream)
+                result = await client.list_logs(limit=limit, upstream=upstream)
                 _print_batch(result.items, header=True)
                 return
-            await _follow_loop(client, upstream=upstream, tail=n)
+            await _follow_loop(client, upstream=upstream, tail=limit)
+    except RuntimeError as e:
+        Renderer.die(f"server 未就绪: {e}")
+
+
+async def _config(*, log_content: str | None, page_size: int | None) -> None:
+    try:
+        async with ProxyClient.discover_session(spawn_if_missing=False) as client:
+            cfg = (
+                await client.update_logs_config(log_content=log_content, page_size=page_size)
+                if log_content is not None or page_size is not None
+                else await client.logs_config()
+            )
+            Renderer.table(
+                ["key", "value"],
+                [
+                    ["log_content", cfg.log_content],
+                    ["page_size", cfg.page_size],
+                ],
+            )
     except RuntimeError as e:
         Renderer.die(f"server 未就绪: {e}")
 
@@ -92,6 +137,8 @@ def _print_batch(items: list[LogOut], *, header: bool, follow: bool = False) -> 
                 "status",
                 "client_addr",
                 "upstream_url",
+                "request",
+                "response",
             ],
             [
                 [
@@ -104,6 +151,8 @@ def _print_batch(items: list[LogOut], *, header: bool, follow: bool = False) -> 
                     entry.status,
                     entry.client_addr or "-",
                     entry.upstream_url or "-",
+                    _preview(entry.request_text),
+                    _preview(entry.response_text),
                 ]
                 for entry in items
             ],
@@ -124,9 +173,20 @@ def _fmt_line(entry: LogOut) -> str:
     tokens = f"{entry.input_tokens or 0}→{entry.output_tokens or 0}"
     addr = f" client={entry.client_addr}" if entry.client_addr else ""
     url = f" url={entry.upstream_url}" if entry.upstream_url else ""
+    req = f" q={_preview(entry.request_text)}" if entry.request_text else ""
+    ans = f" a={_preview(entry.response_text)}" if entry.response_text else ""
     tail = f" err={entry.error}" if entry.error else ""
-    return f"{ts} {status} upstream={up} model={model} {latency} tokens={tokens}{addr}{url}{tail}"
+    return f"{ts} {status} upstream={up} model={model} {latency} tokens={tokens}{addr}{url}{req}{ans}{tail}"
+
+
+def _preview(text: str | None) -> str:
+    if not text:
+        return "-"
+    compact = " ".join(text.split())
+    if len(compact) <= _TEXT_PREVIEW_LIMIT:
+        return compact
+    return compact[: _TEXT_PREVIEW_LIMIT - 1].rstrip() + "…"
 
 
 def register(app: typer.Typer) -> None:
-    app.command("logs", help="最近请求日志;--follow 持续追踪")(logs_cmd)
+    app.add_typer(logs_app, name="logs")

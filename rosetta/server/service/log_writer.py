@@ -22,6 +22,8 @@ from typing import Literal
 
 from rosetta.server.database.session import get_session_maker
 from rosetta.server.repository.log import LogRepo
+from rosetta.server.repository.settings import SettingsRepo
+from rosetta.server.logs_config import apply_log_content_mode
 
 _log = logging.getLogger("rosetta.server.log_writer")
 
@@ -43,6 +45,8 @@ class LogWriter:
         error: str | None = None,
         client_addr: str | None = None,
         upstream_url: str | None = None,
+        request_text: str | None = None,
+        response_text: str | None = None,
     ) -> None:
         """写一条 log。DB 未初始化 / 写失败只打 logger,不抛。"""
         session_maker = get_session_maker()
@@ -51,6 +55,7 @@ class LogWriter:
             return
         try:
             async with session_maker() as session:
+                cfg = await SettingsRepo(session).get_logs_config()
                 await LogRepo(session).create(
                     upstream_id=upstream_id,
                     model=model,
@@ -61,6 +66,8 @@ class LogWriter:
                     error=error,
                     client_addr=client_addr,
                     upstream_url=upstream_url,
+                    request_text=apply_log_content_mode(cfg.log_content, request_text),
+                    response_text=apply_log_content_mode(cfg.log_content, response_text),
                 )
         except Exception as e:
             _log.warning(

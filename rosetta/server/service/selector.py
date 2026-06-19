@@ -1,13 +1,15 @@
 """数据面 upstream 选择。
 
-两段策略(显式优先 + 全局 default fallback,DESIGN §8.4):
+两段策略(显式优先 + per-server_api default + global default fallback):
 
 1. `x-rosetta-upstream: <name>` header 有值 → 按 name 精确匹配
    - 不存在 → 400 `upstream_not_found`
    - 被禁用 → 400 `upstream_disabled`
-2. header 缺失 → 找 enabled 的全局 `is_default=True` 行
+2. header 缺失 → 按入口 server_api 找 default
+   - 先查 `settings['default_upstream_id:<server_api>']`
+   - 没有 → 查 `settings['default_upstream_id']`
    - 命中 → 用它
-   - 没设 default(或 default 被禁) → 400 `missing_rosetta_upstream`
+   - 都没设(或 default 被禁) → 400 `missing_rosetta_upstream`
 
 default 的 native_api 可与入口 server_api 不同,由 forwarder 走 IR 翻译路径。
 """
@@ -46,11 +48,12 @@ async def pick_upstream(
             )
         return upstream
 
-    default = await repo.get_default()
+    default = await repo.get_default(server_api.value)
     if default is None:
         raise ServiceError(
             status=400,
             code="missing_rosetta_upstream",
-            message="未传 x-rosetta-upstream header 且无可用全局 default upstream",
+            message=f"未传 x-rosetta-upstream header 且 server_api={server_api.value} "
+            "无可用 default upstream",
         )
     return default

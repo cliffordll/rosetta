@@ -120,6 +120,80 @@ async def test_list_upstreams(echo_client: tuple[ProxyClient, dict[str, Any]]) -
     assert captured["request"].url.path == "/admin/upstreams"
 
 
+async def test_list_upstream_defaults(
+    echo_client: tuple[ProxyClient, dict[str, Any]],
+) -> None:
+    client, captured = echo_client
+    captured["response"] = httpx.Response(
+        200,
+        json={
+            "global": "shared",
+            "messages": "shared",
+            "completions": None,
+            "responses": "mock",
+        },
+    )
+
+    defaults = await client.list_upstream_defaults()
+
+    assert defaults.global_ == "shared"
+    assert defaults.messages == "shared"
+    assert defaults.completions is None
+    assert defaults.responses == "mock"
+    assert captured["request"].method == "GET"
+    assert captured["request"].url.path == "/admin/upstreams/defaults"
+
+
+async def test_test_upstream(
+    echo_client: tuple[ProxyClient, dict[str, Any]],
+) -> None:
+    client, captured = echo_client
+    captured["response"] = httpx.Response(
+        200,
+        json={
+            "ok": True,
+            "upstream_id": "u1",
+            "upstream_name": "oai",
+            "native_api": "completions",
+            "status_code": 200,
+            "category": "ok",
+            "summary": "request succeeded",
+            "detail": None,
+        },
+    )
+
+    result = await client.test_upstream("u1")
+
+    assert result.ok is True
+    assert result.upstream_id == "u1"
+    assert result.category == "ok"
+    assert captured["request"].method == "POST"
+    assert captured["request"].url.path == "/admin/upstreams/u1/test"
+
+
+async def test_get_logs_config(
+    echo_client: tuple[ProxyClient, dict[str, Any]],
+) -> None:
+    client, captured = echo_client
+    captured["response"] = httpx.Response(200, json={"log_content": "summary", "page_size": 20})
+    config = await client.logs_config()
+    assert config.log_content == "summary"
+    assert config.page_size == 20
+    assert captured["request"].url.path == "/admin/logs/config"
+
+
+async def test_update_logs_config(
+    echo_client: tuple[ProxyClient, dict[str, Any]],
+) -> None:
+    client, captured = echo_client
+    captured["response"] = httpx.Response(200, json={"log_content": "full", "page_size": 50})
+    config = await client.update_logs_config(log_content="full", page_size=50)
+    assert config.log_content == "full"
+    assert config.page_size == 50
+    assert captured["request"].method == "PUT"
+    assert captured["request"].url.path == "/admin/logs/config"
+
+
 async def test_create_upstream(echo_client: tuple[ProxyClient, dict[str, Any]]) -> None:
     client, captured = echo_client
     captured["response"] = httpx.Response(

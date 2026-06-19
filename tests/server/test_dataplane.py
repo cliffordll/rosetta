@@ -687,6 +687,8 @@ async def test_forward_writes_log_on_success(session: AsyncSession) -> None:
     # client_addr 透传 + upstream_url 自动从 upstream.base_url 取(mock 写的是 'mock://')
     assert entry.client_addr == "127.0.0.1:54321"
     assert entry.upstream_url == "mock://"
+    assert entry.request_text == "hi"
+    assert entry.response_text == "hi"
 
 
 async def test_forward_writes_log_on_service_error(session: AsyncSession) -> None:

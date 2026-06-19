@@ -25,13 +25,15 @@ from typing import Any, Literal, Self
 import httpx
 
 from rosetta.sdk.discover import discover
-from rosetta.server.controller.logs import LogListResponse
+from rosetta.server.controller.logs import LogListResponse, LogsConfigOut
 from rosetta.server.controller.runtime import StatusResponse
 from rosetta.server.controller.stats import Period, StatsOut
 from rosetta.server.controller.upstreams import (
     RestoreMockOut,
     UpstreamCreate,
+    UpstreamDefaultsOut,
     UpstreamOut,
+    UpstreamProbeOut,
     UpstreamUpdate,
 )
 from rosetta.shared.server_api import SERVER_API_PATHS, ServerApi
@@ -117,6 +119,24 @@ class ProxyClient:
             raise RuntimeError("GET /admin/upstreams 返回非 list")
         return [UpstreamOut.model_validate(item) for item in items]  # pyright: ignore[reportUnknownVariableType]
 
+    async def list_upstream_defaults(self) -> UpstreamDefaultsOut:
+        self._require_server("list_upstream_defaults")
+        resp = await self.http.get(
+            f"{self.base_url}/admin/upstreams/defaults",
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return UpstreamDefaultsOut.model_validate(resp.json())
+
+    async def test_upstream(self, upstream_id: str) -> UpstreamProbeOut:
+        self._require_server("test_upstream")
+        resp = await self.http.post(
+            f"{self.base_url}/admin/upstreams/{upstream_id}/test",
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return UpstreamProbeOut.model_validate(resp.json())
+
     async def create_upstream(self, payload: UpstreamCreate) -> UpstreamOut:
         self._require_server("create_upstream")
         resp = await self.http.post(
@@ -146,11 +166,15 @@ class ProxyClient:
         )
         resp.raise_for_status()
 
-    async def set_default_upstream(self, name: str) -> UpstreamOut:
-        """把 `name` 设为其 ServerApi 的 default;同 ServerApi 旧 default 自动清零。"""
+    async def set_default_upstream(
+        self, name: str, *, server_api: ServerApi | None = None
+    ) -> UpstreamOut:
+        """把 `name` 设为 default;`server_api` 留空时兼容旧 server 语义。"""
         self._require_server("set_default_upstream")
+        params = {"server_api": server_api.value} if server_api is not None else None
         resp = await self.http.put(
             f"{self.base_url}/admin/upstreams/{name}/default",
+            params=params,
             timeout=_ADMIN_TIMEOUT,
         )
         resp.raise_for_status()
@@ -189,6 +213,35 @@ class ProxyClient:
         )
         resp.raise_for_status()
         return LogListResponse.model_validate(resp.json())
+
+    async def logs_config(self) -> LogsConfigOut:
+        self._require_server("logs_config")
+        resp = await self.http.get(
+            f"{self.base_url}/admin/logs/config",
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return LogsConfigOut.model_validate(resp.json())
+
+    async def update_logs_config(
+        self,
+        *,
+        log_content: str | None = None,
+        page_size: int | None = None,
+    ) -> LogsConfigOut:
+        self._require_server("update_logs_config")
+        payload: dict[str, str | int] = {}
+        if log_content is not None:
+            payload["log_content"] = log_content
+        if page_size is not None:
+            payload["page_size"] = page_size
+        resp = await self.http.put(
+            f"{self.base_url}/admin/logs/config",
+            json=payload,
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return LogsConfigOut.model_validate(resp.json())
 
     async def stats(self, *, period: Period = "today") -> StatsOut:
         self._require_server("stats")
