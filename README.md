@@ -139,6 +139,57 @@ uv run ruff format .
 
 ---
 
+## 版本控制说明
+
+- 主分支为 `main`
+- 功能改动建议按主题拆分提交,避免把后端、前端、文档和测试揉成一笔
+- 版本号不要手改多个文件,统一用发布脚本维护:
+  - 校验当前版本是否一致:
+    - `uv run python scripts/publish.py check`
+  - 显式改到指定版本:
+    - `uv run python scripts/publish.py bump 0.2.4`
+  - 自动递增:
+    - `uv run python scripts/publish.py bump patch`
+    - `uv run python scripts/publish.py bump minor`
+    - `uv run python scripts/publish.py bump major`
+- `scripts/publish.py bump ...` 会同步更新这些位置的版本号:
+  - `pyproject.toml`
+  - `rosetta/__init__.py`
+  - `package.json`
+  - `packages/app/package.json`
+  - `packages/desktop/package.json`
+  - `packages/desktop/tauri/Cargo.toml`
+  - `packages/desktop/tauri/tauri.conf.json`
+- 版本号更新后,再按需提交并打 tag:
+  - 本地创建 tag: `uv run python scripts/publish.py tag create`
+  - 创建并推送 tag: `uv run python scripts/publish.py tag create --push`
+- 提交前至少运行与改动面对应的验证:
+  - Python: `uv run pytest`
+  - 前端: `cd packages/app && npm run typecheck && npm run build`
+- `docs/superpowers/plans/` 属于过程记录,默认不作为功能交付物提交
+
+---
+
+## 打包说明
+
+- 一键走发布脚本,同时按当前版本号归集产物:
+  - `uv run python scripts/publish.py build`
+  - `uv run python scripts/publish.py build --installer`
+- 构建 Python 可执行文件:
+  - `uv run --group build python scripts/build.py`
+- 仅构建 server sidecar:
+  - `uv run --group build python scripts/build.py --target server --sync-sidecar`
+- 构建产物位置:
+  - 发布脚本产物在 `dist/rosetta-<version>/`
+  - 仅 PyInstaller 产物在 `dist/`
+  - Tauri 桌面端在 `packages/desktop` 对应的构建输出目录
+- 桌面端打包前,先确保 sidecar 已同步,再执行:
+  - `cd packages/desktop`
+  - `bun install`
+  - `bun run build` 或 `bun run tauri build`
+
+---
+
 ## 文档索引
 
 | 文件 | 作用 |
@@ -147,13 +198,6 @@ uv run ruff format .
 | [`docs/FEATURE.md`](./docs/FEATURE.md) | v0 分步任务清单(heading emoji 标进度) |
 | [`docs/ROADMAP.md`](./docs/ROADMAP.md) | v1+ 后续方向(不在 v0 范围但值得做) |
 | [`docs/archive/`](./docs/archive/) | 已归档的设计备选(TS 栈 / 多包布局 / 早期 PROCESS.md) |
-| [`CLAUDE.md`](./CLAUDE.md) | Claude 会话协作约定(项目级) |
-
----
-
-## 协作约定
-
-项目使用 Claude Code 辅助开发。协作规范、命名约定、目录权限等见 [`CLAUDE.md`](./CLAUDE.md),任何 Claude 会话在本仓库内工作时需先阅读该文件。
 
 ---
 
