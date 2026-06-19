@@ -115,4 +115,5 @@ jobs:
           releaseBody: "自动发布;安装包见下方 assets。Python CLI / server exe 在 python-exe job 的 release 里。"
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
-          includeUpdaterJson: true # 生成 latest.json 供 tauri-plugin-updater 用
+          # 只有 updater signing key 配好时才生成 latest.json;否则仍正常发布 installer
+          includeUpdaterJson: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD != '' }}
