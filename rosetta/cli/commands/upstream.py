@@ -225,9 +225,9 @@ async def _remove(upstream_id: str) -> None:
 
 @app.command("set-default")
 def set_default_cmd(
-    name: Annotated[str, typer.Argument(help="要设为该 native API 默认的 upstream name")],
+    name: Annotated[str, typer.Argument(help="要设为全局默认的 upstream name")],
 ) -> None:
-    """把 upstream 设为其 native API 的默认上游(`x-rosetta-upstream` header 缺失时回退用)。"""
+    """把 upstream 设为全局默认上游(`x-rosetta-upstream` header 缺失时回退用)。"""
     asyncio.run(_set_default(name))
 
 
@@ -241,7 +241,7 @@ async def _set_default(name: str) -> None:
     except RuntimeError as e:
         Renderer.die(f"server 未就绪: {e}")
         return
-    Renderer.out(f"upstream '{updated.name}' is now default for native_api={updated.native_api}")
+    Renderer.out(f"upstream '{updated.name}' is now global default")
 
 
 @app.command("restore-mock")
