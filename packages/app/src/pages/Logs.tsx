@@ -176,14 +176,14 @@ export default function Logs() {
           <Table className="w-full table-fixed">
             <TableHeader>
               <TableRow className="bg-muted/45 hover:bg-muted/45">
-                <TableHead className="w-[13%]">created_at</TableHead>
-                <TableHead className="w-[8%]">upstream</TableHead>
+                <TableHead className="w-44">created_at</TableHead>
+                <TableHead className="w-[10%]">upstream</TableHead>
                 <TableHead className="w-[10%]">model</TableHead>
-                <TableHead className="w-[7%]">status</TableHead>
+                <TableHead className="w-[6%]">result</TableHead>
                 <TableHead className="w-[6%] text-right">latency</TableHead>
-                <TableHead className="w-[7%] text-right">in→out</TableHead>
-                <TableHead className="w-[17%]">request</TableHead>
-                <TableHead className="w-[17%]">response</TableHead>
+                <TableHead className="w-[7%] text-right">tokens</TableHead>
+                <TableHead className="w-[16%]">request</TableHead>
+                <TableHead className="w-[16%]">response</TableHead>
                 <TableHead className="w-[7%]">client</TableHead>
                 <TableHead className="w-[8%]">error</TableHead>
               </TableRow>
@@ -194,8 +194,16 @@ export default function Logs() {
                   <TableCell className="font-mono text-xs text-muted-foreground">
                     {formatDate(entry.created_at)}
                   </TableCell>
-                  <TableCell>{entry.upstream ?? "-"}</TableCell>
-                  <TableCell className="truncate font-mono text-xs">
+                  <TableCell
+                    className="truncate"
+                    title={entry.upstream ?? ""}
+                  >
+                    {entry.upstream ?? "-"}
+                  </TableCell>
+                  <TableCell
+                    className="truncate font-mono text-xs"
+                    title={entry.model ?? ""}
+                  >
                     {entry.model ?? "-"}
                   </TableCell>
                   <TableCell>{statusBadge(entry.status)}</TableCell>

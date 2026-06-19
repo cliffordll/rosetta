@@ -1,4 +1,4 @@
-import { CopyIcon, FlaskConicalIcon, PencilIcon, Trash2Icon } from "lucide-react";
+import { CopyIcon, RadarIcon, PencilIcon, SaveIcon, Trash2Icon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
@@ -228,17 +228,17 @@ export default function Upstreams() {
 
           <div className="rounded-lg border border-border">
             <Table className="w-full table-fixed">
-            <TableHeader>
-              <TableRow className="bg-muted/45 hover:bg-muted/45">
-                <TableHead className="w-[10%]">name</TableHead>
-                <TableHead className="w-[7%]">provider</TableHead>
-                <TableHead className="w-[15%]">native_api</TableHead>
-                <TableHead className="w-[10%]">model</TableHead>
+              <TableHeader>
+                <TableRow className="bg-muted/45 hover:bg-muted/45">
+                  <TableHead className="w-[9%]">name</TableHead>
+                  <TableHead className="w-[7%]">provider</TableHead>
+                  <TableHead className="w-[12%]">native_api</TableHead>
+                  <TableHead className="w-[8%]">model</TableHead>
                   <TableHead>base_url</TableHead>
-                  <TableHead className="w-[9%]">api_key</TableHead>
-                  <TableHead className="w-16">enabled</TableHead>
-                  <TableHead className="w-48">created_at</TableHead>
-                  <TableHead className="w-32 text-right">actions</TableHead>
+                  <TableHead className="w-[11%]">api_key</TableHead>
+                  <TableHead className="w-[7%]">enabled</TableHead>
+                  <TableHead className="w-44">created_at</TableHead>
+                  <TableHead className="w-28 text-right">actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -315,11 +315,11 @@ export default function Upstreams() {
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          title="Test"
+                          title="Test upstream"
                           disabled={testingUpstreamId === u.id}
                           onClick={() => void handleTestUpstream(u)}
                         >
-                          <FlaskConicalIcon />
+                          <RadarIcon />
                         </Button>
                         <Button
                           variant="ghost"
@@ -473,12 +473,12 @@ function DefaultsPanel({
                 <TableCell className="text-right">
                   <Button
                     variant="outline"
-                    size="sm"
-                    className="h-8"
+                    size="icon-sm"
+                    title={saving ? "Saving…" : `Save ${row.scope} default`}
                     disabled={!draft || unchanged || saving}
                     onClick={() => onSave(row.scope)}
                   >
-                    {saving ? "Saving…" : "Save"}
+                    <SaveIcon />
                   </Button>
                 </TableCell>
               </TableRow>
