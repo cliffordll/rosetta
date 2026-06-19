@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
+import httpx
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -23,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from rosetta.server.controller import admin_router
 from rosetta.server.database.models import Upstream
 from rosetta.server.database.session import get_session
+from rosetta.server.service.forwarder import forwarder
 
 
 @pytest_asyncio.fixture
@@ -55,6 +57,20 @@ async def test_status(client: AsyncClient) -> None:
     assert "uptime_ms" in body
     # migration seed 了一条 name=mock 的内置上游,全新 DB 就是 1
     assert body["upstreams_count"] == 1
+
+
+async def test_logs_config_defaults(client: AsyncClient) -> None:
+    r = await client.get("/admin/logs/config")
+    assert r.status_code == 200
+    assert r.json() == {"log_content": "summary", "page_size": 20}
+
+
+async def test_logs_config_update(client: AsyncClient) -> None:
+    r = await client.put("/admin/logs/config", json={"log_content": "full", "page_size": 50})
+    assert r.status_code == 200
+    assert r.json() == {"log_content": "full", "page_size": 50}
+    again = await client.get("/admin/logs/config")
+    assert again.json() == {"log_content": "full", "page_size": 50}
 
 
 # ---------- upstreams ----------
@@ -228,7 +244,7 @@ async def test_restore_mock_force_rebuilds(client: AsyncClient) -> None:
     assert r.json()["created"] is True
 
 
-# ---------- set-default ----------
+# ---------- default ----------
 
 
 async def test_set_default_success(client: AsyncClient) -> None:
@@ -249,8 +265,8 @@ async def test_set_default_success(client: AsyncClient) -> None:
     assert body["is_default"] is True
 
 
-async def test_set_default_switches_old_default(client: AsyncClient) -> None:
-    """跨 native_api 切换全局 default,旧的 is_default 自动归零。"""
+async def test_set_default_switches_old_global_default(client: AsyncClient) -> None:
+    """切 global default 时,旧 global default 的 is_default 归零。"""
     for name, native_api in (("a", "messages"), ("b", "completions")):
         await client.post(
             "/admin/upstreams",
@@ -269,6 +285,169 @@ async def test_set_default_switches_old_default(client: AsyncClient) -> None:
     b_row = next(u for u in listed if u["name"] == "b")
     assert a_row["is_default"] is False
     assert b_row["is_default"] is True
+
+
+async def test_set_default_per_server_api(client: AsyncClient) -> None:
+    """?server_api=xxx 设 per-server_api default,列表按对应 server_api 显示 default。"""
+    for name, native_api in (("a", "messages"), ("b", "completions")):
+        await client.post(
+            "/admin/upstreams",
+            json={
+                "name": name,
+                "native_api": native_api,
+                "api_key": "sk",
+                "base_url": f"https://api.example.com/{name}",
+            },
+        )
+    assert (
+        await client.put("/admin/upstreams/a/default?server_api=messages")
+    ).status_code == 200
+    assert (
+        await client.put("/admin/upstreams/b/default?server_api=completions")
+    ).status_code == 200
+
+    messages_list = (await client.get("/admin/upstreams?server_api=messages")).json()
+    completions_list = (
+        await client.get("/admin/upstreams?server_api=completions")
+    ).json()
+    a_messages = next(u for u in messages_list if u["name"] == "a")
+    b_messages = next(u for u in messages_list if u["name"] == "b")
+    a_completions = next(u for u in completions_list if u["name"] == "a")
+    b_completions = next(u for u in completions_list if u["name"] == "b")
+    assert a_messages["is_default"] is True
+    assert b_messages["is_default"] is False
+    assert a_completions["is_default"] is False
+    assert b_completions["is_default"] is True
+
+
+async def test_get_upstream_defaults(client: AsyncClient) -> None:
+    """专用 defaults 端点直接返回 global + per-server_api 绑定。"""
+    await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "shared",
+            "native_api": "messages",
+            "api_key": "sk",
+            "base_url": "https://api.example.com/shared",
+        },
+    )
+    assert (await client.put("/admin/upstreams/shared/default")).status_code == 200
+    assert (await client.put("/admin/upstreams/mock/default?server_api=responses")).status_code == 200
+
+    r = await client.get("/admin/upstreams/defaults")
+
+    assert r.status_code == 200
+    assert r.json() == {
+        "global": "shared",
+        "messages": None,
+        "completions": None,
+        "responses": "mock",
+    }
+
+
+async def test_test_upstream_success(client: AsyncClient) -> None:
+    captured: dict[str, httpx.Request | None] = {"request": None}
+
+    def _dispatch(req: httpx.Request) -> httpx.Response:
+        captured["request"] = req
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl_1",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "gpt-4o-mini",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "pong"},
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+        )
+
+    prev = forwarder._client
+    client_mock = httpx.AsyncClient(transport=httpx.MockTransport(_dispatch))
+    forwarder._client = client_mock
+    try:
+        create = await client.post(
+            "/admin/upstreams",
+            json={
+                "name": "oai",
+                "native_api": "completions",
+                "api_key": "sk",
+                "model": "gpt-4o-mini",
+                "base_url": "https://api.example.com/oai",
+            },
+        )
+        upstream_id = create.json()["id"]
+
+        r = await client.post(f"/admin/upstreams/{upstream_id}/test")
+
+        assert r.status_code == 200
+        body = r.json()
+        assert body["ok"] is True
+        assert body["category"] == "ok"
+        assert body["status_code"] == 200
+        assert "api_key/model" in body["summary"]
+        assert captured["request"] is not None
+        assert captured["request"].url.path == "/oai/v1/chat/completions"
+        assert captured["request"].headers["authorization"] == "Bearer sk"
+    finally:
+        await client_mock.aclose()
+        forwarder._client = prev
+
+
+async def test_test_upstream_missing_model_reports_config(client: AsyncClient) -> None:
+    create = await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "oai-no-model",
+            "native_api": "completions",
+            "api_key": "sk",
+            "base_url": "https://api.example.com/oai",
+        },
+    )
+    upstream_id = create.json()["id"]
+
+    r = await client.post(f"/admin/upstreams/{upstream_id}/test")
+
+    assert r.status_code == 200
+    assert r.json()["ok"] is False
+    assert r.json()["category"] == "config"
+    assert "缺少 model" in r.json()["summary"]
+
+
+async def test_test_upstream_auth_failure_reports_auth(client: AsyncClient) -> None:
+    def _dispatch(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": {"message": "invalid api key"}})
+
+    prev = forwarder._client
+    client_mock = httpx.AsyncClient(transport=httpx.MockTransport(_dispatch))
+    forwarder._client = client_mock
+    try:
+        create = await client.post(
+            "/admin/upstreams",
+            json={
+                "name": "oai-auth",
+                "native_api": "completions",
+                "api_key": "sk-bad",
+                "model": "gpt-4o-mini",
+                "base_url": "https://api.example.com/oai",
+            },
+        )
+        upstream_id = create.json()["id"]
+
+        r = await client.post(f"/admin/upstreams/{upstream_id}/test")
+
+        assert r.status_code == 200
+        assert r.json()["ok"] is False
+        assert r.json()["category"] == "auth"
+        assert r.json()["status_code"] == 401
+    finally:
+        await client_mock.aclose()
+        forwarder._client = prev
 
 
 async def test_set_default_not_found(client: AsyncClient) -> None:
@@ -320,7 +499,7 @@ async def test_update_upstream_clear_api_key(client: AsyncClient) -> None:
     assert "has_api_key" not in r.json()
 
 
-async def test_update_upstream_native_api_keeps_global_default(client: AsyncClient) -> None:
+async def test_update_upstream_native_api_keeps_default(client: AsyncClient) -> None:
     create = await client.post(
         "/admin/upstreams",
         json={

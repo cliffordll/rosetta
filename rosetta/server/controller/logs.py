@@ -16,12 +16,12 @@ v0.1 没 logger 真往 logs 表写入,因此本端点常态返空。保留是为
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
-from rosetta.server.repository import LogRepoDep, UpstreamRepoDep
+from rosetta.server.repository import LogRepoDep, SettingsRepoDep, UpstreamRepoDep
 
 router = APIRouter()
 
@@ -40,11 +40,44 @@ class LogOut(BaseModel):
     error: str | None
     client_addr: str | None
     upstream_url: str | None
+    request_text: str | None
+    response_text: str | None
 
 
 class LogListResponse(BaseModel):
     items: list[LogOut]
     total: int
+
+
+class LogsConfigOut(BaseModel):
+    log_content: Literal["none", "summary", "full"]
+    page_size: Literal[10, 20, 50, 100]
+
+
+class LogsConfigUpdate(BaseModel):
+    log_content: Literal["none", "summary", "full"] | None = None
+    page_size: Literal[10, 20, 50, 100] | None = None
+
+
+@router.get("/logs/config", response_model=LogsConfigOut)
+async def get_logs_config(settings_repo: SettingsRepoDep) -> LogsConfigOut:
+    config = await settings_repo.get_logs_config()
+    return LogsConfigOut(log_content=config.log_content, page_size=config.page_size)
+
+
+@router.put("/logs/config", response_model=LogsConfigOut)
+async def update_logs_config(
+    payload: LogsConfigUpdate,
+    settings_repo: SettingsRepoDep,
+) -> LogsConfigOut:
+    if payload.log_content is None and payload.page_size is None:
+        config = await settings_repo.get_logs_config()
+        return LogsConfigOut(log_content=config.log_content, page_size=config.page_size)
+    config = await settings_repo.update_logs_config(
+        log_content=payload.log_content,
+        page_size=payload.page_size,
+    )
+    return LogsConfigOut(log_content=config.log_content, page_size=config.page_size)
 
 
 @router.get("/logs", response_model=LogListResponse)
@@ -92,6 +125,8 @@ async def list_logs(
             error=entry.error,
             client_addr=entry.client_addr,
             upstream_url=entry.upstream_url,
+            request_text=entry.request_text,
+            response_text=entry.response_text,
         )
         for entry, u in rows
     ]

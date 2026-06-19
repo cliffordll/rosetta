@@ -3,8 +3,9 @@
 两种连接模式
 ------------
 - server 模式(默认):通过本地 rosetta-server 转发;`--upstream` 指定上游,
-  未给则不传 `x-rosetta-upstream` header,server 选全局 default upstream;
-  没有 default 时 server 返 400,提示去 `rosetta upstream set-default <name>` 设一个。
+  未给则不传 `x-rosetta-upstream` header,server 按入口 server_api 选 default
+  upstream(先查 per-server_api default,没有再查 global default);都没有时 server
+  返 400,提示去 `rosetta upstream set-default <name>` 设一个。
   `--model` 同样可选,留空时不发 `body.model`,server forwarder 用 `upstream.model`
   兜底(与 `--api-key` 行为对称)。
 - direct 模式:`--base-url` 给上游根地址,绕过 server 直连;必须同时传
@@ -45,7 +46,7 @@ def chat_cmd(
         str | None,
         typer.Option(
             "--upstream",
-            help="server 模式 upstream 名;未给则取全局 default;--base-url 给时失效",
+            help="server 模式 upstream 名;未给则按 server_api 取 default;--base-url 给时失效",
         ),
     ] = None,
     base_url: Annotated[

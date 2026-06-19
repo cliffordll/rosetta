@@ -9,12 +9,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
 
 from rosetta.cli.__main__ import app
+from rosetta.cli.commands import upstream as upstream_mod
 
 runner = CliRunner()
 
@@ -77,6 +81,157 @@ def test_upstream_add_missing_required() -> None:
     """upstream add 缺 --name / --base-url 必须报参数错,不发请求。"""
     result = runner.invoke(app, ["upstream", "add"])
     assert result.exit_code != 0
+
+
+def test_upstream_default_help_exposes_short_server_api_option() -> None:
+    """upstream default 子命令暴露 --server-api 选项和 -s 短参数。"""
+    result = runner.invoke(app, ["upstream", "default", "--help"])
+    assert result.exit_code == 0
+    out = _plain(result.output)
+    assert "-s" in out
+    assert "--server-api" in out
+
+
+def test_upstream_defaults_help_exists() -> None:
+    result = runner.invoke(app, ["upstream", "defaults", "--help"])
+    assert result.exit_code == 0
+    assert "defaults" in _plain(result.output)
+
+
+def test_upstream_test_help_exists() -> None:
+    result = runner.invoke(app, ["upstream", "test", "--help"])
+    assert result.exit_code == 0
+    assert "test" in _plain(result.output)
+
+
+def test_upstream_list_table_omits_default_column(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeClient:
+        async def list_upstreams(self) -> list[SimpleNamespace]:
+            return [
+                SimpleNamespace(
+                    id="u1",
+                    name="main",
+                    native_api="messages",
+                    provider="anthropic",
+                    model=None,
+                    base_url="https://api.example.com",
+                    enabled=True,
+                    is_default=True,
+                )
+            ]
+
+    @asynccontextmanager
+    async def _discover_session(**_: object):
+        yield _FakeClient()
+
+    def _capture_table(columns: list[str], rows: list[list[object]]) -> None:
+        captured["columns"] = columns
+        captured["rows"] = rows
+
+    monkeypatch.setattr(upstream_mod.ProxyClient, "discover_session", _discover_session)
+    monkeypatch.setattr(upstream_mod.Renderer, "table", _capture_table)
+
+    asyncio.run(upstream_mod._list())
+
+    assert captured["columns"] == [
+        "id",
+        "name",
+        "native_api",
+        "provider",
+        "model",
+        "base_url",
+        "enabled",
+    ]
+    assert captured["rows"] == [
+        [
+            "u1",
+            "main",
+            "messages (/v1/messages)",
+            "anthropic",
+            "-",
+            "https://api.example.com",
+            True,
+        ]
+    ]
+
+
+def test_upstream_defaults_renders_scope_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeClient:
+        async def list_upstream_defaults(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                global_="shared",
+                messages="shared",
+                completions=None,
+                responses="mock",
+            )
+
+    @asynccontextmanager
+    async def _discover_session(**_: object):
+        yield _FakeClient()
+
+    def _capture_table(columns: list[str], rows: list[list[object]]) -> None:
+        captured["columns"] = columns
+        captured["rows"] = rows
+
+    monkeypatch.setattr(upstream_mod.ProxyClient, "discover_session", _discover_session)
+    monkeypatch.setattr(upstream_mod.Renderer, "table", _capture_table)
+
+    asyncio.run(upstream_mod._defaults())
+
+    assert captured["columns"] == ["server_api", "upstream"]
+    assert captured["rows"] == [
+        ["global", "shared"],
+        ["messages (/v1/messages)", "shared"],
+        ["completions (/v1/chat/completions)", "-"],
+        ["responses (/v1/responses)", "mock"],
+    ]
+
+
+def test_upstream_test_renders_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeClient:
+        async def test_upstream(self, upstream_id: str) -> SimpleNamespace:
+            captured["upstream_id"] = upstream_id
+            return SimpleNamespace(
+                ok=True,
+                upstream_id=upstream_id,
+                upstream_name="oai",
+                native_api="completions",
+                status_code=200,
+                category="ok",
+                summary="request succeeded with configured api_key/model",
+                detail=None,
+            )
+
+    @asynccontextmanager
+    async def _discover_session(**_: object):
+        yield _FakeClient()
+
+    def _capture_out(msg: str) -> None:
+        captured["msg"] = msg
+
+    monkeypatch.setattr(upstream_mod.ProxyClient, "discover_session", _discover_session)
+    monkeypatch.setattr(upstream_mod.Renderer, "out", _capture_out)
+
+    asyncio.run(upstream_mod._test("u1"))
+
+    assert captured["upstream_id"] == "u1"
+    assert "OK" in str(captured["msg"])
+    assert "oai" in str(captured["msg"])
+    assert "completions (/v1/chat/completions)" in str(captured["msg"])
+
+
+def test_logs_config_help_exists() -> None:
+    result = runner.invoke(app, ["logs", "config", "--help"])
+    assert result.exit_code == 0
+    out = _plain(result.output)
+    assert "--log-content" in out
+    assert "--page-size" in out
 
 
 def test_chat_invalid_server_api_fails() -> None:

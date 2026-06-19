@@ -20,11 +20,13 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from typing import Any, cast
 
 import httpx
 from fastapi.responses import Response, StreamingResponse
 
+from rosetta.server.logs_config import SseTextCollector, request_text_for, response_text_for
 from rosetta.server.database.models import Upstream
 from rosetta.server.service.exceptions import ServiceError
 from rosetta.server.service.log_writer import log_writer
@@ -47,6 +49,18 @@ _log = logging.getLogger("rosetta.server.forwarder")
 
 # 超时:连接 10s、读取 5min(LLM 长响应常态)
 _DEFAULT_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
+
+
+@dataclass
+class UpstreamProbeResult:
+    ok: bool
+    upstream_id: str
+    upstream_name: str
+    native_api: str
+    status_code: int | None
+    category: str
+    summary: str
+    detail: str | None = None
 
 
 class Forwarder:
@@ -157,6 +171,127 @@ class Forwarder:
             )
         return cast(dict[str, Any], data)
 
+    async def probe_upstream(self, upstream: Upstream) -> UpstreamProbeResult:
+        """最小探测 upstream 连通性与配置正确性,不写业务 logs。"""
+        if upstream.provider == "mock":
+            return UpstreamProbeResult(
+                ok=True,
+                upstream_id=upstream.id,
+                upstream_name=upstream.name,
+                native_api=upstream.native_api,
+                status_code=200,
+                category="ok",
+                summary="mock upstream 响应正常",
+            )
+        if not upstream.model:
+            return UpstreamProbeResult(
+                ok=False,
+                upstream_id=upstream.id,
+                upstream_name=upstream.name,
+                native_api=upstream.native_api,
+                status_code=None,
+                category="config",
+                summary="缺少 model;先为该 upstream 配一个默认模型再测试",
+            )
+
+        native_api = ServerApi(upstream.native_api)
+        url = self._base_url_for(upstream) + DEFAULT_SERVER_API_PATHS[native_api]
+        body = json.dumps(self._probe_body(native_api, upstream.model), ensure_ascii=False).encode(
+            "utf-8"
+        )
+        try:
+            headers = {
+                "content-type": "application/json",
+                **self._auth_headers(upstream),
+            }
+            resp = await self._send_upstream(url, headers, body, stream=False)
+        except ServiceError as e:
+            category = "config" if e.code == "upstream_missing_key" else "network"
+            return UpstreamProbeResult(
+                ok=False,
+                upstream_id=upstream.id,
+                upstream_name=upstream.name,
+                native_api=upstream.native_api,
+                status_code=e.status,
+                category=category,
+                summary=e.message,
+            )
+
+        if resp.status_code >= 400:
+            body_text = _response_text(resp)
+            category, summary = self._classify_probe_failure(resp.status_code, body_text)
+            return UpstreamProbeResult(
+                ok=False,
+                upstream_id=upstream.id,
+                upstream_name=upstream.name,
+                native_api=upstream.native_api,
+                status_code=resp.status_code,
+                category=category,
+                summary=summary,
+                detail=body_text or None,
+            )
+
+        try:
+            payload = resp.json()
+        except ValueError as e:
+            return UpstreamProbeResult(
+                ok=False,
+                upstream_id=upstream.id,
+                upstream_name=upstream.name,
+                native_api=upstream.native_api,
+                status_code=resp.status_code,
+                category="invalid_response",
+                summary=f"上游返回非 JSON 响应: {e}",
+            )
+        if not isinstance(payload, dict):
+            return UpstreamProbeResult(
+                ok=False,
+                upstream_id=upstream.id,
+                upstream_name=upstream.name,
+                native_api=upstream.native_api,
+                status_code=resp.status_code,
+                category="invalid_response",
+                summary="上游返回的 JSON 顶层不是对象",
+            )
+        return UpstreamProbeResult(
+            ok=True,
+            upstream_id=upstream.id,
+            upstream_name=upstream.name,
+            native_api=upstream.native_api,
+            status_code=resp.status_code,
+            category="ok",
+            summary="request succeeded with configured api_key/model",
+        )
+
+    @staticmethod
+    def _probe_body(native_api: ServerApi, model: str) -> dict[str, Any]:
+        if native_api is ServerApi.MESSAGES:
+            return {
+                "model": model,
+                "max_tokens": 1,
+                "messages": [{"role": "user", "content": [{"type": "text", "text": "ping"}]}],
+            }
+        if native_api is ServerApi.CHAT_COMPLETIONS:
+            return {
+                "model": model,
+                "max_tokens": 1,
+                "messages": [{"role": "user", "content": "ping"}],
+            }
+        return {
+            "model": model,
+            "max_output_tokens": 1,
+            "input": "ping",
+        }
+
+    @staticmethod
+    def _classify_probe_failure(status_code: int, body_text: str) -> tuple[str, str]:
+        lower = body_text.lower()
+        if status_code in (401, 403):
+            return ("auth", "authentication failed; check api_key")
+        if "model" in lower and status_code in (400, 404, 422):
+            return ("model", "model validation failed; check upstream.model")
+        return ("upstream_error", f"upstream returned HTTP {status_code}")
+
     # ---------- 主入口 ----------
 
     async def forward(
@@ -183,8 +318,10 @@ class Forwarder:
         """
         t0 = time.monotonic()
         model: str | None = None
+        request_text: str | None = None
         try:
             body_dict = self._parse_body(body)
+            request_text = request_text_for(server_api, body_dict)
             raw_model = body_dict.get("model")
 
             # model fallback:body 缺 / 空 model + upstream.model 有值 → 写入 body_dict
@@ -220,7 +357,26 @@ class Forwarder:
                     extra_response_headers = dict(extra_response_headers or {})
                     extra_response_headers["x-rosetta-warnings"] = warnings_header
 
-            await self._record_log(upstream, model, "ok", t0, client_addr=client_addr)
+            if isinstance(resp, StreamingResponse):
+                resp = self._wrap_streaming_response_for_logging(
+                    resp,
+                    upstream=upstream,
+                    server_api=server_api,
+                    model=model,
+                    t0=t0,
+                    request_text=request_text,
+                    client_addr=client_addr,
+                )
+            else:
+                await self._record_log(
+                    upstream,
+                    model,
+                    "ok",
+                    t0,
+                    client_addr=client_addr,
+                    request_text=request_text,
+                    response_text=self._response_text_for_log(server_api, resp),
+                )
             return self._with_extra_headers(resp, extra_response_headers)
         except ServiceError as e:
             await self._record_log(
@@ -230,11 +386,18 @@ class Forwarder:
                 t0,
                 error=f"{e.code}: {e.message}",
                 client_addr=client_addr,
+                request_text=request_text,
             )
             raise
         except Exception as e:  # pragma: no cover — 防御:service 层理论上不会漏
             await self._record_log(
-                upstream, model, "error", t0, error=str(e), client_addr=client_addr
+                upstream,
+                model,
+                "error",
+                t0,
+                error=str(e),
+                client_addr=client_addr,
+                request_text=request_text,
             )
             raise
 
@@ -342,6 +505,8 @@ class Forwarder:
         *,
         error: str | None = None,
         client_addr: str | None = None,
+        request_text: str | None = None,
+        response_text: str | None = None,
     ) -> None:
         """写一条请求流水;LogWriter 内部已兜底,这里不用 try。"""
         latency_ms = int((time.monotonic() - t0) * 1000)
@@ -355,7 +520,63 @@ class Forwarder:
             error=error,
             client_addr=client_addr,
             upstream_url=upstream.base_url,
+            request_text=request_text,
+            response_text=response_text,
         )
+
+    def _response_text_for_log(self, server_api: ServerApi, resp: Response) -> str | None:
+        body = getattr(resp, "body", b"")
+        if not isinstance(body, (bytes, bytearray)) or not body:
+            return None
+        try:
+            payload = json.loads(bytes(body))
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        return response_text_for(server_api, cast(dict[str, Any], payload))
+
+    def _wrap_streaming_response_for_logging(
+        self,
+        resp: StreamingResponse,
+        *,
+        upstream: Upstream,
+        server_api: ServerApi,
+        model: str | None,
+        t0: float,
+        request_text: str | None,
+        client_addr: str | None,
+    ) -> StreamingResponse:
+        collector = SseTextCollector(server_api)
+        original_iter = resp.body_iterator
+
+        async def _iter() -> AsyncIterator[bytes]:
+            try:
+                async for chunk in original_iter:
+                    data = chunk if isinstance(chunk, bytes) else chunk.encode("utf-8")
+                    collector.feed(data)
+                    yield data
+            finally:
+                collector.finish()
+                await self._record_log(
+                    upstream,
+                    model,
+                    "ok",
+                    t0,
+                    client_addr=client_addr,
+                    request_text=request_text,
+                    response_text=collector.text,
+                )
+
+        wrapped = StreamingResponse(
+            _iter(),
+            status_code=resp.status_code,
+            media_type=resp.media_type,
+            background=resp.background,
+        )
+        for key, value in resp.headers.items():
+            wrapped.headers[key] = value
+        return wrapped
 
     # ---------- 上游 IO helper ----------
 
@@ -505,3 +726,11 @@ class Forwarder:
 
 # 模块级单例:app lifespan 负责 open/close;routes / 测试直接 import 使用
 forwarder = Forwarder()
+
+
+def _response_text(resp: httpx.Response, limit: int = 400) -> str:
+    try:
+        text = resp.text
+    except Exception:
+        return ""
+    return text[:limit]

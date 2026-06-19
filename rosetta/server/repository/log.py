@@ -27,6 +27,8 @@ class LogRepo:
         error: str | None = None,
         client_addr: str | None = None,
         upstream_url: str | None = None,
+        request_text: str | None = None,
+        response_text: str | None = None,
     ) -> LogEntry:
         """插入一条 log;调用方保证字段语义(status ∈ {ok, error, timeout})。"""
         entry = LogEntry(
@@ -39,6 +41,8 @@ class LogRepo:
             error=error,
             client_addr=client_addr,
             upstream_url=upstream_url,
+            request_text=request_text,
+            response_text=response_text,
         )
         self.session.add(entry)
         await self.session.commit()

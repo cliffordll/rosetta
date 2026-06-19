@@ -1,7 +1,4 @@
-"""`rosetta upstream` — upstream 的 add / list / update / remove / set-default / restore-mock。
-
-`test` 留到 v1+(FEATURE 附录 B)。
-"""
+"""`rosetta upstream` — upstream 的 add / list / update / remove / default / defaults / test / restore。"""
 
 from __future__ import annotations
 
@@ -19,6 +16,7 @@ from rosetta.server.controller.upstreams import (
     UpstreamUpdate,
 )
 from rosetta.server.database.models import UpstreamProvider
+from rosetta.shared.server_api import DEFAULT_SERVER_API_PATHS, ServerApi
 
 _ALLOWED_NATIVE_APIS = get_args(UpstreamNativeApiCreatable)
 _ALLOWED_PROVIDERS = get_args(UpstreamProvider)
@@ -49,17 +47,16 @@ async def _list() -> None:
         Renderer.out("no upstreams yet")
         return
     Renderer.table(
-        ["id", "name", "native_api", "provider", "model", "base_url", "enabled", "default"],
+        ["id", "name", "native_api", "provider", "model", "base_url", "enabled"],
         [
             [
                 u.id,
                 u.name,
-                u.native_api,
+                _api_label(u.native_api),
                 u.provider,
                 u.model or "-",
                 u.base_url,
                 u.enabled,
-                u.is_default,
             ]
             for u in items
         ],
@@ -223,35 +220,116 @@ async def _remove(upstream_id: str) -> None:
     Renderer.out(f"upstream id={upstream_id} removed")
 
 
-@app.command("set-default")
+@app.command("default")
 def set_default_cmd(
-    name: Annotated[str, typer.Argument(help="要设为全局默认的 upstream name")],
+    name: Annotated[str, typer.Argument(help="要设为默认的 upstream name")],
+    server_api_value: Annotated[
+        str | None,
+        typer.Option(
+            "--server-api",
+            "-s",
+            help=(
+                "入口 server_api: messages/completions/responses;"
+                "不传则设为 global default,作为所有 server_api 的兜底"
+            ),
+        ),
+    ] = None,
 ) -> None:
-    """把 upstream 设为全局默认上游(`x-rosetta-upstream` header 缺失时回退用)。"""
-    asyncio.run(_set_default(name))
+    """把 upstream 设为默认上游(`x-rosetta-upstream` header 缺失时回退用)。"""
+    server_api: ServerApi | None = None
+    if server_api_value is not None:
+        try:
+            server_api = ServerApi(server_api_value)
+        except ValueError:
+            Renderer.die(
+                f"--server-api 必须是 messages/completions/responses,收到 {server_api_value!r}"
+            )
+            return
+    asyncio.run(_set_default(name, server_api=server_api))
 
 
-async def _set_default(name: str) -> None:
+async def _set_default(name: str, *, server_api: ServerApi | None) -> None:
     try:
         async with ProxyClient.discover_session(spawn_if_missing=False) as client:
-            updated = await client.set_default_upstream(name)
+            updated = await client.set_default_upstream(name, server_api=server_api)
     except httpx.HTTPStatusError as e:
         Renderer.die(f"设默认失败: {e.response.status_code} {e.response.text}")
         return
     except RuntimeError as e:
         Renderer.die(f"server 未就绪: {e}")
         return
-    Renderer.out(f"upstream '{updated.name}' is now global default")
+    scope = f"server_api={server_api.value}" if server_api is not None else "global"
+    Renderer.out(f"upstream '{updated.name}' is now default ({scope})")
 
 
-@app.command("restore-mock")
+@app.command("defaults")
+def defaults_cmd() -> None:
+    """查看 global + 各 server_api 默认绑定到哪个 upstream。"""
+    asyncio.run(_defaults())
+
+
+async def _defaults() -> None:
+    try:
+        async with ProxyClient.discover_session(spawn_if_missing=False) as client:
+            defaults = await client.list_upstream_defaults()
+    except httpx.HTTPStatusError as e:
+        Renderer.die(f"读取默认绑定失败: {e.response.status_code} {e.response.text}")
+        return
+    except RuntimeError as e:
+        Renderer.die(f"server 未就绪: {e}")
+        return
+    Renderer.table(
+        ["server_api", "upstream"],
+        [
+            ["global", defaults.global_ or "-"],
+            [_api_label("messages"), defaults.messages or "-"],
+            [_api_label("completions"), defaults.completions or "-"],
+            [_api_label("responses"), defaults.responses or "-"],
+        ],
+    )
+
+
+@app.command("test")
+def test_cmd(upstream_id: Annotated[str, typer.Argument(help="要测试的 upstream id")]) -> None:
+    """按 upstream 自己的 native_api 发最小探测请求。"""
+    asyncio.run(_test(upstream_id))
+
+
+async def _test(upstream_id: str) -> None:
+    try:
+        async with ProxyClient.discover_session(spawn_if_missing=False) as client:
+            result = await client.test_upstream(upstream_id)
+    except httpx.HTTPStatusError as e:
+        Renderer.die(f"测试失败: {e.response.status_code} {e.response.text}")
+        return
+    except RuntimeError as e:
+        Renderer.die(f"server 未就绪: {e}")
+        return
+
+    head = (
+        f"{'OK' if result.ok else 'FAIL'} "
+        f"upstream={result.upstream_name} native_api={_api_label(result.native_api)} "
+        f"category={result.category}"
+    )
+    if result.status_code is not None:
+        head += f" status={result.status_code}"
+
+    if result.ok:
+        Renderer.out(f"{head} {result.summary}")
+        return
+
+    Renderer.err(head)
+    Renderer.die(result.detail or result.summary)
+
+
+@app.command("restore")
 def restore_mock_cmd(
     force: Annotated[
         bool,
         typer.Option("--force", help="mock 已存在时先删除再重建(默认幂等跳过)"),
     ] = False,
 ) -> None:
-    """恢复内置 mock upstream(误删 / 重置出厂配置用)。"""
+    """恢复内置 mock upstream(误删 / 重置出厂配置用)。调用 `POST /admin/upstreams/restore-mock`。"""
     asyncio.run(_restore_mock(force))
 
 
@@ -271,3 +349,8 @@ async def _restore_mock(force: bool) -> None:
 
 def register(app_root: typer.Typer) -> None:
     app_root.add_typer(app, name="upstream")
+
+
+def _api_label(value: str) -> str:
+    path = DEFAULT_SERVER_API_PATHS.get(value)
+    return f"{value} ({path})" if path else value
