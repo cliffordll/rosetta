@@ -6,7 +6,7 @@
 
 ---
 
-## 能做什么
+## 1. 能做什么
 
 - **跨生态调用**:客户端用任一主流 API 格式写,上游可以是任一主流 LLM 服务,中间格式差异由代理透明翻译
 - **多 upstream 集中管理**:一个地方管所有 key / 用量统计;客户端通过 `x-rosetta-upstream` header 显式选,或按入口 server_api 走 default upstream(支持 global fallback + per-server_api default,`rosetta upstream default <name>` 配置)
@@ -16,7 +16,7 @@
 
 ---
 
-## 当前状态
+## 2. 当前状态
 
 **v0.2.3 · 核心链路已实现,持续打磨中**。
 
@@ -26,7 +26,7 @@
 
 ---
 
-## 架构速览
+## 3. 架构速览
 
 ```
 ┌─────────────┐        ┌─────────────────────┐        ┌──────────────────┐
@@ -45,7 +45,7 @@
 
 ---
 
-## 技术栈
+## 4. 技术栈
 
 | 层 | 选型 |
 |---|---|
@@ -58,7 +58,7 @@
 
 ---
 
-## 开发
+## 5. 开发使用
 
 ```bash
 # 装依赖
@@ -145,60 +145,75 @@ uv run pytest
 
 ---
 
-## 版本控制说明
+## 6. 版本控制
 
-- 主分支为 `main`
-- 功能改动建议按主题拆分提交,避免把后端、前端、文档和测试揉成一笔
-- 版本号不要手改多个文件,统一用发布脚本维护:
-  - 校验当前版本是否一致:
-    - `uv run python scripts/publish.py check`
-  - 显式改到指定版本:
-    - `uv run python scripts/publish.py bump 0.2.4`
-  - 自动递增:
-    - `uv run python scripts/publish.py bump patch`
-    - `uv run python scripts/publish.py bump minor`
-    - `uv run python scripts/publish.py bump major`
-- `scripts/publish.py bump ...` 会同步更新这些位置的版本号:
-  - `pyproject.toml`
-  - `rosetta/__init__.py`
-  - `package.json`
-  - `packages/app/package.json`
-  - `packages/desktop/package.json`
-  - `packages/desktop/tauri/Cargo.toml`
-  - `packages/desktop/tauri/tauri.conf.json`
-- 版本号更新后,再按需提交并打 tag:
-  - 本地创建 tag: `uv run python scripts/publish.py tag create`
-  - 创建并推送 tag: `uv run python scripts/publish.py tag create --push`
-- 提交前至少运行与改动面对应的验证:
-  - Python lint: `uv run ruff check .`
-  - Python format check: `uv run ruff format --check .`
-  - Python type check: `uv run pyright .`
-  - Python tests: `uv run pytest`
-  - 前端: `cd packages/app && npm run typecheck && npm run build`
+### 6.1 基本约定
 
----
+1. 主分支为 `main`
+2. 功能改动建议按主题拆分提交,避免把后端、前端、文档和测试揉成一笔
 
-## 打包说明
+### 6.2 版本号维护
 
-- 一键走发布脚本,同时按当前版本号归集产物:
-  - `uv run python scripts/publish.py build`
-  - `uv run python scripts/publish.py build --installer`
-- 构建 Python 可执行文件:
-  - `uv run --group build python scripts/build.py`
-- 仅构建 server sidecar:
-  - `uv run --group build python scripts/build.py --target server --sync-sidecar`
-- 构建产物位置:
-  - 发布脚本产物在 `dist/rosetta-<version>/`
-  - 仅 PyInstaller 产物在 `dist/`
-  - Tauri 桌面端在 `packages/desktop` 对应的构建输出目录
-- 桌面端打包前,先确保 sidecar 已同步,再执行:
-  - `cd packages/desktop`
-  - `bun install`
-  - `bun run build` 或 `bun run tauri build`
+1. 版本号不要手改多个文件,统一用发布脚本维护:
+   - 校验当前版本是否一致: `uv run python scripts/publish.py check`
+   - 显式改到指定版本: `uv run python scripts/publish.py bump 0.1.1`
+   - 自动递增:
+     - `uv run python scripts/publish.py bump patch`
+     - `uv run python scripts/publish.py bump minor`
+     - `uv run python scripts/publish.py bump major`
+2. `scripts/publish.py bump ...` 会同步更新这些位置的版本号:
+   - `pyproject.toml`
+   - `rosetta/__init__.py`
+   - `package.json`
+   - `packages/app/package.json`
+   - `packages/desktop/package.json`
+   - `packages/desktop/tauri/Cargo.toml`
+   - `packages/desktop/tauri/tauri.conf.json`
+
+### 6.3 提交前检查
+
+1. Python lint: `uv run ruff check .`
+2. Python format check: `uv run ruff format --check .`
+3. Python type check: `uv run pyright .`
+4. Python tests: `uv run pytest`
+5. 前端: `cd packages/app && npm run typecheck && npm run build`
+
+### 6.4 建议发布顺序
+
+1. `uv run python scripts/publish.py bump patch|minor|major|<version>`
+2. 运行对应验证命令,确认当前版本可提交
+3. 如需发布产物,执行:
+   - `uv run python scripts/publish.py build`
+   - `uv run python scripts/publish.py build --installer`
+4. 提交版本改动
+5. 创建 tag:
+   - 本地创建: `uv run python scripts/publish.py tag create`
+   - 创建并推送: `uv run python scripts/publish.py tag create --push`
+6. `tag create` 只负责给当前提交打版本标记,不会自动打包;打包需显式执行 `build`
 
 ---
 
-## 文档索引
+## 7. 打包说明
+
+### 7.1 常用命令
+
+1. 发布脚本打包:
+   - `uv run python scripts/publish.py build`
+   - `uv run python scripts/publish.py build --installer`
+2. 仅构建 Python 可执行文件:
+   - `uv run --group build python scripts/build.py`
+3. 仅构建 server sidecar:
+   - `uv run --group build python scripts/build.py --target server --sync-sidecar`
+
+### 7.2 产物位置
+
+1. 发布脚本产物在 `dist/rosetta-<version>/`
+2. 仅 PyInstaller 产物在 `dist/`
+3. Tauri 桌面端产物在 `packages/desktop` 对应的构建输出目录
+
+---
+
+## 8. 文档索引
 
 | 文件 | 作用 |
 |---|---|
@@ -209,6 +224,6 @@ uv run pytest
 
 ---
 
-## License
+## 9. License
 
 TBD
