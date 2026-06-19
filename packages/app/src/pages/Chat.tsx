@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, ServerApi, api, serverApiLabel, type UpstreamOut } from "@/lib/api";
-import { changeServerApiSelection, initialUpstreamChoice } from "@/lib/chat-selection";
+import { changeServerApiSelection, ensureUpstreamChoice } from "@/lib/chat-selection";
 import { ChatError, runTurn, type ChatTurnMsg } from "@/lib/chat";
 
 const NO_UPSTREAM_SELECTED = "__none__";
@@ -75,13 +75,18 @@ export default function Chat() {
         // 后端按 created_at 升序返回;UI 倒序让最新创建的排在最前
         const sorted = [...list].reverse();
         setUpstreams(sorted);
-        // server_api 与 upstream 解耦:按列表顺序默认选择第一个启用项。
-        setUpstreamChoice(initialUpstreamChoice(sorted, NO_UPSTREAM_SELECTED));
       } catch (e) {
         setUpstreamsErr(extractErr(e));
       }
     })();
   }, []);
+
+  // 首次加载及 Fast Refresh 后校正空选择;已有明确选择时不覆盖。
+  useEffect(() => {
+    setUpstreamChoice((current) =>
+      ensureUpstreamChoice(current, upstreams, NO_UPSTREAM_SELECTED),
+    );
+  }, [upstreams]);
 
   // server_api 和 upstream 独立选择;切 API 时保留当前 upstream,只清空客户端 model override。
   const onServerApiChange = useCallback(
