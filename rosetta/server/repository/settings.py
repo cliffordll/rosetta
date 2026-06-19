@@ -7,6 +7,7 @@ from rosetta.server.logs_config import (
     LOG_CONTENT_KEY,
     LOGS_PAGE_SIZE_KEY,
     LogsConfig,
+    LogsPageSize,
     normalize_log_content,
     normalize_logs_page_size,
 )
@@ -33,7 +34,7 @@ class SettingsRepo:
         self,
         *,
         log_content: str | None = None,
-        page_size: int | None = None,
+        page_size: LogsPageSize | None = None,
     ) -> LogsConfig:
         current = await self.get_logs_config()
         next_log_content = normalize_log_content(log_content or current.log_content)

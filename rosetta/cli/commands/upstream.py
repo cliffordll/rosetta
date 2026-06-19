@@ -1,4 +1,7 @@
-"""`rosetta upstream` — upstream 的 add / list / update / remove / default / defaults / test / restore。"""
+"""`rosetta upstream` 命令集。
+
+覆盖 add / list / update / remove / default / defaults / test / restore。
+"""
 
 from __future__ import annotations
 

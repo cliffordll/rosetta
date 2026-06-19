@@ -51,9 +51,7 @@ class TestGetDefault:
         assert picked is not None
         assert picked.id == a.id
 
-    async def test_per_server_api_takes_precedence_over_global(
-        self, session: AsyncSession
-    ) -> None:
+    async def test_per_server_api_takes_precedence_over_global(self, session: AsyncSession) -> None:
         a = await _insert(session, name="a", native_api="messages")
         b = await _insert(session, name="b", native_api="completions")
         repo = UpstreamRepo(session)
@@ -138,9 +136,7 @@ class TestUpdate:
         assert result.native_api == "completions"
         assert await repo.default_upstream_id("messages") == a.id
 
-    async def test_update_native_api_unchanged_keeps_default(
-        self, session: AsyncSession
-    ) -> None:
+    async def test_update_native_api_unchanged_keeps_default(self, session: AsyncSession) -> None:
         """同 native_api(等值改)不影响 default。"""
         a = await _insert(session, name="a", native_api="messages")
         repo = UpstreamRepo(session)

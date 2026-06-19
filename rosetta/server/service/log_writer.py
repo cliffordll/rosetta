@@ -21,9 +21,9 @@ import logging
 from typing import Literal
 
 from rosetta.server.database.session import get_session_maker
+from rosetta.server.logs_config import apply_log_content_mode
 from rosetta.server.repository.log import LogRepo
 from rosetta.server.repository.settings import SettingsRepo
-from rosetta.server.logs_config import apply_log_content_mode
 
 _log = logging.getLogger("rosetta.server.log_writer")
 

@@ -33,6 +33,7 @@ def default_upstream_key(server_api: str) -> str:
     """settings 表中某个 server_api 的 default upstream key。"""
     return f"{DEFAULT_UPSTREAM_KEY_PREFIX}:{server_api}"
 
+
 UpstreamNativeApi = Literal["messages", "completions", "responses", "any"]
 UpstreamProvider = Literal[
     "anthropic",

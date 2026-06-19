@@ -16,11 +16,12 @@ v0.1 没 logger 真往 logs 表写入,因此本端点常态返空。保留是为
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
+from rosetta.server.logs_config import LogContentMode, LogsPageSize
 from rosetta.server.repository import LogRepoDep, SettingsRepoDep, UpstreamRepoDep
 
 router = APIRouter()
@@ -50,13 +51,13 @@ class LogListResponse(BaseModel):
 
 
 class LogsConfigOut(BaseModel):
-    log_content: Literal["none", "summary", "full"]
-    page_size: Literal[10, 20, 50, 100]
+    log_content: LogContentMode
+    page_size: LogsPageSize
 
 
 class LogsConfigUpdate(BaseModel):
-    log_content: Literal["none", "summary", "full"] | None = None
-    page_size: Literal[10, 20, 50, 100] | None = None
+    log_content: LogContentMode | None = None
+    page_size: LogsPageSize | None = None
 
 
 @router.get("/logs/config", response_model=LogsConfigOut)

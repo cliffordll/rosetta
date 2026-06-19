@@ -317,10 +317,7 @@ async def test_cross_format_messages_to_completions(
     response_body = json.loads(resp.body)
     assert response_body["type"] == "message"
     assert response_body["role"] == "assistant"
-    assert any(
-        b.get("type") == "text" and b.get("text") == "yes"
-        for b in response_body["content"]
-    )
+    assert any(b.get("type") == "text" and b.get("text") == "yes" for b in response_body["content"])
 
 
 # ---------- model fallback ----------
@@ -464,9 +461,7 @@ def _sse_data_payloads(raw: str) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
     for frame in raw.split("\n\n"):
         data_lines = [
-            line[len("data:") :].lstrip()
-            for line in frame.splitlines()
-            if line.startswith("data:")
+            line[len("data:") :].lstrip() for line in frame.splitlines() if line.startswith("data:")
         ]
         if not data_lines:
             continue
@@ -726,3 +721,50 @@ async def test_forward_writes_log_on_service_error(session: AsyncSession) -> Non
     assert len(rows) == 1
     assert rows[0].status == "error"
     assert rows[0].error is not None and "invalid_json_body" in rows[0].error
+
+
+async def test_streaming_log_accepts_memoryview_chunks() -> None:
+    """流式日志收集应接受 ASGI 常见的 bytes-like chunk。"""
+    from fastapi.responses import StreamingResponse
+
+    captured: dict[str, str | None] = {"response_text": None}
+
+    async def _source() -> AsyncIterator[memoryview]:
+        payload = (
+            b"event: content_block_delta\n"
+            b'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hi"}}\n\n'
+        )
+        yield memoryview(payload)
+
+    async def _record_log(
+        upstream: Upstream,
+        model: str | None,
+        status: str,
+        t0: float,
+        *,
+        error: str | None = None,
+        client_addr: str | None = None,
+        request_text: str | None = None,
+        response_text: str | None = None,
+    ) -> None:
+        del upstream, model, status, t0, error, client_addr, request_text
+        captured["response_text"] = response_text
+
+    original = forwarder._record_log
+    forwarder._record_log = _record_log
+    try:
+        resp = StreamingResponse(_source(), media_type="text/event-stream")
+        wrapped = forwarder._wrap_streaming_response_for_logging(
+            resp,
+            upstream=_anthropic_upstream(),
+            server_api=ServerApi.MESSAGES,
+            model="claude-haiku-4-5",
+            t0=0.0,
+            request_text="hello",
+            client_addr=None,
+        )
+        body = await _drain_stream(wrapped)
+        assert b'"text":"hi"' in body
+        assert captured["response_text"] == "hi"
+    finally:
+        forwarder._record_log = original

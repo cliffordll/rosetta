@@ -185,9 +185,7 @@ class UpstreamRepo:
             defaults[scope] = upstream.name if upstream is not None else None
         return defaults
 
-    async def set_default(
-        self, name: str, server_api: str | None = None
-    ) -> Upstream:
+    async def set_default(self, name: str, server_api: str | None = None) -> Upstream:
         """把 `name` 设为 default;写入 `settings` 表。
 
         - `server_api` 给值 → 设 per-server_api default
@@ -199,11 +197,7 @@ class UpstreamRepo:
         if target is None:
             raise LookupError(f"upstream name={name!r} 不存在")
 
-        key = (
-            default_upstream_key(server_api)
-            if server_api is not None
-            else "default_upstream_id"
-        )
+        key = default_upstream_key(server_api) if server_api is not None else "default_upstream_id"
         await self.session.merge(Setting(key=key, value=target.id))
         await self.session.commit()
         return target

@@ -1,6 +1,6 @@
 {
   "include": ["rosetta"],
-  "exclude": ["**/__pycache__", ".venv", "dist", "build"],
+  "exclude": ["tests", "**/__pycache__", ".venv", "dist", "build"],
   "pythonVersion": "3.12",
   "typeCheckingMode": "strict",
   "reportMissingTypeStubs": "warning",
