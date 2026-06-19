@@ -317,7 +317,10 @@ async def test_cross_format_messages_to_completions(
     response_body = json.loads(resp.body)
     assert response_body["type"] == "message"
     assert response_body["role"] == "assistant"
-    assert any(b.get("type") == "text" and b.get("text") == "yes" for b in response_body["content"])
+    assert any(
+        b.get("type") == "text" and b.get("text") == "yes"
+        for b in response_body["content"]
+    )
 
 
 # ---------- model fallback ----------
@@ -461,7 +464,9 @@ def _sse_data_payloads(raw: str) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
     for frame in raw.split("\n\n"):
         data_lines = [
-            line[len("data:") :].lstrip() for line in frame.splitlines() if line.startswith("data:")
+            line[len("data:") :].lstrip()
+            for line in frame.splitlines()
+            if line.startswith("data:")
         ]
         if not data_lines:
             continue

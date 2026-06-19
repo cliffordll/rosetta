@@ -66,7 +66,10 @@ async def test_logs_config_defaults(client: AsyncClient) -> None:
 
 
 async def test_logs_config_update(client: AsyncClient) -> None:
-    r = await client.put("/admin/logs/config", json={"log_content": "full", "page_size": 50})
+    r = await client.put(
+        "/admin/logs/config",
+        json={"log_content": "full", "page_size": 50},
+    )
     assert r.status_code == 200
     assert r.json() == {"log_content": "full", "page_size": 50}
     again = await client.get("/admin/logs/config")
@@ -332,7 +335,9 @@ async def test_get_upstream_defaults(client: AsyncClient) -> None:
         },
     )
     assert (await client.put("/admin/upstreams/shared/default")).status_code == 200
-    assert (await client.put("/admin/upstreams/mock/default?server_api=responses")).status_code == 200
+    assert (
+        await client.put("/admin/upstreams/mock/default?server_api=responses")
+    ).status_code == 200
 
     r = await client.get("/admin/upstreams/defaults")
 
