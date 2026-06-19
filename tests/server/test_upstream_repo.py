@@ -1,8 +1,4 @@
-"""UpstreamRepo 的 get_default / set_default 行为。
-
-partial unique index `(native_api) WHERE is_default=1` 由 DB 兜底唯一,
-set_default 在事务内"先清同 native_api 旧 default、再 set 目标"。
-"""
+"""UpstreamRepo 的全局 get_default / set_default 行为。"""
 
 from __future__ import annotations
 
@@ -19,7 +15,6 @@ async def _insert(
     name: str,
     native_api: str = "messages",
     enabled: bool = True,
-    is_default: bool = False,
 ) -> Upstream:
     u = Upstream(
         name=name,
@@ -28,7 +23,6 @@ async def _insert(
         base_url="https://example.com",
         api_key="sk-fake",
         enabled=enabled,
-        is_default=is_default,
     )
     session.add(u)
     await session.commit()
@@ -39,26 +33,21 @@ async def _insert(
 class TestGetDefault:
     async def test_no_default_returns_none(self, session: AsyncSession) -> None:
         await _insert(session, name="a", native_api="messages")
-        assert await UpstreamRepo(session).get_default("messages") is None
+        assert await UpstreamRepo(session).get_default() is None
 
     async def test_default_hit(self, session: AsyncSession) -> None:
-        a = await _insert(session, name="a", native_api="messages", is_default=True)
-        picked = await UpstreamRepo(session).get_default("messages")
+        a = await _insert(session, name="a", native_api="messages")
+        repo = UpstreamRepo(session)
+        await repo.set_default("a")
+        picked = await repo.get_default()
         assert picked is not None
         assert picked.id == a.id
 
     async def test_default_disabled_returns_none(self, session: AsyncSession) -> None:
-        await _insert(session, name="a", native_api="messages", enabled=False, is_default=True)
-        assert await UpstreamRepo(session).get_default("messages") is None
-
-    async def test_default_isolated_per_native_api(self, session: AsyncSession) -> None:
-        a = await _insert(session, name="a", native_api="messages", is_default=True)
-        b = await _insert(session, name="b", native_api="completions", is_default=True)
+        await _insert(session, name="a", native_api="messages", enabled=False)
         repo = UpstreamRepo(session)
-        m = await repo.get_default("messages")
-        c = await repo.get_default("completions")
-        assert m is not None and m.id == a.id
-        assert c is not None and c.id == b.id
+        await repo.set_default("a")
+        assert await repo.get_default() is None
 
 
 class TestSetDefault:
@@ -66,30 +55,27 @@ class TestSetDefault:
         await _insert(session, name="a", native_api="messages")
         repo = UpstreamRepo(session)
         result = await repo.set_default("a")
-        assert result.is_default is True
-        picked = await repo.get_default("messages")
+        assert await repo.default_upstream_id() == result.id
+        picked = await repo.get_default()
         assert picked is not None and picked.name == "a"
 
     async def test_switch_default_clears_old(self, session: AsyncSession) -> None:
-        a = await _insert(session, name="a", native_api="messages", is_default=True)
+        a = await _insert(session, name="a", native_api="messages")
         await _insert(session, name="b", native_api="messages")
         repo = UpstreamRepo(session)
-        await repo.set_default("b")
-        # a 应被清零,b 现在是 default
-        picked = await repo.get_default("messages")
-        assert picked is not None and picked.name == "b"
-        await session.refresh(a)
-        assert a.is_default is False
-
-    async def test_set_default_does_not_touch_other_native_apis(
-        self, session: AsyncSession
-    ) -> None:
-        c = await _insert(session, name="c", native_api="completions", is_default=True)
-        await _insert(session, name="a", native_api="messages")
-        repo = UpstreamRepo(session)
         await repo.set_default("a")
-        await session.refresh(c)
-        assert c.is_default is True
+        await repo.set_default("b")
+        picked = await repo.get_default()
+        assert picked is not None and picked.name == "b"
+        assert await repo.default_upstream_id() != a.id
+
+    async def test_set_default_clears_other_native_api(self, session: AsyncSession) -> None:
+        await _insert(session, name="c", native_api="completions")
+        a = await _insert(session, name="a", native_api="messages")
+        repo = UpstreamRepo(session)
+        await repo.set_default("c")
+        await repo.set_default("a")
+        assert await repo.default_upstream_id() == a.id
 
     async def test_set_default_unknown_raises(self, session: AsyncSession) -> None:
         repo = UpstreamRepo(session)
@@ -97,10 +83,11 @@ class TestSetDefault:
             await repo.set_default("ghost")
 
     async def test_set_default_idempotent(self, session: AsyncSession) -> None:
-        await _insert(session, name="a", native_api="messages", is_default=True)
+        await _insert(session, name="a", native_api="messages")
         repo = UpstreamRepo(session)
+        await repo.set_default("a")
         again = await repo.set_default("a")
-        assert again.is_default is True
+        assert await repo.default_upstream_id() == again.id
 
 
 class TestUpdate:
@@ -126,22 +113,21 @@ class TestUpdate:
         with pytest.raises(IntegrityError):
             await repo.update(b.id, name="a")
 
-    async def test_update_native_api_clears_is_default(self, session: AsyncSession) -> None:
-        """改 native_api 时,如果该行原来是 default,应自动清掉(避免跨 API 类型占槽)。"""
-        a = await _insert(session, name="a", native_api="messages", is_default=True)
+    async def test_update_native_api_keeps_global_default(self, session: AsyncSession) -> None:
+        a = await _insert(session, name="a", native_api="messages")
         repo = UpstreamRepo(session)
+        await repo.set_default("a")
         result = await repo.update(a.id, native_api="completions")
         assert result.native_api == "completions"
-        assert result.is_default is False
+        assert await repo.default_upstream_id() == a.id
 
-    async def test_update_native_api_unchanged_keeps_is_default(
-        self, session: AsyncSession
-    ) -> None:
-        """同 native_api(等值改)不应清 is_default。"""
-        a = await _insert(session, name="a", native_api="messages", is_default=True)
+    async def test_update_native_api_unchanged_keeps_default(self, session: AsyncSession) -> None:
+        """同 native_api(等值改)不影响 global default。"""
+        a = await _insert(session, name="a", native_api="messages")
         repo = UpstreamRepo(session)
-        result = await repo.update(a.id, native_api="messages")
-        assert result.is_default is True
+        await repo.set_default("a")
+        await repo.update(a.id, native_api="messages")
+        assert await repo.default_upstream_id() == a.id
 
     async def test_update_clear_api_key(self, session: AsyncSession) -> None:
         """显式传 None 清 api_key;不传字段保持原值。"""
