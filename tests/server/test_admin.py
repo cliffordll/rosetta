@@ -250,13 +250,13 @@ async def test_set_default_success(client: AsyncClient) -> None:
 
 
 async def test_set_default_switches_old_default(client: AsyncClient) -> None:
-    """同 ServerApi 切换 default,旧的 is_default 自动归零。"""
-    for name in ("a", "b"):
+    """跨 native_api 切换全局 default,旧的 is_default 自动归零。"""
+    for name, native_api in (("a", "messages"), ("b", "completions")):
         await client.post(
             "/admin/upstreams",
             json={
                 "name": name,
-                "native_api": "messages",
+                "native_api": native_api,
                 "api_key": "sk",
                 "base_url": f"https://api.example.com/{name}",
             },
@@ -320,8 +320,7 @@ async def test_update_upstream_clear_api_key(client: AsyncClient) -> None:
     assert "has_api_key" not in r.json()
 
 
-async def test_update_upstream_native_api_clears_default(client: AsyncClient) -> None:
-    """改 ServerApi 时如果该行是 default,自动清掉 is_default。"""
+async def test_update_upstream_native_api_keeps_global_default(client: AsyncClient) -> None:
     create = await client.post(
         "/admin/upstreams",
         json={
@@ -337,7 +336,7 @@ async def test_update_upstream_native_api_clears_default(client: AsyncClient) ->
     assert r.status_code == 200
     body = r.json()
     assert body["native_api"] == "completions"
-    assert body["is_default"] is False
+    assert body["is_default"] is True
 
 
 async def test_update_upstream_not_found(client: AsyncClient) -> None:
