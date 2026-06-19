@@ -189,7 +189,12 @@ uv run pytest
 5. 创建 tag:
    - 本地创建: `uv run python scripts/publish.py tag create`
    - 创建并推送: `uv run python scripts/publish.py tag create --push`
-6. `tag create` 只负责给当前提交打版本标记,不会自动打包;打包需显式执行 `build`
+6. tag 维护:
+   - 单独推送已有 tag: `uv run python scripts/publish.py tag push`
+   - 删除本地 tag: `uv run python scripts/publish.py tag delete`
+   - 删除本地 + 远端 tag: `uv run python scripts/publish.py tag delete --push`
+   - 仅删除远端 tag: `uv run python scripts/publish.py tag delete --remote`
+7. `tag create` 只负责给当前提交打版本标记,不会自动打包;打包需显式执行 `build`
 
 ---
 
