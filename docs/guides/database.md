@@ -225,7 +225,7 @@ upstream = Upstream(
     protocol="messages",      # messages / completions / responses
     provider="anthropic",     # anthropic / openai / openrouter / ... / custom / mock
     base_url="https://api.anthropic.com",  # v0 必填,不再按 provider 取默认
-    api_key="sk-x",           # 可选:留 None 表示客户端自带 x-api-key 透传
+    api_key="sk-x",           # 可选:留 None 表示客户端按入口协议自带 x-api-key/Authorization 透传
 )
 session.add(upstream)
 await session.commit()           # 必须 commit,否则不落盘

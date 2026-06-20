@@ -47,7 +47,7 @@
 | 12 | 包管理（Python） | uv | 对齐团队习惯 |
 | 13 | Python 打包 | PyInstaller 单文件 exe | Tauri sidecar 分发方便 |
 | 14 | 平台 | Windows 优先；Tauri 支持跨平台所以将来能扩 | |
-| 15 | 鉴权模型 | server 只绑 `127.0.0.1` / `::1`，无 API-level auth；客户端 `x-api-key` 头直接透传给上游 | 不引入 rosetta 自有的"本地 key"层；单用户本地场景靠 loopback 隔离；暴露公网请挂反代自加 auth |
+| 15 | 鉴权模型 | server 只绑 `127.0.0.1` / `::1`，无 API-level auth；客户端按入口协议传的真实鉴权头(`x-api-key` / `Authorization: Bearer`)作为上游 key override | 不引入 rosetta 自有的"本地 key"层；单用户本地场景靠 loopback 隔离；暴露公网请挂反代自加 auth |
 
 ---
 
@@ -114,7 +114,7 @@
 | 端点 | `/v1/*`（Claude + OpenAI 兼容） | `/admin/*`（内部管理） |
 | 典型调用 | `POST /v1/messages` / `/v1/chat/completions` / `/v1/responses` | `GET /admin/upstreams`、`POST /admin/upstreams` |
 | 流量特征 | 高频、长连接、**必须 SSE 流式** | 低频、短请求、普通 HTTP |
-| 认证 | **无 API-level auth**（loopback-only 隔离）；`x-api-key` / `Authorization: Bearer` 若传则透传给上游作 override，不传用 `upstreams.api_key` | token（从 `endpoint.json` 读，仅防跨用户误触） |
+| 认证 | **无 API-level auth**（loopback-only 隔离）；客户端按入口协议传的鉴权头（Messages 的 `x-api-key`、OpenAI-compatible 的 `Authorization: Bearer`）作为上游 key override，不传用 `upstreams.api_key`；`r-api-key` 预留为 Rosetta server-level auth（暂不启用） | token（从 `endpoint.json` 读，仅防跨用户误触） |
 | 失败影响 | 客户端 AI 对话中断 | GUI 显示错误，用户手动重试 |
 
 ---
@@ -269,7 +269,7 @@ rosetta/
 │   │   │   ├── __init__.py
 │   │   │   ├── forwarder.py     # Forwarder + 单例:httpx 转发 + 翻译编排 + SSE 透传 + logs 埋点
 │   │   │   ├── mock.py          # MockResponder + 单例:provider=mock 本地 echo(IR 全链路)
-│   │   │   ├── selector.py      # pick_upstream:按 x-rosetta-upstream header 选 upstream
+│   │   │   ├── selector.py      # pick_upstream:按 r-upstream header 选 upstream
 │   │   │   ├── log_writer.py    # LogWriter + 单例:请求流水后台写库,失败只 warn 不冒泡
 │   │   │   └── exceptions.py    # ServiceError(status, code, message, **extra) domain exception
 │   │   │
@@ -388,7 +388,7 @@ Stream Event IR:
 ```
 客户端 JSON
   → [inbound adapter] 解析到 IR
-  → [selector] 按 x-rosetta-upstream header 选 upstream
+  → [selector] 按 r-upstream header 选 upstream
   → [outbound adapter] IR 序列化为上游格式
   → httpx 发上游
 ```
@@ -438,7 +438,7 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 | `store=true` / stored responses | 保留 | 忽略（日志 warning） |
 | `previous_response_id` | 保留 | v0 报 400（客户端需自己维护上下文） |
 | `background: true` | 保留 | v0 报 400 |
-| 内置 tools（`web_search`/`code_interpreter`/`file_search`） | 保留 | 剔除并返回 header `x-rosetta-warnings` |
+| 内置 tools（`web_search`/`code_interpreter`/`file_search`） | 保留 | 剔除并返回 header `r-warnings` |
 
 #### 实施优先级
 
@@ -451,7 +451,7 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 **rosetta 不做 model-based 自动路由**;选 upstream 走**两段策略**:**显式 header 优先**,**header 缺失时按入口 server_api 取 default upstream**。default 采用两层配置:先查 `default_upstream_id:<server_api>`,没有再查全局 `default_upstream_id`;原设计里按 `model_glob` 自动匹配 upstream 的 `routes` 表已经移除(2026-04 简化)。
 
 ```
-1. header 有 x-rosetta-upstream: <name>?
+1. header 有 r-upstream: <name>?
    · 有 → 按 name 精确匹配 upstream
       · 找到 enabled → 用它
       · 不存在 → 400 upstream_not_found
@@ -462,7 +462,7 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
       · 都没设(或 default 被禁用) → 400 missing_rosetta_upstream
 ```
 
-**允许跨 API 借用**:default upstream 的 `native_api` 可与入口 server_api 不同;命中后照常走 §8.3 翻译。这样一个 global default 可以同时服务多个入口 API,显式 `x-rosetta-upstream` 仍然优先。
+**允许跨 API 借用**:default upstream 的 `native_api` 可与入口 server_api 不同;命中后照常走 §8.3 翻译。这样一个 global default 可以同时服务多个入口 API,显式 `r-upstream` 仍然优先。
 
 **default 的写入**:`PUT /admin/upstreams/{name}/default` / `rosetta upstream default <name> [--server-api ...]` / GUI Upstreams 页 Defaults 区块三选一。default 直接写 settings 表,不再把状态塞进 upstream 列表本身。
 
@@ -481,7 +481,7 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
   "error": {
     "type": "rosetta_error",
     "code": "upstream_not_found",   // 或 missing_rosetta_upstream / upstream_disabled
-    "message": "x-rosetta-upstream 指定的 'ghost' 不存在"
+    "message": "r-upstream 指定的 'ghost' 不存在"
   }
 }
 ```
@@ -507,18 +507,18 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
        │    → url + port                    │                                     │
        │                                    │                                     │
        │ 2. POST /v1/messages               │                                     │
-       │    （无 x-api-key，靠 server 兜底）│                                     │
+       │    （无客户端 key，靠 server 兜底）│                               │
        │    body.model: claude-haiku-4-5    │                                     │
        │    body.messages: [...]            │                                     │
        │ ─────────────────────────────────► │                                     │
        │                                    │ 3. loopback 校验通过（只接 127.*）  │
-       │                                    │ 4. 按 x-rosetta-upstream header     │
+       │                                    │ 4. 按 r-upstream header     │
        │                                    │    选 upstream "anthropic-main"     │
        │                                    │ 5. 读 upstreams 行:                 │
        │                                    │    base_url → https://api.anth…     │
        │                                    │    api_key  → sk-ant-XXXX           │
        │                                    │ 6. 解析上游 api-key:                │
-       │                                    │    请求头有 x-api-key? 用它         │
+       │                                    │    请求头有 x-api-key/Authorization? 用它 │
        │                                    │    没有 → 用 upstreams.api_key      │
        │                                    │    （这里走"没有"分支）              │
        │                                    │ 7. server_api=messages + native_api=messages │
@@ -554,14 +554,14 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 | 字段 | 链路步骤 | 来源 | 去向 | 备注 |
 |---|---|---|---|---|
 | 上游 URL | 8 | `upstreams.base_url`（空则按 type 默认，见 §8.2） | httpx 请求行 | 用户在 GUI / `upstream add` 填一次 |
-| 上游 api-key | 8 | **客户端 `x-api-key` 头**（若带）→ **否则 `upstreams.api_key`** | httpx 请求头（按上游 type 选具体写法） | v0 无"rosetta 本地 key"概念 |
+| 上游 api-key | 8 | **客户端真实鉴权头**（Messages 为 `x-api-key`，OpenAI-compatible 为 `Authorization: Bearer`）→ **否则 `upstreams.api_key`** | httpx 请求头（按上游 type 选具体写法） | v0 无"rosetta 本地 key"概念；`r-api-key` 预留为 server-level auth |
 | `model` | 2 → 8 | **客户端 body.model**(若有)→ **否则 `upstreams.model`** 兜底 | 上游 `body.model` | client 显式优先;forwarder 在 body.model 缺失或为空时注入 upstream.model;两边都没就维持原 body 让上游 4xx |
 | `messages[]` | 2 → 8 | CLI 内存数组（多轮历史） | 上游 body（直通）或 adapter 翻译后（跨格式） | |
-| `x-rosetta-upstream: foo`（可选） | 2 | CLI `--upstream foo`(留空走 server_api default) | server 按 name 查;缺失则按入口 server_api 取 default | **不转发上游**;缺失且无 default 时 400 |
+| `r-upstream: foo`（可选） | 2 | CLI `--upstream foo`(留空走 server_api default) | server 按 name 查;缺失则按入口 server_api 取 default | **不转发上游**;缺失且无 default 时 400 |
 
 #### 客户端显式传 `--api-key` 的分支
 
-`rosetta chat --api-key sk-XYZ --model claude-haiku-4-5 "hi"`：在步骤 2 的请求里带上 `x-api-key: sk-XYZ`，步骤 6 检测到就用这把，**不**读 `upstreams.api_key`。其他步骤完全不变。这条分支让你"临时用一把不一样的 key 试试"不需要改任何 DB 配置。
+`rosetta chat --api-key sk-XYZ --model claude-haiku-4-5 "hi"`（Messages 入口）：在步骤 2 的请求里带上 `x-api-key: sk-XYZ`；OpenAI-compatible 入口则带 `Authorization: Bearer sk-XYZ`。步骤 6 检测到就用这把，**不**读 `upstreams.api_key`。其他步骤完全不变。这条分支让你"临时用一把不一样的 key 试试"不需要改任何 DB 配置。
 
 #### direct 模式的旁路（见 §8.7）
 
@@ -585,7 +585,7 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 **direct 模式不支持的事**:
 
 - **不翻译**:`--server-api` 和上游原生格式不一致 → 上游自己会 4xx 回错;rosetta 不介入。要跨格式请走正常模式。
-- **不路由**:没有 `upstreams` / `x-rosetta-upstream` 概念介入。
+- **不路由**:没有 `upstreams` / `r-upstream` 概念介入。
 - **不记日志 / 不计 stats**:不经过 server,`logs` 表里就没这条记录。
 - **GUI 浏览器环境用不了**:CORS 会阻止浏览器直打 `api.anthropic.com`。Tauri 桌面端可以通过 `tauri.conf.json` 的 `http.scope` allowlist 绕过;纯浏览器开发环境下 GUI 的 direct 开关直接禁用。
 
@@ -593,7 +593,7 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 
 | 与 `--base-url` 的互斥行为 | 说明 |
 |---|---|
-| `--upstream <name>` / `x-rosetta-upstream` 头 | direct 模式下 `--upstream` **自动失效**并 stderr 打 warn(软互斥,见 FEATURE §4.4) |
+| `--upstream <name>` / `r-upstream` 头 | direct 模式下 `--upstream` **自动失效**并 stderr 打 warn(软互斥,见 FEATURE §4.4) |
 
 CLI 在参数解析阶段处理互斥;SDK 的 `ProxyClient.direct_session(...)` 构造函数不暴露 `upstream` 参数。
 
@@ -610,8 +610,8 @@ CLI 在参数解析阶段处理互斥;SDK 的 `ProxyClient.direct_session(...)` 
 |---|---|---|
 | 触发 | 不传 `--base-url` | 传 `--base-url`（flag 或 env） |
 | 经 server | 是 | 否 |
-| api-key 来源 | `x-api-key` 头若有则 override，否则 `upstreams.api_key` fallback | 必填，直接走 `x-api-key` / `Authorization` |
-| URL 来源 | `upstreams.base_url`（按 `x-rosetta-upstream` header 查 name） | `--base-url` 直填 |
+| api-key 来源 | 客户端真实鉴权头若有则 override，否则 `upstreams.api_key` fallback | 必填，直接走 `x-api-key` / `Authorization` |
+| URL 来源 | `upstreams.base_url`（按 `r-upstream` header 查 name） | `--base-url` 直填 |
 | 可跨格式翻译 | 可以（走 IR） | 不可以（必须原生） |
 | 日志 / stats | 写 | 不写 |
 
@@ -687,7 +687,7 @@ rosetta chat \
 
 - **REPL 多轮**：客户端在内存里维护 messages 数组，每次把**完整历史**作为请求体发给 `/v1/*`——API 本身无状态，会话是客户端侧的事。`/reset` 清空数组，`Ctrl+D` / `/exit` 退出。
 - **一次性模式**（带 `"text"` 参数或 stdin 管道）：发完即退，不保留历史，也不写任何本地文件——这是"启动后测一下链路通不通"的最小形态。
-- **鉴权**：CLI **不持有任何 rosetta 自有的本地 key**——server 不做 API-level auth（loopback-only）。`--api-key` 是**可选的上游 key override**：传了就附加 `x-api-key: <你的值>` 让 server 透传；不传就让 server 用 `upstreams.api_key`。direct 模式下 `--api-key` 是必填。
+- **鉴权**：CLI **不持有任何 rosetta 自有的本地 key**——server 不做 API-level auth（loopback-only）。`--api-key` 是**可选的上游 key override**：server 模式按入口 server_api 附加 `x-api-key`(Messages) 或 `Authorization: Bearer`(OpenAI-compatible)；不传就让 server 用 `upstreams.api_key`。direct 模式下 `--api-key` 是必填,并按上游 API 写成 `x-api-key` 或 `Authorization`。
 - **direct 模式触发**：命令里（或 env）出现 `--base-url` → 直接打上游，不经 server。详见 §8.6。
 - **REPL slash 命令**:支持自动补全和上下键选择候选。`/server_api <api_type>` 切换 API 格式(`messages|completions|responses`);`/model <name>` 切换模型,`/model clear` 切回 auto;`/raw on|off` 切换 raw 输出;`/raw_edge <n>` / `/raw_step <n>` 调整 raw SSE frame 预览。
 - **已知局限**(v0 故意不处理):REPL 中切换 `/model` 或 `/server_api` 时,前文只保留 text block(role=user/assistant);工具调用 / thinking / 图片等块在 server_api 切换后丢弃并打印 warning——"切 API 格式 = 新对话的开始"比"翻译前文"简单太多。
@@ -721,8 +721,8 @@ upstreams: 1 enabled (anthropic-main)
 # ─── step 4：一次性对话（最小链路自检）──────────────────────────
 $ rosetta chat --upstream anthropic-main "用一句话介绍你自己"
 → POST /v1/messages to 127.0.0.1:1687
-   header: x-rosetta-upstream: anthropic-main
-   （无 x-api-key，让 server 用 upstreams.api_key 兜底）
+   header: r-upstream: anthropic-main
+   （无 --api-key，让 server 用 upstreams.api_key 兜底）
    body.model: claude-haiku-4-5          ← upstream.model 兜底
 → server: 按 header 选中 anthropic-main → 用 upstreams.api_key sk-ant-XXX
 → httpx.post https://api.anthropic.com/v1/messages with sk-ant-XXX
@@ -765,7 +765,7 @@ pong
 
 # ─── step 7：临时换一把 api-key 测试（不修改 upstream）──────────────
 $ rosetta chat --upstream anthropic-main --api-key sk-ant-OTHER --model claude-haiku-4-5 "hi"
-  ↑ server 收到请求头带 x-api-key，就拿这把去打上游，不读 upstreams.api_key
+  ↑ server 收到请求头带 x-api-key/Authorization，就拿这把去打上游，不读 upstreams.api_key
 
 # ─── step 8：direct 模式（完全绕过 server）───────────────────────
 $ rosetta chat \
@@ -780,10 +780,10 @@ $ rosetta chat \
 
 **观察点**：
 
-1. **server 没有自己的 key 概念**——step 4 里 CLI 没传 `x-api-key`，server 用 upstreams 里存的；step 7 里 CLI 传了,server 就透传。概念统一。
+1. **server 没有自己的 key 概念**——step 4 里 CLI 没传 `--api-key`，server 用 upstreams 里存的；step 7 里 CLI 传了,server 就按入口协议透传为 `x-api-key` 或 `Authorization`。概念统一。
 2. **meta 行的翻译路径**（`直通` / `→IR→`）是活体自检的核心信号——启动后打一条 `rosetta chat "ping"` 看 meta 就知道链路是否贯通。
 3. **多轮靠客户端**：step 5 第二轮的"再乘以 5"能被理解，是因为 CLI 把前两轮一起塞进了 `body.messages`；server 无状态，纯转发。
-4. **upstream 路由两段式**:rosetta 不做 model-based 自动路由;客户端可显式带 `x-rosetta-upstream` header(`--upstream <name>`),也可不带让 server 按入口 `server_api` 取 default(`rosetta upstream default <name>` 配置)。两边都没的话 400。
+4. **upstream 路由两段式**:rosetta 不做 model-based 自动路由;客户端可显式带 `r-upstream` header(`--upstream <name>`),也可不带让 server 按入口 `server_api` 取 default(`rosetta upstream default <name>` 配置)。两边都没的话 400。
 5. **direct 模式**（step 8）是个旁路：`--base-url` 触发,不经 server,不记日志,也不翻译——要跨格式就去掉 `--base-url` 走 server。
 
 ---
@@ -840,11 +840,11 @@ interface Platform {
 ```
 
 - **状态**：当前会话的 `messages[]` 用 `useState` 存在 Chat 页组件里，**不入 DB、不入全局 store**、切页或刷新即清。想要多会话 / 历史翻阅请用外部 chat 客户端连 rosetta（见 §1 定位）。
-- **Upstream 下拉**:可选,挂载时拉 `GET /admin/upstreams?server_api=<当前>` 填充选项;默认预选当前 `server_api` 的 `is_default=true` 那一行(没设默认则保留"未选"状态)。选了具体 upstream → 发送时带 `x-rosetta-upstream: <name>` header;留空 → 不带 header,server 按 `server_api` 取 default。"未选 + 当前 `server_api` 无 default" 才禁用 Send(否则 server 会 400)。
+- **Upstream 下拉**:可选,挂载时拉 `GET /admin/upstreams?server_api=<当前>` 填充选项;默认预选当前 `server_api` 的 `is_default=true` 那一行(没设默认则保留"未选"状态)。选了具体 upstream → 发送时带 `r-upstream: <name>` header;留空 → 不带 header,server 按 `server_api` 取 default。"未选 + 当前 `server_api` 无 default" 才禁用 Send(否则 server 会 400)。
 - **Server API 下拉**:三选一 `messages | completions | responses`(对应 `/v1/messages` / `/v1/chat/completions` / `/v1/responses`),默认 `messages`。切换后下次发送用新 API 格式的请求体构造;已渲染的历史消息不回放。已知局限和 CLI 相同——切 `server_api` 后前文的 tool_use / thinking / image 块丢弃并给 toast 提示。
 - **Model 下拉**:来源 `GET /v1/models?server_api=<当前>&upstream=<Upstream 下拉值>`,随 `server_api` / upstream 联动。
 - **流式**：浏览器 `fetch` + `ReadableStream` 读 SSE，按当前 `server_api` 解码后逐 token 追加到 assistant 气泡；`Stop` 按钮 `AbortController.abort()`。
-- **鉴权**：前端对本地 server **不带任何 rosetta 自有的 key**——server 只绑 loopback,不做 API-level auth。`/v1/*` 请求默认**不加 `x-api-key` 头**,让 server 用 `upstreams.api_key` 兜底。可选的"临时换 key 测试"场景在页面右上角提供一个小入口("Override api-key"),存会话内存、不落盘、切页即清。
+- **鉴权**：前端对本地 server **不带任何 rosetta 自有的 key**——server 只绑 loopback,不做 API-level auth。`/v1/*` 请求默认**不加 override api-key 头**,让 server 用 `upstreams.api_key` 兜底。可选的"临时换 key 测试"场景在页面右上角提供一个小入口("Override api-key"),存会话内存、不落盘、切页即清,发请求时按入口协议写为 `x-api-key` 或 `Authorization: Bearer`。
 - **New chat**：清空 messages 数组 = 清历史（本就只在内存里）。
 - **错误态**：上游 4xx/5xx 渲染成红色系统气泡，保留原始 JSON 可一键复制，方便排障。
 
@@ -916,8 +916,8 @@ fetch(`${url}/v1/messages`, {
   headers: {
     // 默认不带任何鉴权头，server 会用 upstreams.api_key 兜底。
     // 用户在右上角 "Override api-key" 输入了临时 key 时才加这一行：
-    //   'x-api-key':        <override key>,
-    'x-rosetta-upstream': <Upstream 下拉选中的 name>,   // 可选;选了才加,留空走 server_api default
+    //   'x-api-key': <override key>,  // 或 'authorization': 'Bearer ...'
+    'r-upstream': <Upstream 下拉选中的 name>,   // 可选;选了才加,留空走 server_api default
     'content-type':       'application/json',
   },
   body: JSON.stringify({

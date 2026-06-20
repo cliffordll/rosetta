@@ -6,7 +6,7 @@
 > - `dataplane/forwarder.py` / `selector.py` → `service/`(business logic,不依赖 HTTP)
 > - 新增 `repository/`(ORM 查询封装层)
 > - `routes` 表移除,`pick_provider` 简化为强制 `x-rosetta-provider` header(原 §8.4 七条规则 → 一条)
-> - `providers` 表重命名为 `upstreams`;字段 `type` → `protocol`(值 `messages` / `completions` / `responses`);`pick_provider` → `pick_upstream`;`x-rosetta-provider` → `x-rosetta-upstream`
+> - `providers` 表重命名为 `upstreams`;字段 `type` → `protocol`(值 `messages` / `completions` / `responses`);`pick_provider` → `pick_upstream`;`x-rosetta-provider` → `r-upstream`
 > - `Format` 枚举重命名为 `Protocol`(`shared/formats.py` → `shared/protocols.py`);CLI `rosetta chat --format` → `--protocol`
 > - `router.py` → `selector.py`;`translation/stream.py` → `translation/dispatcher.py` + `translation/sse.py`
 > - `service` 层引入 `ServiceError` domain exception,由 `controller` 层统一映射 HTTP
@@ -350,7 +350,7 @@
 - **目标**:`store` / `previous_response_id` / `background` / 内置 tools 的降级策略
 - **产出**:
   - dispatcher 按 `DESIGN.md` §8.3 表格处理降级
-  - `x-rosetta-warnings` 响应头拼装
+  - `r-warnings` 响应头拼装
   - `tests/translation/test_responses_degradation.py`
 - **手动测试步骤**:
   1. `uv run pytest tests/translation/test_responses_degradation.py -v`
@@ -360,8 +360,8 @@
 - **预期结果**:
   - 步骤 1:全绿
   - 步骤 2:返回 HTTP 400,body 的 `error.code = "stateful_not_translatable"`
-  - 步骤 3:返回 200,响应头含 `x-rosetta-warnings: store_ignored`,正文正常
-  - 步骤 4:返回 200,响应头含 `x-rosetta-warnings: builtin_tools_removed:web_search`
+  - 步骤 3:返回 200,响应头含 `r-warnings: store_ignored`,正文正常
+  - 步骤 4:返回 200,响应头含 `r-warnings: builtin_tools_removed:web_search`
 - **通过判据**:四条降级场景全部符合
 - **风险**:warnings 头格式定清楚(推荐 CSV,例:`a,b=v,c=v1;v2`)
 
@@ -399,7 +399,7 @@
 
 ### 步骤 3.2 ✅ · loopback 绑定 + 数据面 api-key 透传
 
-- **目标**:server 只接 loopback;`x-api-key` / `Authorization` 透传规则
+- **目标**:server 只接 loopback;客户端真实鉴权头(`x-api-key` / `Authorization: Bearer`)作为上游 key override 规则
 - **产出**:
   - `__main__.py` 绑定 `127.0.0.1` + `::1`(双栈),拒绝其他来源
   - `forwarder.py` 里:客户端带 key → 透传(按上游 type 选 header 名);不带 → `providers.api_key` fallback
@@ -546,7 +546,7 @@
   8. **direct 模式旁路**:`rosetta chat --base-url https://api.anthropic.com --api-key sk-... --model claude-haiku-4-5 "hi"` 不应触发 mock,而是真连 Anthropic
 - **预期结果**:
   - 步骤 1-3:echo 内容含用户输入的最后一句(长度 > 200 截断),token 数 = 字符 // 4 至少 1
-  - 步骤 4:remove 后 `/v1/messages` 带 `x-rosetta-upstream: mock` 命中 `upstream_not_found`(400);restore 后恢复
+  - 步骤 4:remove 后 `/v1/messages` 带 `r-upstream: mock` 命中 `upstream_not_found`(400);restore 后恢复
   - 步骤 5-6:DB `SELECT COUNT(*) FROM upstreams WHERE name='mock'` 始终 ≤1
   - 步骤 7:UI 反馈条 2s 后不会自动消失,但下一次刷新列表会覆盖;按钮 loading 态显示 `Restoring…`
 - **通过判据**:
@@ -904,7 +904,7 @@
 
 ### 步骤 9.1 ✅ · 按入口 protocol 选 default upstream
 
-- **目标**:`x-rosetta-upstream` header 缺失时,server 按入口路径的 protocol 取 `is_default=true` 的 upstream 作 fallback;header 显式指定仍然优先(DESIGN §8.4 路由规则两段策略)
+- **目标**:`r-upstream` header 缺失时,server 按入口路径的 protocol 取 `is_default=true` 的 upstream 作 fallback;header 显式指定仍然优先(DESIGN §8.4 路由规则两段策略)
 - **产出**:
   - `migrations/002_upstream_default.sql`:`upstreams` 加 `is_default INTEGER` + partial unique index `(protocol) WHERE is_default=1` + bump `user_version=2`
   - `database/models.py`:`Upstream.is_default` 字段
