@@ -274,9 +274,14 @@ class ProxyClient:
             url = f"{self.base_url}{path}"
             headers: dict[str, str] = {"content-type": "application/json"}
             if override_api_key:
-                headers["x-api-key"] = override_api_key
+                # server 模式:override key 作为客户端真实上游 key 发给 server,
+                # server 再透传给上游;按入口 server_api 写对应标准 header。
+                if server_api is ServerApi.MESSAGES:
+                    headers["x-api-key"] = override_api_key
+                else:
+                    headers["authorization"] = f"Bearer {override_api_key}"
             if upstream_header:
-                headers["x-rosetta-upstream"] = upstream_header
+                headers["r-upstream"] = upstream_header
             return url, headers
 
         # direct:自填上游鉴权 header

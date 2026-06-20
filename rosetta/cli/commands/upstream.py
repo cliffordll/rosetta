@@ -238,7 +238,7 @@ def set_default_cmd(
         ),
     ] = None,
 ) -> None:
-    """把 upstream 设为默认上游(`x-rosetta-upstream` header 缺失时回退用)。"""
+    """把 upstream 设为默认上游(`r-upstream` header 缺失时回退用)。"""
     server_api: ServerApi | None = None
     if server_api_value is not None:
         try:
