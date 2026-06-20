@@ -9,7 +9,7 @@
 - 内置 tools(`web_search` / `file_search` / `computer_use` 等非 function 类型)
   → 从 tools 数组剥除 + 记 warning(`builtin_tools_removed:<name>`)
 
-warnings 以 CSV 格式拼装在响应头 `x-rosetta-warnings`(DESIGN §8.3 规范)。
+warnings 以 CSV 格式拼装在响应头 `r-warnings`(DESIGN §8.3 规范)。
 """
 
 from __future__ import annotations
@@ -40,12 +40,23 @@ class DegradationResult:
     warnings: list[str] = field(default_factory=_empty_str_list)
 
     def warnings_header(self) -> str | None:
-        """拼装成 `x-rosetta-warnings` 响应头值(CSV);无 warning 返回 None。"""
+        """拼装成 `r-warnings` 响应头值(CSV);无 warning 返回 None。"""
         return ",".join(self.warnings) if self.warnings else None
 
 
 # 有状态字段:目标非 Responses 时无法翻译,必须 raise
 _STATEFUL_BLOCKING = ("previous_response_id",)
+
+# 可忽略字段:目标非 Responses 时直接剥除 + 记 warning
+_STRIPPED_WITH_WARNING: frozenset[str] = frozenset(
+    {
+        "client_metadata",
+        "include",
+        "parallel_tool_calls",
+        "prompt_cache_key",
+        "reasoning",
+    }
+)
 
 # 内置工具类型(非 `function`)
 _KNOWN_BUILTIN_TOOL_TYPES = frozenset(
@@ -80,6 +91,12 @@ def degrade_responses_request(body: dict[str, Any], *, target_api: ServerApi) ->
     else:
         # store=False 或缺失也剥掉,保持 body 干净
         new_body.pop("store", None)
+
+    # Responses 专有/新增字段:剥除 + warning(IR 与目标 API 暂不建模,避免 adapter 报错)
+    for fname in _STRIPPED_WITH_WARNING:
+        if fname in new_body:
+            new_body.pop(fname)
+            warnings.append(f"{fname}_ignored")
 
     # 内置 tools:剥除 + warning(每个 tool 一条)
     if "tools" in new_body:

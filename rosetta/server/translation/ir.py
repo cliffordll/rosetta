@@ -141,7 +141,7 @@ class RequestIR(_StrictBase):
     system: SystemPrompt | None = None
     tools: list[Tool] | None = None
     tool_choice: ToolChoice | None = None
-    max_tokens: int
+    max_tokens: int | None = None
     temperature: float | None = None
     top_p: float | None = None
     top_k: int | None = None

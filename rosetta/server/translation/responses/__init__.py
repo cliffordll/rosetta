@@ -22,11 +22,11 @@ Responses API 是 OpenAI 的新一代有状态 API(`/v1/responses`),覆盖 v0.1 
   ↔ IR StreamEvent
 
 有状态特性(v0.1 不支持,统一由 degradation 层处理)
-- `store=True`:忽略 + `x-rosetta-warnings: store_ignored`
+- `store=True`:忽略 + `r-warnings: store_ignored`
 - `previous_response_id`:非 Responses 上游返回 400 `stateful_not_translatable`
 - `background=True`:同上
 - 内置 tools(`web_search` / `file_search` / `computer_use`):
-  剥除 + `x-rosetta-warnings: builtin_tools_removed:<name>`
+  剥除 + `r-warnings: builtin_tools_removed:<name>`
 
 其余不支持字段(raise)
 - `parallel_tool_calls` / `reasoning` / `metadata` / `include`

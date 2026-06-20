@@ -63,9 +63,6 @@ def responses_to_ir(body: dict[str, Any]) -> RequestIR:
         raise ValueError("Responses 请求缺少必需字段: model")
     if "input" not in body:
         raise ValueError("Responses 请求缺少必需字段: input")
-    if "max_output_tokens" not in body:
-        raise ValueError("Responses 请求缺少必需字段: max_output_tokens")
-
     instructions_val = body.get("instructions")
     system: str | None
     if instructions_val is None:
@@ -75,13 +72,17 @@ def responses_to_ir(body: dict[str, Any]) -> RequestIR:
     else:
         raise ValueError("instructions 必须是 str 或缺失")
 
-    messages = _input_to_ir_messages(body["input"])
+    messages, developer_instructions = _input_to_ir_messages(body["input"])
+    if developer_instructions:
+        developer_system = "\n\n".join(developer_instructions)
+        system = f"{system}\n\n{developer_system}" if system is not None else developer_system
 
     payload: dict[str, Any] = {
         "model": body["model"],
         "messages": [m.model_dump(exclude_none=True) for m in messages],
-        "max_tokens": body["max_output_tokens"],
     }
+    if "max_output_tokens" in body:
+        payload["max_tokens"] = body["max_output_tokens"]
     if system is not None:
         payload["system"] = system
     for key in ("temperature", "top_p", "stream"):
@@ -97,19 +98,20 @@ def responses_to_ir(body: dict[str, Any]) -> RequestIR:
     return RequestIR.model_validate(payload)
 
 
-def _input_to_ir_messages(input_val: Any) -> list[Message]:
-    """Responses `input` 字段 → IR Messages。
+def _input_to_ir_messages(input_val: Any) -> tuple[list[Message], list[str]]:
+    """Responses `input` 字段 → (IR Messages, developer instructions)。
 
     `input` 可以是:
     - str:shortcut,直接变成一条 user 消息,content=[TextBlock(str)]
     - list[item]:按 item.type 分派
     """
     if isinstance(input_val, str):
-        return [Message(role="user", content=[TextBlock(text=input_val)])]
+        return [Message(role="user", content=[TextBlock(text=input_val)])], []
     if not isinstance(input_val, list):
         raise ValueError(f"input 必须是 str 或 list,收到 {type(input_val).__name__}")
 
     result: list[Message] = []
+    developer_instructions: list[str] = []
     pending_tool_results: list[ToolResultBlock] = []
 
     def flush_pending() -> None:
@@ -127,6 +129,13 @@ def _input_to_ir_messages(input_val: Any) -> list[Message]:
             role = item.get("role")
             if role == "system":
                 raise ValueError("Responses input 不应含 role=system(请用顶层 instructions)")
+            if role == "developer":
+                content_parts = item.get("content")
+                blocks = _message_content_to_blocks(content_parts, role=role)
+                text = "".join(block.text for block in blocks if isinstance(block, TextBlock))
+                if text:
+                    developer_instructions.append(text)
+                continue
             if role not in ("user", "assistant"):
                 raise ValueError(f"input message 的 role 不支持: {role!r}")
             content_parts = item.get("content")
@@ -195,7 +204,7 @@ def _input_to_ir_messages(input_val: Any) -> list[Message]:
             raise ValueError(f"不支持的 input item.type: {itype!r}")
 
     flush_pending()
-    return result
+    return result, developer_instructions
 
 
 def _message_content_to_blocks(content: Any, role: str) -> list[ContentBlock]:
@@ -272,8 +281,9 @@ def ir_to_responses(ir: RequestIR) -> dict[str, Any]:
     body: dict[str, Any] = {
         "model": ir.model,
         "input": _ir_messages_to_input(ir.messages),
-        "max_output_tokens": ir.max_tokens,
     }
+    if ir.max_tokens is not None:
+        body["max_output_tokens"] = ir.max_tokens
     if ir.system is not None:
         body["instructions"] = _system_to_instructions(ir.system)
     if ir.temperature is not None:

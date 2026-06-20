@@ -21,6 +21,7 @@ from rosetta.server.translation.degradation import (
     StatefulNotTranslatableError,
     degrade_responses_request,
 )
+from rosetta.server.translation.dispatcher import translate_request
 from rosetta.shared.server_api import ServerApi
 
 
@@ -90,6 +91,27 @@ def test_store_false_stripped_no_warning() -> None:
     result = degrade_responses_request(body, target_api=ServerApi.MESSAGES)
     assert "store" not in result.body  # store=False 也被剥掉保持干净
     assert result.warnings == []
+
+
+# ---------- Responses 专有/新增字段:剥除 + warning ----------
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "client_metadata",
+        "include",
+        "parallel_tool_calls",
+        "prompt_cache_key",
+        "reasoning",
+    ],
+)
+@pytest.mark.parametrize("target", [ServerApi.MESSAGES, ServerApi.CHAT_COMPLETIONS])
+def test_responses_specific_field_stripped(field: str, target: ServerApi) -> None:
+    body = _base() | {field: {"some": "value"} if field != "parallel_tool_calls" else True}
+    result = degrade_responses_request(body, target_api=target)
+    assert field not in result.body
+    assert f"{field}_ignored" in result.warnings
 
 
 # ---------- 内置 tools:剥除 + warning ----------
@@ -177,3 +199,32 @@ def test_degradation_result_default_warnings() -> None:
 def test_degradation_result_csv_multiple() -> None:
     r = DegradationResult(body={}, warnings=["a", "b", "c"])
     assert r.warnings_header() == "a,b,c"
+
+
+def test_responses_developer_message_translates_to_completions_system() -> None:
+    body = {
+        "model": "gpt-5-codex",
+        "input": [
+            {
+                "type": "message",
+                "role": "developer",
+                "content": [{"type": "input_text", "text": "Use terse answers."}],
+            },
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "ping"}],
+            },
+        ],
+    }
+
+    translated = translate_request(
+        body,
+        source=ServerApi.RESPONSES,
+        target=ServerApi.CHAT_COMPLETIONS,
+    )
+
+    assert translated["messages"] == [
+        {"role": "system", "content": "Use terse answers."},
+        {"role": "user", "content": "ping"},
+    ]
