@@ -9,7 +9,7 @@
 ## 1. 能做什么
 
 - **跨生态调用**:客户端用任一主流 API 格式写,上游可以是任一主流 LLM 服务,中间格式差异由代理透明翻译
-- **多 upstream 集中管理**:一个地方管所有 key / 用量统计;客户端通过 `x-rosetta-upstream` header 显式选,或按入口 server_api 走 default upstream(支持 global fallback + per-server_api default,`rosetta upstream default <name>` 配置)
+- **多 upstream 集中管理**:一个地方管所有 key / 用量统计;客户端通过 `r-upstream` header 显式选,或按入口 server_api 走 default upstream(支持 global fallback + per-server_api default,`rosetta upstream default <name>` 配置)
 - **开箱即用**:CLI 一次性对话、REPL 多轮、桌面 GUI 三种交互,SSE 流式全程原生转发
 - **Raw 调试视图**:GUI Chat 和 CLI 都能查看实际发送的 request 与返回的 SSE frame;支持前/后 frame 裁剪、逐步展开和 JSON 解析
 

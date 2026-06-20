@@ -78,7 +78,7 @@
 - watcher 优雅关闭:5 步流程,不硬杀(`DESIGN.md` §6)
 - 流式错误传播:200 已发后靠断 TCP,不伪造事件(`DESIGN.md` §8.3)
 - 跨格式 upstream(入口 protocol 与 upstream.protocol 不一致)自动走 IR 翻译(`DESIGN.md` §8.4 末段)
-- `--base-url` 与 `--upstream` / `x-rosetta-upstream` 互斥,CLI 阶段校验(`DESIGN.md` §8.6)
+- `--base-url` 与 `--upstream` / `r-upstream` 互斥,CLI 阶段校验(`DESIGN.md` §8.6)
 - `logs.created_at` 索引 + `PRAGMA user_version` 迁移机制(`DESIGN.md` §8.2)
 
 ---
