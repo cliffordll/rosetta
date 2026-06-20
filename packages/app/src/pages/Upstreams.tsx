@@ -1,4 +1,4 @@
-import { ActivityIcon, CopyIcon, PencilIcon, SaveIcon, Trash2Icon } from "lucide-react";
+import { BugIcon, CopyIcon, PencilIcon, SaveIcon, Trash2Icon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
@@ -319,7 +319,7 @@ export default function Upstreams() {
                           disabled={testingUpstreamId === u.id}
                           onClick={() => void handleTestUpstream(u)}
                         >
-                          <ActivityIcon />
+                          <BugIcon />
                         </Button>
                         <Button
                           variant="ghost"
