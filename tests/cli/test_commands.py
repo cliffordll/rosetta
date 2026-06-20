@@ -270,6 +270,21 @@ def test_chat_raw_repl_passes_raw_options(monkeypatch: pytest.MonkeyPatch) -> No
     assert captured["raw_step"] == 4
 
 
+def test_chat_raw_repl_uses_raw_edge_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def _capture_run(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(chat_mod, "_run", _capture_run)
+
+    result = runner.invoke(app, ["chat", "--raw"])
+
+    assert result.exit_code == 0
+    assert captured["raw_edge"] == 5
+    assert captured["raw_step"] == 10
+
+
 # ---------- --quiet 全局 flag ----------
 
 

@@ -42,7 +42,7 @@ import {
 import type { SseFrame } from "@/lib/sse";
 
 const NO_UPSTREAM_SELECTED = "__none__";
-const DEFAULT_RAW_EDGE_FRAMES = 10;
+const DEFAULT_RAW_EDGE_FRAMES = 5;
 const DEFAULT_RAW_EXPAND_STEP = 10;
 
 interface MetaInfo {

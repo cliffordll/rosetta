@@ -36,7 +36,7 @@ class ChatRepl:
 
     ctx: ChatContext
     raw: bool = False
-    raw_edge: int = 10
+    raw_edge: int = 5
     raw_step: int = 10
     raw_full: bool = False
     input_reader: ReplInput = field(default_factory=make_repl_input)

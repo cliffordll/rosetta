@@ -316,11 +316,14 @@ def _collect(release_dir: Path, installer: bool) -> None:
     if not nsis_dir.exists():
         raise RuntimeError(f"找不到 NSIS bundle 目录:{nsis_dir}(--installer 但 tauri 未产 bundle?)")
 
-    # installer 文件名带版本号,glob 取唯一一份(若有多份说明残留,报错)
-    setup_files = list(nsis_dir.glob("Rosetta_*_x64-setup.exe"))
-    if len(setup_files) != 1:
-        raise RuntimeError(f"NSIS installer 数量异常:{[p.name for p in setup_files]}(预期 1 份)")
-    _copy(setup_files[0], release_dir / setup_files[0].name)
+    version = _current_version_or_die()
+    setup_src = nsis_dir / f"Rosetta_{version}_x64-setup.exe"
+    if not setup_src.exists():
+        setup_files = sorted(p.name for p in nsis_dir.glob("Rosetta_*_x64-setup.exe"))
+        raise RuntimeError(
+            f"找不到当前版本 NSIS installer:{setup_src.name};目录中已有:{setup_files}"
+        )
+    _copy(setup_src, release_dir / setup_src.name)
 
     # latest.json 名固定,updater 用它比对版本
     latest_src = nsis_dir / "latest.json"

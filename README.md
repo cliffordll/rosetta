@@ -112,11 +112,11 @@ uv run rosetta chat --raw
 # /raw_step <n>           raw 模式每次展开 n 条 SSE frame
 # /server_api、/model、/raw、/raw_edge、/raw_step 不带参数时显示当前配置
 
-# raw response 默认显示前/后 10 条 SSE frame,中间隐藏;可调裁剪数量
+# raw response 默认显示前/后 5 条 SSE frame,中间隐藏;可调裁剪数量
 uv run rosetta chat --raw --raw-edge 20 "hello"
 
 # `--raw-step` 与 GUI 的"每次展开 N 条"语义一致;CLI 一次性输出中用于保留配置口径
-uv run rosetta chat --raw --raw-edge 10 --raw-step 10 "hello"
+uv run rosetta chat --raw --raw-edge 5 --raw-step 10 "hello"
 
 # 输出完整 raw response,不隐藏中间 SSE frame
 uv run rosetta chat --raw --raw-full "hello"
