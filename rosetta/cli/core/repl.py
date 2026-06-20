@@ -4,7 +4,8 @@
 - 读用户输入(`input()`)
 - `/` 开头分派 slash 命令,否则作为新一轮 user message
 - 每轮调 `ctx.run_turn()` 流式打印 assistant + meta 行
-- slash 命令:`/exit`(`/quit` 别名) / `/reset` / `/model <name>` / `/server_api <m|c|r>` / `/help`
+- slash 命令:`/exit`(`/quit` 别名) / `/reset` / `/model <name>` /
+  `/server_api <api_type>` / `/raw on|off` / `/raw_edge <n>` / `/raw_step <n>` / `/help`
 
 状态持有
 --------
@@ -19,11 +20,13 @@ thinking 等结构化块后,`/server_api` 切换需要丢弃这些块并警告(`
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import ClassVar
 
 from rosetta.cli.core.context import ChatContext, ChatError
+from rosetta.cli.core.prompt import ReplInput, make_repl_input
 from rosetta.cli.core.render import Renderer
+from rosetta.sdk.raw import RawChatTurn, format_raw_turn
 from rosetta.shared.server_api import ServerApi
 
 
@@ -32,17 +35,25 @@ class ChatRepl:
     """终端 REPL 会话。持有一个 `ChatContext`,循环读输入并分派命令。"""
 
     ctx: ChatContext
+    raw: bool = False
+    raw_edge: int = 10
+    raw_step: int = 10
+    raw_full: bool = False
+    input_reader: ReplInput = field(default_factory=make_repl_input)
 
     # U+203A 单右尖引号,和普通 > 视觉上有区别,便于识别 REPL 提示符
     _PROMPT: ClassVar[str] = "› "  # noqa: RUF001
 
     _HELP: ClassVar[str] = (
         "slash 命令:\n"
-        "  /exit, /quit             退出 REPL\n"
-        "  /reset                   清空对话历史\n"
-        "  /model <name>            切换模型;空参数 = auto(走 upstream.model 兜底)\n"
-        "  /server_api messages|completions|responses  切换 API 格式\n"
-        "  /help                    本说明"
+        "  /exit, /quit              退出 REPL\n"
+        "  /reset                    清空对话历史\n"
+        "  /model <name|clear>       显示/切换模型;clear = auto\n"
+        "  /server_api <api_type>    切换 API 格式(messages|completions|responses)\n"
+        "  /raw on|off               切换 raw request/response 输出\n"
+        "  /raw_edge <n>             raw 模式显示前/后 n 条 SSE frame\n"
+        "  /raw_step <n>             raw 模式每次展开 n 条 SSE frame\n"
+        "  /help                     本说明"
     )
 
     async def run(self) -> None:
@@ -52,12 +63,13 @@ class ChatRepl:
         """
         Renderer.out(
             f"rosetta chat · server_api={self.ctx.server_api.value} · "
-            f"model={self.ctx.model or 'auto'} · /help 查看命令"
+            f"model={self.ctx.model or 'auto'} · "
+            f"mode={'raw' if self.raw else 'nice'} · /help 查看命令"
         )
 
         while True:
             try:
-                line = input(self._PROMPT)
+                line = await self.input_reader.read(self._PROMPT)
             except (EOFError, KeyboardInterrupt):
                 Renderer.stream_newline()
                 return
@@ -76,15 +88,39 @@ class ChatRepl:
     async def _one_turn(self, user_text: str) -> None:
         """发一轮请求;失败撤回 user,避免污染后续上下文。"""
         self.ctx.append_user(user_text)
+        raw_turn = RawChatTurn() if self.raw else None
         try:
-            result = await self.ctx.run_turn(Renderer.stream_token)
+            result = await self.ctx.run_turn(
+                _noop if self.raw else Renderer.stream_token,
+                raw_turn=raw_turn,
+            )
         except ChatError as e:
-            Renderer.stream_newline()
+            if raw_turn is not None:
+                Renderer.raw(
+                    format_raw_turn(
+                        raw_turn,
+                        edge_frames=self.raw_edge,
+                        revealed_middle_frames=0,
+                        full=self.raw_full,
+                    )
+                )
+            else:
+                Renderer.stream_newline()
             self.ctx.pop_last()
             Renderer.error_bubble(f"HTTP {e.status}: {e.short_body()}")
             return
 
-        Renderer.stream_newline()
+        if raw_turn is not None:
+            Renderer.raw(
+                format_raw_turn(
+                    raw_turn,
+                    edge_frames=self.raw_edge,
+                    revealed_middle_frames=0,
+                    full=self.raw_full,
+                )
+            )
+        else:
+            Renderer.stream_newline()
         self.ctx.append_assistant(result.text)
         Renderer.meta_line(
             upstream=self.ctx.upstream or "auto",
@@ -114,8 +150,10 @@ class ChatRepl:
             return False
 
         if cmd == "/model":
-            # /model 空参数 → 切回 auto(走 upstream.model 兜底)
             if not arg:
+                Renderer.out(f"model = {self.ctx.model or 'auto'}")
+                return False
+            if arg == "clear":
                 self.ctx.set_model(None)
                 Renderer.out("model → auto(用 upstream.model 兜底)")
                 return False
@@ -124,6 +162,9 @@ class ChatRepl:
             return False
 
         if cmd == "/server_api":
+            if not arg:
+                Renderer.out(f"server_api = {self.ctx.server_api.value}")
+                return False
             try:
                 new_server_api = ServerApi(arg)
             except ValueError:
@@ -135,5 +176,56 @@ class ChatRepl:
             Renderer.out(f"server_api → {new_server_api.value}")
             return False
 
+        if cmd == "/raw":
+            if not arg:
+                Renderer.out(f"raw = {'on' if self.raw else 'off'}")
+                return False
+            if arg == "on":
+                self.raw = True
+                Renderer.out("raw → on")
+                return False
+            if arg == "off":
+                self.raw = False
+                Renderer.out("raw → off")
+                return False
+            Renderer.error_bubble("/raw 参数必须是 on 或 off")
+            return False
+
+        if cmd == "/raw_edge":
+            if not arg:
+                Renderer.out(f"raw_edge = {self.raw_edge}")
+                return False
+            value = _parse_positive_int(arg)
+            if value is None:
+                Renderer.error_bubble("/raw_edge 参数必须是正整数")
+                return False
+            self.raw_edge = value
+            Renderer.out(f"raw_edge → {value}")
+            return False
+
+        if cmd == "/raw_step":
+            if not arg:
+                Renderer.out(f"raw_step = {self.raw_step}")
+                return False
+            value = _parse_positive_int(arg)
+            if value is None:
+                Renderer.error_bubble("/raw_step 参数必须是正整数")
+                return False
+            self.raw_step = value
+            Renderer.out(f"raw_step → {value}")
+            return False
+
         Renderer.error_bubble(f"未知命令 {cmd!r};/help 查看可用命令")
         return False
+
+
+def _parse_positive_int(raw: str) -> int | None:
+    try:
+        value = int(raw)
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def _noop(_: str) -> None:
+    pass

@@ -187,7 +187,13 @@ async def _run(
                 # 惰性 import 避开模块加载时的环路风险
                 from rosetta.cli.core.repl import ChatRepl
 
-                await ChatRepl(ctx=ctx).run()
+                await ChatRepl(
+                    ctx=ctx,
+                    raw=raw,
+                    raw_edge=raw_edge,
+                    raw_step=raw_step,
+                    raw_full=raw_full,
+                ).run()
                 return
 
             from rosetta.cli.core.once import ChatOnce

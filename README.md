@@ -11,6 +11,7 @@
 - **跨生态调用**:客户端用任一主流 API 格式写,上游可以是任一主流 LLM 服务,中间格式差异由代理透明翻译
 - **多 upstream 集中管理**:一个地方管所有 key / 用量统计;客户端通过 `x-rosetta-upstream` header 显式选,或按入口 server_api 走 default upstream(支持 global fallback + per-server_api default,`rosetta upstream default <name>` 配置)
 - **开箱即用**:CLI 一次性对话、REPL 多轮、桌面 GUI 三种交互,SSE 流式全程原生转发
+- **Raw 调试视图**:GUI Chat 和 CLI 都能查看实际发送的 request 与返回的 SSE frame;支持前/后 frame 裁剪、逐步展开和 JSON 解析
 
 **类比**:cc-switch 的"AI 配置管家"概念 + 自研的格式翻译引擎。cc-switch 切的是配置文件,本项目切的是运行时流量并做格式转换。
 
@@ -18,7 +19,7 @@
 
 ## 2. 当前状态
 
-**v0.2.3 · 核心链路已实现,持续打磨中**。
+**v0.3.1 · 核心链路已实现,持续打磨中**。
 
 - 已落地:FastAPI 数据面 / 管理面、三 API 类型 IR 翻译、CLI/SDK、React 管理台、Tauri 桌面壳、PyInstaller 打包脚本
 - 架构真源:见 [`docs/DESIGN.md`](./docs/DESIGN.md)
@@ -94,6 +95,32 @@ uv run python -m rosetta.server --host 0.0.0.0 -p 8090
 # 开箱即用:内置 mock upstream 无需任何 key,直接 echo 回复
 uv run rosetta chat "hello"
 
+# Chat raw 调试:打印实际 request + SSE response frames
+# 注意:raw 输出会显示完整 headers,包括 x-api-key / authorization 等敏感字段;不要把输出贴到公开位置。
+uv run rosetta chat --raw "hello"
+
+# raw REPL:每轮输入后打印该轮 request + SSE response frames
+uv run rosetta chat --raw
+
+# REPL 支持 slash 命令自动补全;输入 `/` 或命令参数时可用上下键选择候选。
+# REPL 内可用 slash 命令:
+# /server_api <api_type>  切换 API 格式(messages|completions|responses)
+# /model <name>           切换模型
+# /model clear            切回 auto(走 upstream.model 兜底)
+# /raw on|off             切换 raw request/response 输出
+# /raw_edge <n>           raw 模式显示前/后 n 条 SSE frame
+# /raw_step <n>           raw 模式每次展开 n 条 SSE frame
+# /server_api、/model、/raw、/raw_edge、/raw_step 不带参数时显示当前配置
+
+# raw response 默认显示前/后 10 条 SSE frame,中间隐藏;可调裁剪数量
+uv run rosetta chat --raw --raw-edge 20 "hello"
+
+# `--raw-step` 与 GUI 的"每次展开 N 条"语义一致;CLI 一次性输出中用于保留配置口径
+uv run rosetta chat --raw --raw-edge 10 --raw-step 10 "hello"
+
+# 输出完整 raw response,不隐藏中间 SSE frame
+uv run rosetta chat --raw --raw-full "hello"
+
 # 想配真实上游:添 upstream 后按 name 选
 # `--model` 可选,作为该 upstream 的默认模型;client body 不传 model 时由 server 兜底
 # `--base-url` 填上游根地址,不要带 API 路径;rosetta 会按 upstream native API 自动追加
@@ -118,6 +145,12 @@ uv run rosetta upstream test <id>
 
 # 绕 server 直连(direct 模式)
 uv run rosetta chat --base-url https://api.anthropic.com --api-key sk-ant-XXX --model claude-haiku-4-5 "hello"
+
+# GUI Chat 页:
+# - Nice 模式:普通聊天气泡 + 流式文本
+# - Raw 模式:用户气泡显示发送 request,模型气泡显示返回 SSE frame
+# - 返回 raw 默认显示前/后 N 条 frame,中间隐藏;Edge / Step 配置会记住
+# - Parse JSON 可把 raw SSE data 解析成 JSON 展示
 
 # 误删 mock 后恢复
 uv run rosetta upstream restore-mock
