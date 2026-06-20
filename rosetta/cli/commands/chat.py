@@ -77,7 +77,7 @@ def chat_cmd(
     raw_edge: Annotated[
         int,
         typer.Option("--raw-edge", min=1, help="raw response 默认显示前/后多少条 SSE frame"),
-    ] = 10,
+    ] = 5,
     raw_step: Annotated[
         int,
         typer.Option("--raw-step", min=1, help="raw response 每步展开多少条 SSE frame"),
