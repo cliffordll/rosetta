@@ -57,8 +57,8 @@ def _parse_args() -> argparse.Namespace:
         "-p",
         "--port",
         type=int,
-        default=0,
-        help="绑定端口(默认 0 = 系统分配,客户端从 endpoint.json 读)",
+        default=1687,
+        help="绑定端口(默认 1687)",
     )
     return parser.parse_args()
 

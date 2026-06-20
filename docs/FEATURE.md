@@ -134,19 +134,19 @@
   - `rosetta/server/app.py`(FastAPI app 工厂)
   - `rosetta/server/admin/__init__.py`(router)
   - `rosetta/server/admin/health.py`:`GET /admin/ping` + `GET /admin/status`
-  - `rosetta/server/__main__.py`(`python -m rosetta.server` 入口,uvicorn 启动,默认绑 `127.0.0.1:0` 让系统分配端口)
+  - `rosetta/server/__main__.py`(`python -m rosetta.server` 入口,uvicorn 启动,默认绑 `127.0.0.1:1687`)
 - **手动测试步骤**:
   1. `uv run python -m rosetta.server`(前台跑,记下 stdout 打印的端口号,下文用 `<port>` 代指)
   2. 另开终端:`curl http://127.0.0.1:<port>/admin/ping`
   3. `curl http://127.0.0.1:<port>/admin/status`
   4. 回到 server 终端按 `Ctrl+C` 停掉
 - **预期结果**:
-  - 步骤 1:stdout 打印形如 `INFO: Uvicorn running on http://127.0.0.1:62538`,无报错
+  - 步骤 1:stdout 打印形如 `INFO: Uvicorn running on http://127.0.0.1:1687`,无报错
   - 步骤 2:返回 `{"ok":true}`,HTTP 200
   - 步骤 3:返回 JSON,包含 `version` / `uptime_ms` / `providers_count`(即便 DB 未初始化,占位值也行)
   - 步骤 4:server 干净退出,无异常栈
 - **通过判据**:两个 admin 端点均返回 200,server 能正常启停
-- **风险**:端口 0 拿到的实际端口必须能打印到 stdout(为下一步写 endpoint.json 铺垫)
+- **风险**:固定端口 1687 若被占用会导致启动失败;此时可换 `--port <其他端口>`(为下一步写 endpoint.json 铺垫)
 
 ### 步骤 1.2 ✅ · SQLite + providers CRUD(最小集)
 
@@ -412,7 +412,7 @@
   4. 带 override:同请求加 `-H 'x-api-key: sk-ant-OVERRIDE-TEST'`(注意这个 key 要在 Anthropic 无效,用来触发可观察的上游错误)
   5. 看 server 的 debug log 里发给上游的 key 前缀
 - **预期结果**:
-  - 步骤 1:日志形如 `Uvicorn running on http://127.0.0.1:62538` 和 `[::1]:62538`
+  - 步骤 1:日志形如 `Uvicorn running on http://127.0.0.1:1687` 和 `[::1]:1687`
   - 步骤 2:TCP 连不上 / timeout
   - 步骤 3:上游正常响应(用了 DB 里的 key);debug log 显示发给上游的 key 前缀 = DB 里存的 key 前缀
   - 步骤 4:上游报 `invalid_api_key`;debug log 显示发给上游的 key 前缀 = `sk-ant-OVE...`
@@ -571,7 +571,7 @@
 - **手动测试步骤**:
   1. `cd packages/app && bun install`
   2. `bun run dev`
-  3. 打开浏览器 `http://localhost:5173`(或 vite 提示的端口)
+  3. 打开浏览器 `http://localhost:1689`(或 vite 提示的端口)
   4. 点左侧导航切 Dashboard / Providers / Logs / Chat 四页
   5. 打开浏览器 DevTools Console
 - **预期结果**:

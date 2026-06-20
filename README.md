@@ -85,7 +85,7 @@ cd packages/desktop
 bun install
 bun run dev
 
-# 起 server(默认 127.0.0.1 + 系统分配端口,客户端从 endpoint.json 发现)
+# 起 server(默认 127.0.0.1:1687,客户端从 endpoint.json 发现)
 uv run python -m rosetta.server
 
 # 暴露给局域网 / 固定端口(⚠️ server 没有 auth 层,0.0.0.0 后局域网任何机器
