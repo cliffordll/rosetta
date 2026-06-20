@@ -70,6 +70,22 @@ def chat_cmd(
     max_tokens: Annotated[
         int, typer.Option("--max-tokens", help="messages 格式的 max_tokens")
     ] = 1024,
+    raw: Annotated[
+        bool,
+        typer.Option("--raw", help="输出原始 request 和 SSE response,不做 nice 文本渲染"),
+    ] = False,
+    raw_edge: Annotated[
+        int,
+        typer.Option("--raw-edge", min=1, help="raw response 默认显示前/后多少条 SSE frame"),
+    ] = 10,
+    raw_step: Annotated[
+        int,
+        typer.Option("--raw-step", min=1, help="raw response 每步展开多少条 SSE frame"),
+    ] = 10,
+    raw_full: Annotated[
+        bool,
+        typer.Option("--raw-full", help="raw response 输出完整 SSE frame,不隐藏中间数据"),
+    ] = False,
 ) -> None:
     try:
         server_api = ServerApi(server_api_value)
@@ -108,6 +124,10 @@ def chat_cmd(
             api_key=api_key,
             base_url=base_url,
             max_tokens=max_tokens,
+            raw=raw,
+            raw_edge=raw_edge,
+            raw_step=raw_step,
+            raw_full=raw_full,
         )
     )
 
@@ -146,6 +166,10 @@ async def _run(
     api_key: str | None,
     base_url: str | None,
     max_tokens: int,
+    raw: bool,
+    raw_edge: int,
+    raw_step: int,
+    raw_full: bool,
 ) -> None:
     try:
         async with _session(
@@ -168,7 +192,13 @@ async def _run(
 
             from rosetta.cli.core.once import ChatOnce
 
-            await ChatOnce(ctx=ctx).run(text)
+            await ChatOnce(
+                ctx=ctx,
+                raw=raw,
+                raw_edge=raw_edge,
+                raw_step=raw_step,
+                raw_full=raw_full,
+            ).run(text)
     except RuntimeError as e:
         Renderer.die(f"server 未就绪: {e}")
 

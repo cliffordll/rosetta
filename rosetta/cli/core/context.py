@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from rosetta.sdk.client import ProxyClient
+from rosetta.sdk.raw import RawChatError, RawChatRequest, RawChatResponse, RawChatTurn
 from rosetta.sdk.streams import ChatStream
 from rosetta.shared.server_api import ServerApi
 
@@ -94,7 +95,12 @@ class ChatContext:
 
     # ---------- 核心:一轮请求 ----------
 
-    async def run_turn(self, on_token: Callable[[str], None]) -> TurnResult:
+    async def run_turn(
+        self,
+        on_token: Callable[[str], None],
+        *,
+        raw_turn: RawChatTurn | None = None,
+    ) -> TurnResult:
         """用当前 `self.messages` 发一轮流式请求,`on_token` 实时收每个文本增量。
 
         上游 4xx / 5xx 时抛 `ChatError`(body = 响应正文)。
@@ -104,20 +110,44 @@ class ChatContext:
         stream = ChatStream(server_api=self.server_api)
         buf: list[str] = []
         t0 = time.monotonic()
+        override_api_key = self.api_key if self.client.mode == "server" else None
+        upstream_header = self.upstream if self.client.mode == "server" else None
+        raw_response: RawChatResponse | None = None
+
+        if raw_turn is not None:
+            url, headers = self.client.data_url_and_headers(
+                self.server_api,
+                override_api_key=override_api_key,
+                upstream_header=upstream_header,
+            )
+            raw_turn.request = RawChatRequest(url=url, headers=headers, body=body)
+            raw_response = RawChatResponse(frames=[])
+            raw_turn.response = raw_response
 
         async with self.client.stream_chat(
             self.server_api,
             body,
-            override_api_key=self.api_key if self.client.mode == "server" else None,
-            upstream_header=self.upstream if self.client.mode == "server" else None,
+            override_api_key=override_api_key,
+            upstream_header=upstream_header,
         ) as resp:
             if resp.status_code >= 400:
                 err_bytes = await resp.aread()
+                if raw_turn is not None:
+                    raw_turn.response = RawChatResponse(
+                        frames=[],
+                        error=RawChatError(
+                            status=resp.status_code,
+                            body=err_bytes.decode("utf-8", errors="replace"),
+                        ),
+                    )
                 raise ChatError(
                     status=resp.status_code,
                     body=err_bytes.decode("utf-8", errors="replace"),
                 )
-            async for tok in stream.text_deltas(resp):
+            async for tok in stream.text_deltas(
+                resp,
+                on_frame=raw_response.frames.append if raw_response is not None else None,
+            ):
                 on_token(tok)
                 buf.append(tok)
 

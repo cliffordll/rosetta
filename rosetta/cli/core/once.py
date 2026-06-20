@@ -12,6 +12,7 @@ import typer
 
 from rosetta.cli.core.context import ChatContext, ChatError
 from rosetta.cli.core.render import Renderer
+from rosetta.sdk.raw import RawChatTurn, format_raw_turn
 
 
 @dataclass
@@ -19,15 +20,44 @@ class ChatOnce:
     """一次性聊天执行器:发一条消息 + 流式打印 + meta 行;失败 `typer.Exit(1)`。"""
 
     ctx: ChatContext
+    raw: bool = False
+    raw_edge: int = 10
+    raw_step: int = 10
+    raw_full: bool = False
 
     async def run(self, text: str) -> None:
         self.ctx.append_user(text)
+        raw_turn = RawChatTurn() if self.raw else None
         try:
-            result = await self.ctx.run_turn(Renderer.stream_token)
+            result = await self.ctx.run_turn(
+                _noop if self.raw else Renderer.stream_token,
+                raw_turn=raw_turn,
+            )
         except ChatError as e:
-            Renderer.stream_newline()
+            if raw_turn is not None:
+                Renderer.raw(
+                    format_raw_turn(
+                        raw_turn,
+                        edge_frames=self.raw_edge,
+                        revealed_middle_frames=0,
+                        full=self.raw_full,
+                    )
+                )
+            else:
+                Renderer.stream_newline()
             Renderer.error_bubble(f"HTTP {e.status}: {e.short_body()}")
             raise typer.Exit(code=1) from None
+
+        if raw_turn is not None:
+            Renderer.raw(
+                format_raw_turn(
+                    raw_turn,
+                    edge_frames=self.raw_edge,
+                    revealed_middle_frames=0,
+                    full=self.raw_full,
+                )
+            )
+            return
 
         Renderer.stream_newline()
         Renderer.meta_line(
@@ -38,3 +68,7 @@ class ChatOnce:
             latency_ms=result.latency_ms,
             path=self.ctx.server_api.value,
         )
+
+
+def _noop(_: str) -> None:
+    pass
