@@ -25,7 +25,7 @@ def test_raw_response_preview_uses_edge_and_step_semantics() -> None:
         frames=[
             RawSseFrame(
                 received_at=f"2026-06-20T12:00:{i:02d}.000Z",
-                raw=f"event: frame_{i}\ndata: {{\"index\":{i}}}",
+                raw=f'event: frame_{i}\ndata: {{"index":{i}}}',
                 event=f"frame_{i}",
                 data={"index": i},
             )

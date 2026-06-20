@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Annotated
 
@@ -139,7 +139,7 @@ async def _session(
     model: str | None,
     api_key: str | None,
     base_url: str | None,
-) -> AsyncIterator[ProxyClient]:
+) -> AsyncGenerator[ProxyClient]:
     """按 base_url 是否给,选 direct / server session。"""
     if base_url is not None:
         # chat_cmd 已 gate,这里 api_key / model 必非空
