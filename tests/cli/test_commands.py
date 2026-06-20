@@ -18,6 +18,7 @@ import pytest
 from typer.testing import CliRunner
 
 from rosetta.cli.__main__ import app
+from rosetta.cli.commands import chat as chat_mod
 from rosetta.cli.commands import upstream as upstream_mod
 
 runner = CliRunner()
@@ -250,6 +251,23 @@ def test_chat_raw_help_uses_short_raw_option_names() -> None:
     assert "--raw-full" in out
     assert "--raw-edge-frames" not in out
     assert "--raw-expand-step" not in out
+
+
+def test_chat_raw_repl_passes_raw_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def _capture_run(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(chat_mod, "_run", _capture_run)
+
+    result = runner.invoke(app, ["chat", "--raw", "--raw-edge", "3", "--raw-step", "4"])
+
+    assert result.exit_code == 0
+    assert captured["text"] is None
+    assert captured["raw"] is True
+    assert captured["raw_edge"] == 3
+    assert captured["raw_step"] == 4
 
 
 # ---------- --quiet 全局 flag ----------

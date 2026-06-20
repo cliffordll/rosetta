@@ -1,6 +1,6 @@
 [project]
 name = "rosetta-proxy"
-version = "0.3.0"
+version = "0.3.1"
 description = "本地跑的 LLM API 格式转换中枢(Claude / OpenAI Chat Completions / OpenAI Responses 三格式互译)"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -13,6 +13,7 @@ dependencies = [
     "httpx>=0.28",
     "psutil>=6.0",
     "typer>=0.13",
+    "prompt-toolkit>=3.0.52",
 ]
 
 [project.scripts]

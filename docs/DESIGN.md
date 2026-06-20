@@ -1,6 +1,6 @@
 # rosetta 设计方案
 
-> 版本：v0.2.3 · 起草日期：2026-04-20
+> 版本：v0.3.1 · 起草日期：2026-04-20
 > 状态：核心链路已实现，持续打磨中
 > 本文档**只描述架构**。分阶段实施计划见 [`FEATURE.md`](./FEATURE.md)(heading emoji 标进度);执行细节由 commit history 承载。
 
@@ -466,9 +466,9 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 
 **default 的写入**:`PUT /admin/upstreams/{name}/default` / `rosetta upstream default <name> [--server-api ...]` / GUI Upstreams 页 Defaults 区块三选一。default 直接写 settings 表,不再把状态塞进 upstream 列表本身。
 
-**关于选中的 upstream 与入口 format**:选中 upstream 的 `protocol` 与入口 format 不一致时,自动走 §8.3 翻译(对角线直通仅发生在两者一致的情况)。例如入口 `/v1/messages` + upstream `protocol=completions` → IR 翻译为 Chat Completions 请求。
+**关于选中的 upstream 与入口 API 格式**:选中 upstream 的 `native_api` 与入口 `server_api` 不一致时,自动走 §8.3 翻译(对角线直通仅发生在两者一致的情况)。例如入口 `/v1/messages` + upstream `native_api=completions` → IR 翻译为 Chat Completions 请求。
 
-**provider=mock 短路**:`forwarder.forward` 入口判 `upstream.provider == "mock"`,命中就**不发 HTTP**,直接调 `MockResponder.respond(fmt, body, stream=...)` 本地合成 echo 响应。mock 的请求侧仍走 `_REQ_TO_IR[fmt]` 严格 Pydantic 校验(schema 不合规返 400 `mock_invalid_request`);响应侧按客户端入口 fmt 走对应的 `_IR_TO_RESP` / `_IR_TO_STREAM` 出口 + `encode_sse_stream`,三协议共用一条 IR 流水(见 `rosetta/server/service/mock.py`)。`upstream.protocol=any` 只是占位,mock 不读它。
+**provider=mock 短路**:`forwarder.forward` 入口判 `upstream.provider == "mock"`,命中就**不发 HTTP**,直接调 `MockResponder.respond(server_api, body, stream=...)` 本地合成 echo 响应。mock 的请求侧仍走 `_REQ_TO_IR[server_api]` 严格 Pydantic 校验(schema 不合规返 400 `mock_invalid_request`);响应侧按客户端入口 `server_api` 走对应的 `_IR_TO_RESP` / `_IR_TO_STREAM` 出口 + `encode_sse_stream`,三协议共用一条 IR 流水(见 `rosetta/server/service/mock.py`)。
 
 **upstream 连通性测试**:`POST /admin/upstreams/{id}/test` 由 server 按该 upstream 自己的 `native_api` 发一个最小探测请求。成功时确认 `base_url + api_key + model` 组合可用;失败时尽量归类为 `network` / `auth` / `model` / `config` / `upstream_error` / `invalid_response`。CLI `rosetta upstream test <id>` 和 GUI Upstreams 页 `Test` 按钮都走这条接口,保证诊断口径一致且不污染正常业务 logs。
 
@@ -489,13 +489,13 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 该结构**不伪装**上游格式(不套 Claude/OpenAI 的错误壳),由 CLI / GUI 识别 `error.type == "rosetta_error"` 后格式化展示。
 
 **客户端配合**:
-- `rosetta chat --upstream <name>` 自动注入 header;`--upstream` 不传则不带 header,让 server 走 protocol default fallback
-- GUI Chat 页 "Upstream 下拉" 默认预选当前 protocol 的 default;用户可手选切换或留空(留空也走 fallback)
+- `rosetta chat --upstream <name>` 自动注入 header;`--upstream` 不传则不带 header,让 server 走 server_api default fallback
+- GUI Chat 页 "Upstream 下拉" 默认预选当前 server_api 的 default;用户可手选切换或留空(留空也走 fallback)
 - 外部 SDK 调用:应用层在 HTTP client 里按需加 header(显式选 upstream 时加,走默认时省)
 
 ### 8.5 端到端请求链路（以 CLI chat 为例）
 
-把前面几节串起来，跟一遍 `rosetta chat --protocol messages "hi" --model claude-haiku-4-5` 从敲下命令到拿到第一个 token 的完整路径。（演示的是**正常模式**，客户端**不传** `--api-key`，靠 server 里存的 `upstreams.api_key` 兜底。）
+把前面几节串起来，跟一遍 `rosetta chat --server-api messages "hi" --model claude-haiku-4-5` 从敲下命令到拿到第一个 token 的完整路径。（演示的是**正常模式**，客户端**不传** `--api-key`，靠 server 里存的 `upstreams.api_key` 兜底。）
 
 ```
 ┌─────────────┐                 ┌───────────────────────┐                ┌──────────────────┐
@@ -521,7 +521,7 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
        │                                    │    请求头有 x-api-key? 用它         │
        │                                    │    没有 → 用 upstreams.api_key      │
        │                                    │    （这里走"没有"分支）              │
-       │                                    │ 7. format=messages + type=anthropic │
+       │                                    │ 7. server_api=messages + native_api=messages │
        │                                    │    → 3×3 对角线直通，零翻译         │
        │                                    │                                     │
        │                                    │ 8. httpx.post(                      │
@@ -536,7 +536,7 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
        │ 9. SSE 事件流（原样转发）          │ ◄────────────────────────────────── │
        │ ◄───────────────────────────────── │                                     │
        │                                    │ 10. 异步写 logs                     │
-       │ 11. 按 format 解码，逐 token 打印  │     (upstream_id, tokens, latency)  │
+       │ 11. 按 server_api 解码，逐 token 打印 │   (upstream_id, tokens, latency)  │
 ```
 
 #### upstream-level 默认值
@@ -557,7 +557,7 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 | 上游 api-key | 8 | **客户端 `x-api-key` 头**（若带）→ **否则 `upstreams.api_key`** | httpx 请求头（按上游 type 选具体写法） | v0 无"rosetta 本地 key"概念 |
 | `model` | 2 → 8 | **客户端 body.model**(若有)→ **否则 `upstreams.model`** 兜底 | 上游 `body.model` | client 显式优先;forwarder 在 body.model 缺失或为空时注入 upstream.model;两边都没就维持原 body 让上游 4xx |
 | `messages[]` | 2 → 8 | CLI 内存数组（多轮历史） | 上游 body（直通）或 adapter 翻译后（跨格式） | |
-| `x-rosetta-upstream: foo`（可选） | 2 | CLI `--upstream foo`(留空走 protocol default) | server 按 name 查;缺失则按入口 protocol 取 default | **不转发上游**;缺失且无 default 时 400 |
+| `x-rosetta-upstream: foo`（可选） | 2 | CLI `--upstream foo`(留空走 server_api default) | server 按 name 查;缺失则按入口 server_api 取 default | **不转发上游**;缺失且无 default 时 400 |
 
 #### 客户端显式传 `--api-key` 的分支
 
@@ -578,13 +578,13 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 | 参数 | CLI flag | env | 含义 |
 |---|---|---|---|
 | 上游 URL | `--base-url` | `ROSETTA_DIRECT_BASE_URL` | 上游根地址，不带 `/v1` 不带尾斜杠 |
-| 上游 api-key | `--api-key` | `ROSETTA_DIRECT_API_KEY` | 直接写到 `x-api-key` 或 `Authorization: Bearer`(按 `--protocol` 的约定) |
-| 方言 | `--protocol` | `ROSETTA_DIRECT_PROTOCOL` | `messages\|completions\|responses`,**必须 = 上游原生协议**(direct 模式不翻译) |
+| 上游 api-key | `--api-key` | `ROSETTA_DIRECT_API_KEY` | 直接写到 `x-api-key` 或 `Authorization: Bearer`(按 `--server-api` 的约定) |
+| API 格式 | `--server-api` | `ROSETTA_DIRECT_SERVER_API` | `messages\|completions\|responses`,**必须 = 上游原生 API 格式**(direct 模式不翻译) |
 | 模型 | `--model` | `ROSETTA_DIRECT_MODEL` | 上游能识别的模型名 |
 
 **direct 模式不支持的事**:
 
-- **不翻译**:`--protocol` 和上游方言不一致 → 上游自己会 4xx 回错;rosetta 不介入。要跨格式请走正常模式。
+- **不翻译**:`--server-api` 和上游原生格式不一致 → 上游自己会 4xx 回错;rosetta 不介入。要跨格式请走正常模式。
 - **不路由**:没有 `upstreams` / `x-rosetta-upstream` 概念介入。
 - **不记日志 / 不计 stats**:不经过 server,`logs` 表里就没这条记录。
 - **GUI 浏览器环境用不了**:CORS 会阻止浏览器直打 `api.anthropic.com`。Tauri 桌面端可以通过 `tauri.conf.json` 的 `http.scope` allowlist 绕过;纯浏览器开发环境下 GUI 的 direct 开关直接禁用。
@@ -651,7 +651,7 @@ rosetta serve              # 前台启动（开发调试用，同 rosetta-server
 
 # upstream 管理
 rosetta upstream list
-rosetta upstream add --name foo --protocol messages --api-key sk-ant-...
+rosetta upstream add --name foo --native-api messages --api-key sk-ant-...
 rosetta upstream remove <id>
 rosetta upstream test foo
 
@@ -665,16 +665,19 @@ rosetta chat                             # 进入 REPL，多轮对话（历史�
 rosetta chat "hello"                     # 一次性：单轮，打印完退出
 echo "hello" | rosetta chat              # stdin 作为 prompt：一次性
 rosetta chat --model claude-haiku-4-5 "hi"
-rosetta chat --protocol completions        # 入口格式，默认 messages（messages | completions | responses）
+rosetta chat --server-api completions      # 入口格式，默认 messages（messages | completions | responses）
                                          #   分别对应 /v1/messages、/v1/chat/completions、/v1/responses
-rosetta chat --upstream foo "hi"         # 可选:指定 upstream;留空走入口 protocol 的 default(set-default 配置)
+rosetta chat --upstream foo "hi"         # 可选:指定 upstream;留空走入口 server_api 的 default(set-default 配置)
 rosetta chat --api-key sk-ant-XXX "hi"   # 可选:覆盖 upstreams.api_key，临时用另一把上游 key
-rosetta chat --no-stream                 # 关流式（默认开，SSE 边出边打）
-rosetta chat --json                      # 一次性：打印完整响应 JSON，不做渲染（方便脚本）
+rosetta chat --raw "hi"                  # 一次性：打印 request + SSE response frames
+rosetta chat --raw                       # REPL raw 模式；每轮打印 request + SSE response frames
+                                         #   /raw on|off
+                                         #   /raw_edge <n>
+                                         #   /raw_step <n>
 
 # 直连（BYOK）模式：传 --base-url 即触发，绕过 server，详见 §8.6
 rosetta chat \
-    --protocol messages \
+    --server-api messages \
     --base-url https://api.anthropic.com \
     --api-key sk-ant-XXX \
     --model claude-haiku-4-5 "hi"
@@ -686,7 +689,8 @@ rosetta chat \
 - **一次性模式**（带 `"text"` 参数或 stdin 管道）：发完即退，不保留历史，也不写任何本地文件——这是"启动后测一下链路通不通"的最小形态。
 - **鉴权**：CLI **不持有任何 rosetta 自有的本地 key**——server 不做 API-level auth（loopback-only）。`--api-key` 是**可选的上游 key override**：传了就附加 `x-api-key: <你的值>` 让 server 透传；不传就让 server 用 `upstreams.api_key`。direct 模式下 `--api-key` 是必填。
 - **direct 模式触发**：命令里（或 env）出现 `--base-url` → 直接打上游，不经 server。详见 §8.6。
-- **已知局限**(v0 故意不处理):REPL 中切换 `/model` 或 `/protocol` 时,前文只保留 text block(role=user/assistant);工具调用 / thinking / 图片等块在 protocol 切换后丢弃并打印 warning——"切协议 = 新对话的开始"比"翻译前文"简单太多。
+- **REPL slash 命令**:支持自动补全和上下键选择候选。`/server_api <api_type>` 切换 API 格式(`messages|completions|responses`);`/model <name>` 切换模型,`/model clear` 切回 auto;`/raw on|off` 切换 raw 输出;`/raw_edge <n>` / `/raw_step <n>` 调整 raw SSE frame 预览。
+- **已知局限**(v0 故意不处理):REPL 中切换 `/model` 或 `/server_api` 时,前文只保留 text block(role=user/assistant);工具调用 / thinking / 图片等块在 server_api 切换后丢弃并打印 warning——"切 API 格式 = 新对话的开始"比"翻译前文"简单太多。
 
 ### CLI 完整使用 demo（从零到多轮对话）
 
@@ -702,9 +706,11 @@ server started on http://127.0.0.1:62538 (pid 12345)
 # ─── step 2：加一个真实上游 upstream ─────────────────────────────
 $ rosetta upstream add \
     --name anthropic-main \
-    --type anthropic \
-    --api-key sk-ant-api03-XXXXXXXXXXXXXXXX
-→ POST /admin/upstreams，server 写 SQLite（base_url 留空→默认 https://api.anthropic.com）
+    --native-api messages \
+    --base-url https://api.anthropic.com \
+    --api-key sk-ant-api03-XXXXXXXXXXXXXXXX \
+    --model claude-haiku-4-5
+→ POST /admin/upstreams，server 写 SQLite
 upstream "anthropic-main" created (id=1, base_url=https://api.anthropic.com)
 
 # ─── step 3：确认状态 ──────────────────────────────────────────
@@ -717,7 +723,7 @@ $ rosetta chat --upstream anthropic-main "用一句话介绍你自己"
 → POST /v1/messages to 127.0.0.1:62538
    header: x-rosetta-upstream: anthropic-main
    （无 x-api-key，让 server 用 upstreams.api_key 兜底）
-   body.model: claude-haiku-4-5          ← 内置默认模型（type=anthropic→haiku）
+   body.model: claude-haiku-4-5          ← upstream.model 兜底
 → server: 按 header 选中 anthropic-main → 用 upstreams.api_key sk-ant-XXX
 → httpx.post https://api.anthropic.com/v1/messages with sk-ant-XXX
 ← SSE 流回来
@@ -727,8 +733,7 @@ $ rosetta chat --upstream anthropic-main "用一句话介绍你自己"
 
 # ─── step 5：进入 REPL 玩多轮 ──────────────────────────────────
 $ rosetta chat
-rosetta chat · format=messages · model=claude-haiku-4-5
-commands: /exit  /reset  /model <name>  /format <name>
+rosetta chat · server_api=messages · model=claude-haiku-4-5 · mode=nice · /help 查看命令
 > 1 + 1 等于几？
 2。
 > 再乘以 5 呢？
@@ -741,7 +746,7 @@ model switched to claude-sonnet-4-5 (next turn)
 > /exit
 
 # ─── step 6：加第二个 upstream + 跨格式翻译验证 ──────────────────
-$ rosetta upstream add --name openai-main --protocol completions --api-key sk-XXX
+$ rosetta upstream add --name openai-main --native-api completions --api-key sk-XXX --base-url https://api.openai.com --model gpt-4o-mini
 
 # CLI 用 messages 格式打 OpenAI → server 走翻译 messages→IR→completions
 $ rosetta chat --upstream openai-main --model gpt-4o-mini "hi"
@@ -749,12 +754,12 @@ Hello! How can I help you today?
 [openai-main · gpt-4o-mini · 8→9 tokens · 402ms · messages→IR→completions]
 
 # CLI 用 completions 格式打 OpenAI → 对角线直通
-$ rosetta chat --upstream openai-main --protocol completions --model gpt-4o-mini "hi"
+$ rosetta chat --upstream openai-main --server-api completions --model gpt-4o-mini "hi"
 Hello! How can I help you today?
 [openai-main · gpt-4o-mini · 8→9 tokens · 398ms · completions↔completions 直通]
 
 # 切回 Anthropic upstream
-$ rosetta chat --upstream anthropic-main --protocol messages --model claude-haiku-4-5 "ping"
+$ rosetta chat --upstream anthropic-main --server-api messages --model claude-haiku-4-5 "ping"
 pong
 [anthropic-main · claude-haiku-4-5 · 4→2 tokens · 312ms · messages↔messages 直通]
 
@@ -764,7 +769,7 @@ $ rosetta chat --upstream anthropic-main --api-key sk-ant-OTHER --model claude-h
 
 # ─── step 8：direct 模式（完全绕过 server）───────────────────────
 $ rosetta chat \
-    --protocol messages \
+    --server-api messages \
     --base-url https://api.anthropic.com \
     --api-key sk-ant-XXX \
     --model claude-haiku-4-5 "hi"
@@ -778,7 +783,7 @@ $ rosetta chat \
 1. **server 没有自己的 key 概念**——step 4 里 CLI 没传 `x-api-key`，server 用 upstreams 里存的；step 7 里 CLI 传了,server 就透传。概念统一。
 2. **meta 行的翻译路径**（`直通` / `→IR→`）是活体自检的核心信号——启动后打一条 `rosetta chat "ping"` 看 meta 就知道链路是否贯通。
 3. **多轮靠客户端**：step 5 第二轮的"再乘以 5"能被理解，是因为 CLI 把前两轮一起塞进了 `body.messages`；server 无状态，纯转发。
-4. **upstream 路由两段式**:rosetta 不做 model-based 自动路由;客户端可显式带 `x-rosetta-upstream` header(`--upstream <name>`),也可不带让 server 按入口 protocol 取 default(`rosetta upstream set-default <name>` 配置)。两边都没的话 400。
+4. **upstream 路由两段式**:rosetta 不做 model-based 自动路由;客户端可显式带 `x-rosetta-upstream` header(`--upstream <name>`),也可不带让 server 按入口 `server_api` 取 default(`rosetta upstream default <name>` 配置)。两边都没的话 400。
 5. **direct 模式**（step 8）是个旁路：`--base-url` 触发,不经 server,不记日志,也不翻译——要跨格式就去掉 `--base-url` 走 server。
 
 ---
@@ -835,10 +840,10 @@ interface Platform {
 ```
 
 - **状态**：当前会话的 `messages[]` 用 `useState` 存在 Chat 页组件里，**不入 DB、不入全局 store**、切页或刷新即清。想要多会话 / 历史翻阅请用外部 chat 客户端连 rosetta（见 §1 定位）。
-- **Upstream 下拉**:可选,挂载时拉 `GET /admin/upstreams` 填充选项;默认预选当前 protocol 的 `is_default=true` 那一行(没设默认则保留"未选"状态)。选了具体 upstream → 发送时带 `x-rosetta-upstream: <name>` header;留空 → 不带 header,server 按 protocol 取 default。"未选 + 当前 protocol 无 default" 才禁用 Send(否则 server 会 400)。
-- **Protocol 下拉**:三选一 `messages | completions | responses`(对应 `/v1/messages` / `/v1/chat/completions` / `/v1/responses`),默认 `messages`。切换后下次发送用新协议的请求体构造;已渲染的历史消息不回放。已知局限和 CLI 相同——切 protocol 后前文的 tool_use / thinking / image 块丢弃并给 toast 提示。
-- **Model 下拉**:来源 `GET /v1/models?format=<当前>&upstream=<Upstream 下拉值>`,随 format / upstream 联动。
-- **流式**：浏览器 `fetch` + `ReadableStream` 读 SSE，按当前 format 解码后逐 token 追加到 assistant 气泡；`Stop` 按钮 `AbortController.abort()`。
+- **Upstream 下拉**:可选,挂载时拉 `GET /admin/upstreams?server_api=<当前>` 填充选项;默认预选当前 `server_api` 的 `is_default=true` 那一行(没设默认则保留"未选"状态)。选了具体 upstream → 发送时带 `x-rosetta-upstream: <name>` header;留空 → 不带 header,server 按 `server_api` 取 default。"未选 + 当前 `server_api` 无 default" 才禁用 Send(否则 server 会 400)。
+- **Server API 下拉**:三选一 `messages | completions | responses`(对应 `/v1/messages` / `/v1/chat/completions` / `/v1/responses`),默认 `messages`。切换后下次发送用新 API 格式的请求体构造;已渲染的历史消息不回放。已知局限和 CLI 相同——切 `server_api` 后前文的 tool_use / thinking / image 块丢弃并给 toast 提示。
+- **Model 下拉**:来源 `GET /v1/models?server_api=<当前>&upstream=<Upstream 下拉值>`,随 `server_api` / upstream 联动。
+- **流式**：浏览器 `fetch` + `ReadableStream` 读 SSE，按当前 `server_api` 解码后逐 token 追加到 assistant 气泡；`Stop` 按钮 `AbortController.abort()`。
 - **鉴权**：前端对本地 server **不带任何 rosetta 自有的 key**——server 只绑 loopback,不做 API-level auth。`/v1/*` 请求默认**不加 `x-api-key` 头**,让 server 用 `upstreams.api_key` 兜底。可选的"临时换 key 测试"场景在页面右上角提供一个小入口("Override api-key"),存会话内存、不落盘、切页即清。
 - **New chat**：清空 messages 数组 = 清历史（本就只在内存里）。
 - **错误态**：上游 4xx/5xx 渲染成红色系统气泡，保留原始 JSON 可一键复制，方便排障。
@@ -893,7 +898,7 @@ Save 后 `POST /admin/upstreams` → 写 SQLite。Dashboard 顶部警告消失�
 ┌─ Chat ────────────────────────────────────────────┐
 │ Upstream: [anthropic-main ▾]  Format: [messages ▾] │
 │ Model:    [claude-haiku-4-5 ▾]    [New chat]     │
-│   ↑ 挂载时调 GET /v1/models?format=messages 填充   │
+│   ↑ 挂载时调 GET /v1/models?server_api=messages 填充 │
 ├───────────────────────────────────────────────────┤
 │  🧑 hello                                         │
 │  🤖 hi! how can i help? ⎯ (流式增量)              │
@@ -912,7 +917,7 @@ fetch(`${url}/v1/messages`, {
     // 默认不带任何鉴权头，server 会用 upstreams.api_key 兜底。
     // 用户在右上角 "Override api-key" 输入了临时 key 时才加这一行：
     //   'x-api-key':        <override key>,
-    'x-rosetta-upstream': <Upstream 下拉选中的 name>,   // 可选;选了才加,留空走 protocol default
+    'x-rosetta-upstream': <Upstream 下拉选中的 name>,   // 可选;选了才加,留空走 server_api default
     'content-type':       'application/json',
   },
   body: JSON.stringify({
@@ -926,12 +931,12 @@ fetch(`${url}/v1/messages`, {
 
 **⑤ 格式切换活体验收**
 
-Protocol 下拉从 `messages` 切到 `completions`：
+Server API 下拉从 `messages` 切到 `completions`：
 
-- Model 下拉重新拉 `GET /v1/models?format=completions`（选到 `responses` 时同样传 `format=completions`——Responses API 的 models 列表是 OpenAI shape，复用这一路）
+- Model 下拉重新拉 `GET /v1/models?server_api=completions`（选到 `responses` 时同样传 `server_api=responses`）
 - 下一条发送走对应的端点 `/v1/chat/completions` 或 `/v1/responses`
 - meta 行变成 `messages→IR→completions` 或 `completions↔completions`，取决于被路由到哪个 upstream 类型
-- **以前发过的消息气泡不动**（§11 已知局限：前文的 tool_use / thinking / image 块在新 format 下会丢，UI 以 toast 提示）
+- **以前发过的消息气泡不动**（§11 已知局限：前文的 tool_use / thinking / image 块在新 `server_api` 下会丢，UI 以 toast 提示）
 
 这就是文档开头讲的"翻译矩阵 9 条路径"的手动回归测试——页面上切两个下拉 + 发一条消息，一次验证一格。
 
