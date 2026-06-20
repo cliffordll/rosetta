@@ -105,9 +105,9 @@ class Forwarder:
     def _auth_headers(upstream: Upstream, override_key: str | None = None) -> dict[str, str]:
         """按 `upstream.native_api` 选上游鉴权头写法;`override_key` 非空则覆盖 DB 的 `api_key`。
 
-        DESIGN §8.1 约定:客户端请求若带 `x-api-key` / `Authorization: Bearer`,
-        server 把这把 key 透传给上游(**不做** rosetta-level 的鉴权),不带才 fallback
-        到 `upstreams.api_key`。override 机制让"临时换一把 key 试试"不需要改 DB。
+        客户端按入口协议带来的真实 API key 优先透传给上游(Claude 入口为 `x-api-key`,
+        OpenAI-compatible 入口为 `Authorization: Bearer` 中的 token);客户端没带 key 时才
+        fallback 到 `upstreams.api_key`。`r-api-key` 仅用于 Rosetta server-level 鉴权(暂不启用)。
         """
         key = override_key or upstream.api_key
         if key is None:
@@ -115,8 +115,7 @@ class Forwarder:
                 status=500,
                 code="upstream_missing_key",
                 message=(
-                    f"upstream '{upstream.name}' 没配 api_key,"
-                    "且客户端请求也未带 x-api-key / Authorization 头"
+                    f"upstream '{upstream.name}' 没配 api_key,且客户端请求也未带对应鉴权头"
                 ),
             )
         if upstream.native_api == "messages":
@@ -314,9 +313,10 @@ class Forwarder:
         """把请求按格式翻译(必要时)+ 转发到上游。
 
         `extra_response_headers`:由上层(例如 degradation 层)传入的附加响应头,
-        例:`{"x-rosetta-warnings": "store_ignored,builtin_tools_removed:web_search"}`
+        例:`{"r-warnings": "store_ignored,builtin_tools_removed:web_search"}`
 
-        `client_api_key`:客户端通过 `x-api-key` / `Authorization: Bearer` 透传来的上游 key。
+        `client_api_key`:客户端按入口协议透传来的上游 key(Messages 为 x-api-key,
+        OpenAI-compatible 为 Authorization Bearer token)。
         为 None 时 forwarder 用 `upstream.api_key`(DB 兜底)。见 DESIGN §8.1 / §8.5。
 
         埋点:每次调用在 `logs` 表留一条(status=ok/error + latency)。流式路径的
@@ -361,7 +361,7 @@ class Forwarder:
                 warnings_header = getattr(resp, "_rosetta_warnings_header", None)
                 if warnings_header:
                     extra_response_headers = dict(extra_response_headers or {})
-                    extra_response_headers["x-rosetta-warnings"] = warnings_header
+                    extra_response_headers["r-warnings"] = warnings_header
 
             if isinstance(resp, StreamingResponse):
                 resp = self._wrap_streaming_response_for_logging(
