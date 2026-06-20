@@ -89,6 +89,16 @@ class Renderer:
         sys.stdout.flush()
 
     @classmethod
+    def raw(cls, text: str) -> None:
+        """Print raw debug text without rich markup interpretation."""
+        if cls.QUIET:
+            return
+        sys.stdout.write(text)
+        if not text.endswith("\n"):
+            sys.stdout.write("\n")
+        sys.stdout.flush()
+
+    @classmethod
     def meta_line(
         cls,
         *,

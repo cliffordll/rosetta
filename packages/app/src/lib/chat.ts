@@ -8,7 +8,9 @@
  */
 
 import { apiBase, ServerApi } from "@/lib/api";
+import type { RawChatRequest } from "@/lib/chat-raw";
 import { ChatStream } from "@/lib/streams";
+import type { SseFrame } from "@/lib/sse";
 
 export interface ChatTurnMsg {
   role: "user" | "assistant";
@@ -24,6 +26,8 @@ export interface ChatTurnOpts {
   maxTokens: number;
   signal: AbortSignal;
   onToken: (t: string) => void;
+  onRawRequest?: (request: RawChatRequest) => void;
+  onRawFrame?: (frame: SseFrame) => void;
 }
 
 export interface ChatTurnResult {
@@ -63,10 +67,12 @@ export async function runTurn(
   if (opts.overrideApiKey) headers["x-api-key"] = opts.overrideApiKey;
 
   const base = await apiBase();
+  const url = URL_BY_SERVER_API[opts.serverApi];
+  opts.onRawRequest?.({ url, headers, body });
   const t0 = performance.now();
   let resp: Response;
   try {
-    resp = await fetch(base + URL_BY_SERVER_API[opts.serverApi], {
+    resp = await fetch(base + url, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
@@ -88,7 +94,7 @@ export async function runTurn(
   const buf: string[] = [];
   let aborted = false;
   try {
-    for await (const tok of stream.textDeltas(resp, opts.signal)) {
+    for await (const tok of stream.textDeltas(resp, opts.signal, opts.onRawFrame)) {
       buf.push(tok);
       opts.onToken(tok);
     }

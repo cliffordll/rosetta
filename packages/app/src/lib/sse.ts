@@ -13,6 +13,8 @@
 export interface SseFrame {
   event: string | null;
   data: Record<string, unknown>;
+  raw?: string;
+  receivedAt?: string;
 }
 
 /** 把 fetch 响应的 body 解析成 SSE 帧流。调用方保证 `resp.body` 非空。 */
@@ -71,6 +73,7 @@ function findSeparator(buf: string): { start: number; end: number } | null {
 }
 
 function parseFrame(frame: string): SseFrame | null {
+  const raw = frame.trimEnd();
   let event: string | null = null;
   const dataLines: string[] = [];
   for (const raw of frame.split("\n")) {
@@ -88,8 +91,12 @@ function parseFrame(frame: string): SseFrame | null {
   try {
     const parsed: unknown = JSON.parse(dataStr);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    return { event, data: parsed as Record<string, unknown> };
+    return { event, data: parsed as Record<string, unknown>, raw, receivedAt: nowIso() };
   } catch {
     return null;
   }
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
 }

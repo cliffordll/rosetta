@@ -27,8 +27,13 @@ export class ChatStream {
     this.serverApi = serverApi;
   }
 
-  async *textDeltas(resp: Response, signal?: AbortSignal): AsyncGenerator<string> {
+  async *textDeltas(
+    resp: Response,
+    signal?: AbortSignal,
+    onFrame?: (frame: SseFrame) => void,
+  ): AsyncGenerator<string> {
     for await (const frame of iterSse(resp, signal)) {
+      onFrame?.(frame);
       this.updateUsage(frame);
       const t = extractText(this.serverApi, frame);
       if (t) yield t;

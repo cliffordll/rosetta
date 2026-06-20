@@ -240,6 +240,18 @@ def test_chat_invalid_server_api_fails() -> None:
     assert result.exit_code != 0
 
 
+def test_chat_raw_help_uses_short_raw_option_names() -> None:
+    result = runner.invoke(app, ["chat", "--help"])
+    assert result.exit_code == 0
+    out = _plain(result.output)
+    assert "--raw" in out
+    assert "--raw-edge" in out
+    assert "--raw-step" in out
+    assert "--raw-full" in out
+    assert "--raw-edge-frames" not in out
+    assert "--raw-expand-step" not in out
+
+
 # ---------- --quiet 全局 flag ----------
 
 

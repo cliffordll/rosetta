@@ -31,12 +31,14 @@ Usage 抽取规则(v0.1)
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import httpx
 
+from rosetta.sdk.raw import RawSseFrame
 from rosetta.shared.server_api import ServerApi
 
 
@@ -46,8 +48,8 @@ async def iter_text_deltas(resp: httpx.Response, server_api: ServerApi) -> Async
     调用方负责确保 `resp` 是用 `stream=True` 发出的。本函数只读不关,由外层
     async-context 管理生命周期。
     """
-    async for event_name, data in _iter_sse(resp):
-        text = _extract_text(server_api, event_name, data)
+    async for frame in _iter_sse(resp):
+        text = _extract_text(server_api, frame.event, frame.data)
         if text:
             yield text
 
@@ -68,10 +70,17 @@ class ChatStream:
     input_tokens: int = field(default=0)
     output_tokens: int = field(default=0)
 
-    async def text_deltas(self, resp: httpx.Response) -> AsyncIterator[str]:
-        async for event_name, data in _iter_sse(resp):
-            self._update_usage(event_name, data)
-            text = _extract_text(self.server_api, event_name, data)
+    async def text_deltas(
+        self,
+        resp: httpx.Response,
+        *,
+        on_frame: Callable[[RawSseFrame], None] | None = None,
+    ) -> AsyncIterator[str]:
+        async for frame in _iter_sse(resp):
+            if on_frame is not None:
+                on_frame(frame)
+            self._update_usage(frame.event, frame.data)
+            text = _extract_text(self.server_api, frame.event, frame.data)
             if text:
                 yield text
 
@@ -117,7 +126,7 @@ class ChatStream:
                     self.output_tokens = int(ud.get("output_tokens", 0) or 0)
 
 
-async def _iter_sse(resp: httpx.Response) -> AsyncIterator[tuple[str | None, dict[str, Any]]]:
+async def _iter_sse(resp: httpx.Response) -> AsyncIterator[RawSseFrame]:
     """异步 SSE 帧解析:按 `\\n\\n` 切分,解出 `(event_name, data_dict)`。
 
     - 多个 `data:` 行按 SSE 规范用 `\\n` 拼接后 JSON 解析
@@ -150,7 +159,8 @@ async def _iter_sse(resp: httpx.Response) -> AsyncIterator[tuple[str | None, dic
             yield parsed
 
 
-def _parse_frame(frame: bytes) -> tuple[str | None, dict[str, Any]] | None:
+def _parse_frame(frame: bytes) -> RawSseFrame | None:
+    raw_frame = frame.rstrip(b"\r\n").decode("utf-8", errors="replace")
     event_name: str | None = None
     data_lines: list[str] = []
     for raw_line in frame.split(b"\n"):
@@ -172,7 +182,12 @@ def _parse_frame(frame: bytes) -> tuple[str | None, dict[str, Any]] | None:
         return None
     if not isinstance(parsed, dict):
         return None
-    return event_name, cast(dict[str, Any], parsed)
+    return RawSseFrame(
+        received_at=datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+        raw=raw_frame,
+        event=event_name,
+        data=cast(dict[str, Any], parsed),
+    )
 
 
 def _extract_text(server_api: ServerApi, event_name: str | None, data: dict[str, Any]) -> str:

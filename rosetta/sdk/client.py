@@ -293,6 +293,20 @@ class ProxyClient:
             headers["authorization"] = f"Bearer {self._direct_api_key}"
         return url, headers
 
+    def data_url_and_headers(
+        self,
+        server_api: ServerApi,
+        *,
+        override_api_key: str | None = None,
+        upstream_header: str | None = None,
+    ) -> tuple[str, dict[str, str]]:
+        """Return the data-plane URL and headers that chat requests will use."""
+        return self._data_url_and_headers(
+            server_api,
+            override_api_key=override_api_key,
+            upstream_header=upstream_header,
+        )
+
     async def post_chat(
         self,
         server_api: ServerApi,
