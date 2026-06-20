@@ -56,9 +56,9 @@ bun run tauri dev
 
 做了什么:
 
-1. `beforeDevCommand` 起 vite dev server 在 `http://localhost:5173`
+1. `beforeDevCommand` 起 vite dev server 在 `http://localhost:1689`
 2. Rust 侧 `cargo build` 编译 app(**首次 1-3 分钟**,后续增量秒级)
-3. 弹窗口加载 `http://localhost:5173`
+3. 弹窗口加载 `http://localhost:1689`
 4. Tauri setup 里 spawn sidecar `rosetta-server.exe` → 写
    `~/.rosetta/endpoint.json` → 前端 fetch `/admin/*` 走 vite proxy
    到 server
@@ -157,7 +157,7 @@ my-rosetta/
 
 | 症状 | 原因 | 解决 |
 |---|---|---|
-| 窗口白屏 + 控制台报 `port 5173 refused` | `tauri dev` 里 vite 还没起好 | 等 ~2s / 重跑;首次编译 Rust 慢,vite 提前准备好 |
+| 窗口白屏 + 控制台报 `port 1689 refused` | `tauri dev` 里 vite 还没起好 | 等 ~2s / 重跑;首次编译 Rust 慢,vite 提前准备好 |
 | 所有 API 红条 `server unreachable` | sidecar 没起 / 版本旧 | 重跑 `--sync-sidecar` 再 `tauri dev` |
 | "找不到 rosetta-server sidecar" | `binaries/` 里没 exe 或命名不对 | 必须是 `rosetta-server-<target-triple>.exe`,`--sync-sidecar` 会自动命对 |
 | `tauri build` 报 `tauri-build-*.../permission denied` | 窗口仍开着占用 `target/` 文件 | 先关所有跑着的桌面端 + `bun run tauri dev` 再 build |

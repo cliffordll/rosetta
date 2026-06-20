@@ -130,7 +130,7 @@
 │     ├── msedgewebview2.exe     │  ← 渲染 React UI
 │     │                          │
 │     └── rosetta-server.exe   │  ← sidecar：被 spawn
-│         (PyInstaller 打包)      │     启动后绑 127.0.0.1:随机端口
+│         (PyInstaller 打包)      │     启动后绑 127.0.0.1:1687
 └────────────────────────────────┘
          ↑
          │  同一套 server exe 也能被 CLI spawn
@@ -170,7 +170,7 @@ Server 启动时在 `~/.rosetta/endpoint.json` 写入：
 
 ```json
 {
-  "url": "http://127.0.0.1:62538",
+  "url": "http://127.0.0.1:1687",
   "token": "urlsafe_random_32bytes",
   "pid": 12345
 }
@@ -701,7 +701,7 @@ rosetta chat \
 $ rosetta start
 → spawn rosetta-server.exe，写 ~/.rosetta/endpoint.json（url+admin token+pid）
 → server 只绑 127.0.0.1，不做 API-level auth
-server started on http://127.0.0.1:62538 (pid 12345)
+server started on http://127.0.0.1:1687 (pid 12345)
 
 # ─── step 2：加一个真实上游 upstream ─────────────────────────────
 $ rosetta upstream add \
@@ -715,12 +715,12 @@ upstream "anthropic-main" created (id=1, base_url=https://api.anthropic.com)
 
 # ─── step 3：确认状态 ──────────────────────────────────────────
 $ rosetta status
-server:    http://127.0.0.1:62538  (uptime 12s)
+server:    http://127.0.0.1:1687  (uptime 12s)
 upstreams: 1 enabled (anthropic-main)
 
 # ─── step 4：一次性对话（最小链路自检）──────────────────────────
 $ rosetta chat --upstream anthropic-main "用一句话介绍你自己"
-→ POST /v1/messages to 127.0.0.1:62538
+→ POST /v1/messages to 127.0.0.1:1687
    header: x-rosetta-upstream: anthropic-main
    （无 x-api-key，让 server 用 upstreams.api_key 兜底）
    body.model: claude-haiku-4-5          ← upstream.model 兜底

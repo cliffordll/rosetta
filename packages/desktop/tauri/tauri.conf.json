@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "bun run --filter=@rosetta/app dev",
     "beforeBuildCommand": "bun run --filter=@rosetta/app build",
-    "devUrl": "http://localhost:5173",
+    "devUrl": "http://localhost:1689",
     "frontendDist": "../../app/dist"
   },
   "app": {
