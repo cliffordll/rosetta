@@ -64,6 +64,15 @@ def test_request_roundtrip(fixture_name: str) -> None:
     assert _strip_nones(body) == _strip_nones(body_back), f"{fixture_name}: 归一化 JSON 不等价"
 
 
+def test_request_without_max_output_tokens() -> None:
+    """Responses 请求允许缺失 max_output_tokens;IR 与回写都不应带出该字段。"""
+    body = {"model": "gpt-4.1-mini", "input": "hello"}
+    ir = responses_to_ir(body)
+    assert ir.max_tokens is None
+    body_back = ir_to_responses(ir)
+    assert "max_output_tokens" not in body_back
+
+
 @pytest.mark.parametrize("fixture_name", NONSTREAM_FIXTURES)
 def test_response_nonstream_roundtrip(fixture_name: str) -> None:
     body = _load_fixture(fixture_name)["response_nonstream"]

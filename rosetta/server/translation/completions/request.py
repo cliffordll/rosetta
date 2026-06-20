@@ -57,7 +57,7 @@ def completions_to_ir(body: dict[str, Any]) -> RequestIR:
     unsupported = set(body.keys()) - _SUPPORTED_REQ_KEYS
     if unsupported:
         raise ValueError(f"不支持的 Chat Completions 请求字段: {sorted(unsupported)}")
-    for required in ("model", "messages", "max_tokens"):
+    for required in ("model", "messages"):
         if required not in body:
             raise ValueError(f"Chat Completions 请求缺少必需字段: {required}")
 
@@ -70,8 +70,9 @@ def completions_to_ir(body: dict[str, Any]) -> RequestIR:
     payload: dict[str, Any] = {
         "model": body["model"],
         "messages": [m.model_dump(exclude_none=True) for m in messages],
-        "max_tokens": body["max_tokens"],
     }
+    if "max_tokens" in body:
+        payload["max_tokens"] = body["max_tokens"]
     if system is not None:
         payload["system"] = system
     for key in ("temperature", "top_p", "stream"):
@@ -319,8 +320,9 @@ def ir_to_completions(ir: RequestIR) -> dict[str, Any]:
     body: dict[str, Any] = {
         "model": ir.model,
         "messages": _messages_ir_to_openai(ir.system, ir.messages),
-        "max_tokens": ir.max_tokens,
     }
+    if ir.max_tokens is not None:
+        body["max_tokens"] = ir.max_tokens
     if ir.temperature is not None:
         body["temperature"] = ir.temperature
     if ir.top_p is not None:
