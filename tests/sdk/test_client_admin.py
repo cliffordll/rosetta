@@ -20,6 +20,7 @@ import pytest_asyncio
 
 from rosetta.sdk.client import ProxyClient
 from rosetta.server.controller.upstreams import UpstreamCreate, UpstreamUpdate
+from rosetta.shared.server_api import ServerApi
 
 
 def _make_client_with_handler(
@@ -192,6 +193,30 @@ async def test_update_logs_config(
     assert config.page_size == 50
     assert captured["request"].method == "PUT"
     assert captured["request"].url.path == "/admin/logs/config"
+
+
+def test_server_data_headers_use_x_api_key_for_messages_override() -> None:
+    client, _ = _make_client_with_handler()
+
+    _, headers = client.data_url_and_headers(
+        server_api=ServerApi.MESSAGES,
+        override_api_key="sk-override",
+    )
+
+    assert headers["x-api-key"] == "sk-override"
+    assert "authorization" not in headers
+
+
+def test_server_data_headers_use_authorization_for_completions_override() -> None:
+    client, _ = _make_client_with_handler()
+
+    _, headers = client.data_url_and_headers(
+        server_api=ServerApi.CHAT_COMPLETIONS,
+        override_api_key="sk-override",
+    )
+
+    assert headers["authorization"] == "Bearer sk-override"
+    assert "x-api-key" not in headers
 
 
 async def test_create_upstream(echo_client: tuple[ProxyClient, dict[str, Any]]) -> None:

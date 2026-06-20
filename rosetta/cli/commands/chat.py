@@ -3,7 +3,7 @@
 两种连接模式
 ------------
 - server 模式(默认):通过本地 rosetta-server 转发;`--upstream` 指定上游,
-  未给则不传 `x-rosetta-upstream` header,server 按入口 server_api 选 default
+  未给则不传 `r-upstream` header,server 按入口 server_api 选 default
   upstream(先查 per-server_api default,没有再查 global default);都没有时 server
   返 400,提示去 `rosetta upstream set-default <name>` 设一个。
   `--model` 同样可选,留空时不发 `body.model`,server forwarder 用 `upstream.model`

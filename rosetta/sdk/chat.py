@@ -47,7 +47,7 @@ async def chat_once(
     """发一条消息(非流式),返回 `ChatResult`。
 
     - `model`:None 时 direct 模式用 `client.direct_model`;server 模式必填
-    - `upstream`:server 模式可选,传则作 `x-rosetta-upstream` header;direct 下禁传
+    - `upstream`:server 模式可选,传则作 `r-upstream` header;direct 下禁传
     - `api_key`:server 模式可选 override;direct 下忽略(用 client 自带的)
     """
     effective_model = model
