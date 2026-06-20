@@ -132,7 +132,5 @@ def format_raw_turn(
 
 def _format_raw_sse_frame(frame: RawSseFrame) -> str:
     event_label = f" event: {frame.event}" if frame.event else ""
-    body_lines = [
-        line for line in frame.raw.rstrip().splitlines() if not line.startswith("event:")
-    ]
+    body_lines = [line for line in frame.raw.rstrip().splitlines() if not line.startswith("event:")]
     return "\n".join([f"[{frame.received_at}]{event_label}", *body_lines])

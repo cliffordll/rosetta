@@ -16,7 +16,7 @@ admin 相关的 request / response schema 直接从 `rosetta.server.controller.*
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -60,7 +60,7 @@ class ProxyClient:
     @asynccontextmanager
     async def discover_session(
         cls, *, parent_pid: int | None = None, spawn_if_missing: bool = True
-    ) -> AsyncIterator[Self]:
+    ) -> AsyncGenerator[Self]:
         """发现或拉起本地 server,返回连到它的 client。"""
         ep = await discover(parent_pid=parent_pid, spawn_if_missing=spawn_if_missing)
         http = httpx.AsyncClient(timeout=_DATA_TIMEOUT)
@@ -78,7 +78,7 @@ class ProxyClient:
         api_key: str,
         server_api: ServerApi,
         model: str,
-    ) -> AsyncIterator[Self]:
+    ) -> AsyncGenerator[Self]:
         """direct 模式(DESIGN §8.6):绕 server 直连上游。"""
         http = httpx.AsyncClient(timeout=_DATA_TIMEOUT)
         try:
@@ -329,7 +329,7 @@ class ProxyClient:
         *,
         override_api_key: str | None = None,
         upstream_header: str | None = None,
-    ) -> AsyncIterator[httpx.Response]:
+    ) -> AsyncGenerator[httpx.Response]:
         """流式数据面 POST;返回 async context,`resp.aiter_bytes()` 读流。"""
         url, headers = self._data_url_and_headers(
             server_api, override_api_key=override_api_key, upstream_header=upstream_header
