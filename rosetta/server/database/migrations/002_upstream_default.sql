@@ -1,6 +1,6 @@
 -- Rosetta schema v2 · upstream 加 is_default 字段
 -- protocol → upstream 1:N,但每个 protocol 至多一个 is_default=1(partial unique index)
--- selector 在 x-rosetta-upstream header 缺失时,按入口 protocol 严格同 protocol 找 default
+-- selector 在 r-upstream header 缺失时,按入口 protocol 严格同 protocol 找 default
 
 ALTER TABLE upstreams ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0;
 

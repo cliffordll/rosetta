@@ -6,7 +6,7 @@
 - `/v1/responses`:Responses 入口(2.5.1 起真翻译;跨格式时 forwarder 内部做 degrade)
 
 阶段 3.1:upstream 选择从"第一个 enabled 硬编"换成 `pick_upstream`(DESIGN §8.4)。
-阶段 3.2:客户端 `x-api-key` / `Authorization: Bearer` 透传给上游作 override。
+阶段 3.2:客户端按入口协议传的真实鉴权头作为上游 key override。
 
 分层约定:routes 是哑管道,只读 headers + 透传 body bytes。所有 body 解读
 (model / stream 解析、Responses degrade、跨格式翻译)都在 forwarder 内部完成。
@@ -16,13 +16,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import Response
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from rosetta.server.database.session import get_session
+from rosetta.server.database.models import Upstream
+from rosetta.server.database.session import close_session_safely, get_session_maker
 from rosetta.server.repository import UpstreamRepo
 from rosetta.server.service.forwarder import forwarder
 from rosetta.server.service.selector import pick_upstream
@@ -30,26 +29,23 @@ from rosetta.shared.server_api import ServerApi
 
 router = APIRouter()
 
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
+def _extract_client_api_key(request: Request, server_api: ServerApi) -> str | None:
+    """提取客户端按入口协议带来的真实 API key,作为上游 key override。
 
-def _extract_client_api_key(request: Request) -> str | None:
-    """按 DESIGN §8.1:客户端的 `x-api-key` 或 `Authorization: Bearer` 若提供,
-    透传作为上游 key 的 override;两个都没给就返回 None,由 forwarder fallback 到
-    `upstreams.api_key`。
+    优先级:
+    - `ServerApi.MESSAGES`(Claude): 取 `x-api-key`。
+    - 其他(OpenAI-compatible): 取 `Authorization: Bearer <token>` 中的 token。
 
-    同时存在时优先取 `x-api-key`(Anthropic 风格,显式度高于 Authorization)。
+    `Authorization` 在 OpenAI-compatible 客户端里就是真实上游 key(Codex CLI 等);`
+    `r-api-key` 仅用于 Rosetta server-level 鉴权(暂不启用),不参与上游 override。
     """
-    xapikey = request.headers.get("x-api-key")
-    if xapikey:
-        return xapikey
-    auth = request.headers.get("authorization")
-    if auth:
-        parts = auth.split(None, 1)
-        if len(parts) == 2 and parts[0].lower() == "bearer":
-            token = parts[1].strip()
-            if token:
-                return token
+    if server_api == ServerApi.MESSAGES:
+        return request.headers.get("x-api-key")
+    auth = request.headers.get("authorization", "")
+    prefix = "Bearer "
+    if auth.startswith(prefix):
+        return auth[len(prefix) :].strip()
     return None
 
 
@@ -58,7 +54,7 @@ class RequestCtx:
     """dataplane 端点的请求门面:原始 body + 需要的 headers + 客户端地址。
 
     body 是黑盒,routes 不解读;model / stream 等字段由 `pick_upstream` / `forwarder`
-    内部按需解析。端点第一步 `ctx = await parse_request(request)`。
+    内部按需解析。端点第一步 `ctx = await parse_request(request, server_api)`。
     """
 
     body: bytes
@@ -66,6 +62,12 @@ class RequestCtx:
     content_type: str
     client_api_key: str | None
     client_addr: str | None
+
+
+@dataclass(frozen=True)
+class DataplaneConfig:
+    upstream: Upstream
+    api_type_paths: dict[str, str]
 
 
 def _extract_client_addr(request: Request) -> str | None:
@@ -76,31 +78,45 @@ def _extract_client_addr(request: Request) -> str | None:
     return f"{client.host}:{client.port}"
 
 
-async def parse_request(request: Request) -> RequestCtx:
+async def parse_request(request: Request, server_api: ServerApi) -> RequestCtx:
     """一次性读取 body + 需要的 headers,打包成 `RequestCtx`。"""
     return RequestCtx(
         body=await request.body(),
-        rosetta_upstream=request.headers.get("x-rosetta-upstream"),
+        rosetta_upstream=request.headers.get("r-upstream"),
         content_type=request.headers.get("content-type", "application/json"),
-        client_api_key=_extract_client_api_key(request),
+        client_api_key=_extract_client_api_key(request, server_api),
         client_addr=_extract_client_addr(request),
     )
 
 
+async def load_dataplane_config(ctx: RequestCtx, server_api: ServerApi) -> DataplaneConfig:
+    """短生命周期读取数据面配置,避免 DB session 跨越流式转发阶段。"""
+    session_maker = get_session_maker()
+    if session_maker is None:
+        raise RuntimeError("DB 未初始化,先调 init_db()")
+    session = session_maker()
+    try:
+        upstream = await pick_upstream(
+            session,
+            header_upstream=ctx.rosetta_upstream,
+            server_api=server_api,
+        )
+        api_type_paths = await UpstreamRepo(session).api_type_paths()
+        await session.commit()
+    finally:
+        await close_session_safely(session)
+    return DataplaneConfig(upstream=upstream, api_type_paths=api_type_paths)
+
+
 @router.post("/v1/messages")
-async def messages(request: Request, session: SessionDep) -> Response:
-    ctx = await parse_request(request)
+async def messages(request: Request) -> Response:
     server_api = ServerApi.MESSAGES
-    upstream = await pick_upstream(
-        session,
-        header_upstream=ctx.rosetta_upstream,
-        server_api=server_api,
-    )
-    api_type_paths = await UpstreamRepo(session).api_type_paths()
+    ctx = await parse_request(request, server_api)
+    config = await load_dataplane_config(ctx, server_api)
     return await forwarder.forward(
-        upstream=upstream,
+        upstream=config.upstream,
         server_api=server_api,
-        api_type_paths=api_type_paths,
+        api_type_paths=config.api_type_paths,
         body=ctx.body,
         content_type=ctx.content_type,
         client_api_key=ctx.client_api_key,
@@ -109,19 +125,14 @@ async def messages(request: Request, session: SessionDep) -> Response:
 
 
 @router.post("/v1/chat/completions")
-async def chat_completions(request: Request, session: SessionDep) -> Response:
-    ctx = await parse_request(request)
+async def chat_completions(request: Request) -> Response:
     server_api = ServerApi.CHAT_COMPLETIONS
-    upstream = await pick_upstream(
-        session,
-        header_upstream=ctx.rosetta_upstream,
-        server_api=server_api,
-    )
-    api_type_paths = await UpstreamRepo(session).api_type_paths()
+    ctx = await parse_request(request, server_api)
+    config = await load_dataplane_config(ctx, server_api)
     return await forwarder.forward(
-        upstream=upstream,
+        upstream=config.upstream,
         server_api=server_api,
-        api_type_paths=api_type_paths,
+        api_type_paths=config.api_type_paths,
         body=ctx.body,
         content_type=ctx.content_type,
         client_api_key=ctx.client_api_key,
@@ -130,19 +141,14 @@ async def chat_completions(request: Request, session: SessionDep) -> Response:
 
 
 @router.post("/v1/responses")
-async def responses_endpoint(request: Request, session: SessionDep) -> Response:
-    ctx = await parse_request(request)
+async def responses_endpoint(request: Request) -> Response:
     server_api = ServerApi.RESPONSES
-    upstream = await pick_upstream(
-        session,
-        header_upstream=ctx.rosetta_upstream,
-        server_api=server_api,
-    )
-    api_type_paths = await UpstreamRepo(session).api_type_paths()
+    ctx = await parse_request(request, server_api)
+    config = await load_dataplane_config(ctx, server_api)
     return await forwarder.forward(
-        upstream=upstream,
+        upstream=config.upstream,
         server_api=server_api,
-        api_type_paths=api_type_paths,
+        api_type_paths=config.api_type_paths,
         body=ctx.body,
         content_type=ctx.content_type,
         client_api_key=ctx.client_api_key,

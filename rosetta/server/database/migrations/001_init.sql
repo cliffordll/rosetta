@@ -11,7 +11,7 @@ CREATE TABLE upstreams (
     protocol   TEXT    NOT NULL,                          -- messages / completions / responses / any(any 仅 mock 占位)
     provider   TEXT    NOT NULL DEFAULT 'custom',         -- anthropic / openai / openrouter / google / ollama / vllm / custom / mock
     base_url   TEXT    NOT NULL,                          -- 上游根地址,必填
-    api_key    TEXT,                                      -- 可选,没填时客户端必须自带 x-api-key 透传
+    api_key    TEXT,                                      -- 可选,没填时客户端必须按入口协议自带 x-api-key/Authorization 透传
     enabled    INTEGER NOT NULL DEFAULT 1,
     created_at TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

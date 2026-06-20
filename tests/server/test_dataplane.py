@@ -7,22 +7,29 @@
 - upstream.native_api=completions / responses:`Authorization: Bearer`
 - client_api_key 透传 vs upstream.api_key 兜底
 - 跨格式翻译(messages → completions)的请求 / 响应都被翻译
-- extra_response_headers(x-rosetta-warnings)注入响应
+- extra_response_headers(r-warnings)注入响应
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator, Callable
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
 import pytest_asyncio
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from rosetta.server.controller import dataplane_router
+from rosetta.server.controller.dataplane import _extract_client_api_key, parse_request
 from rosetta.server.database.models import LogEntry, Upstream
+from rosetta.server.database.session import get_session
+from rosetta.server.repository import UpstreamRepo
 from rosetta.server.service.forwarder import forwarder
 from rosetta.shared.server_api import ServerApi
 
@@ -188,6 +195,85 @@ async def test_openai_passthrough_url_and_headers(
 
 
 # ---------- api-key 覆盖 vs 兜底 ----------
+
+
+def test_authorization_header_is_upstream_key_override_for_completions() -> None:
+    request = SimpleNamespace(headers={"authorization": "Bearer codex-local-token"})
+
+    assert (
+        _extract_client_api_key(request, ServerApi.CHAT_COMPLETIONS)
+        == "codex-local-token"
+    )
+    assert (
+        _extract_client_api_key(request, ServerApi.RESPONSES) == "codex-local-token"
+    )
+
+
+def test_authorization_header_is_not_extracted_for_messages() -> None:
+    request = SimpleNamespace(headers={"authorization": "Bearer codex-local-token"})
+
+    assert _extract_client_api_key(request, ServerApi.MESSAGES) is None  # type: ignore[arg-type]
+
+
+def test_x_api_key_header_is_upstream_key_override_for_messages() -> None:
+    request = SimpleNamespace(headers={"x-api-key": "sk-ant-client"})
+
+    assert _extract_client_api_key(request, ServerApi.MESSAGES) == "sk-ant-client"
+
+
+def test_x_api_key_header_is_not_extracted_for_completions() -> None:
+    request = SimpleNamespace(headers={"x-api-key": "sk-ant-client"})
+
+    assert _extract_client_api_key(request, ServerApi.CHAT_COMPLETIONS) is None  # type: ignore[arg-type]
+
+
+def test_r_api_key_is_not_upstream_key_override() -> None:
+    request = SimpleNamespace(headers={"r-api-key": "sk-CLIENT-override"})
+
+    assert _extract_client_api_key(request, ServerApi.CHAT_COMPLETIONS) is None  # type: ignore[arg-type]
+    assert _extract_client_api_key(request, ServerApi.MESSAGES) is None  # type: ignore[arg-type]
+
+
+async def test_parse_request_uses_endpoint_server_api_for_client_key() -> None:
+    async def _body() -> bytes:
+        return b'{"model":"claude-haiku-4-5"}'
+
+    request = SimpleNamespace(
+        body=_body,
+        headers={"content-type": "application/json", "x-api-key": "sk-ant-client"},
+        client=SimpleNamespace(host="127.0.0.1", port=12345),
+    )
+
+    ctx = await parse_request(request, ServerApi.MESSAGES)  # type: ignore[arg-type]
+
+    assert ctx.client_api_key == "sk-ant-client"
+
+
+async def test_dataplane_route_does_not_use_fastapi_session_dependency(
+    session: AsyncSession,
+) -> None:
+    await UpstreamRepo(session).set_default("mock")
+
+    app = FastAPI()
+    app.include_router(dataplane_router)
+
+    async def _unexpected_session_dependency() -> AsyncIterator[AsyncSession]:
+        yield session
+        raise AssertionError("dataplane should not hold FastAPI DB dependency")
+
+    app.dependency_overrides[get_session] = _unexpected_session_dependency
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        response = await client.post(
+            "/v1/messages",
+            json={
+                "model": "claude-haiku-4-5",
+                "max_tokens": 32,
+                "messages": [{"role": "user", "content": "ping"}],
+            },
+        )
+
+    assert response.status_code == 200
 
 
 async def test_client_api_key_overrides_db(mock_client: dict[str, Any]) -> None:
@@ -399,9 +485,9 @@ async def test_extra_response_headers_injected(mock_client: dict[str, Any]) -> N
         server_api=ServerApi.MESSAGES,
         body=body,
         content_type="application/json",
-        extra_response_headers={"x-rosetta-warnings": "store_ignored"},
+        extra_response_headers={"r-warnings": "store_ignored"},
     )
-    assert resp.headers.get("x-rosetta-warnings") == "store_ignored"
+    assert resp.headers.get("r-warnings") == "store_ignored"
 
 
 # ---------- 未初始化 client 的防御 ----------

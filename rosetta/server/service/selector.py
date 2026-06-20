@@ -2,7 +2,7 @@
 
 两段策略(显式优先 + per-server_api default + global default fallback):
 
-1. `x-rosetta-upstream: <name>` header 有值 → 按 name 精确匹配
+1. `r-upstream: <name>` header 有值 → 按 name 精确匹配
    - 不存在 → 400 `upstream_not_found`
    - 被禁用 → 400 `upstream_disabled`
 2. header 缺失 → 按入口 server_api 找 default
@@ -38,13 +38,13 @@ async def pick_upstream(
             raise ServiceError(
                 status=400,
                 code="upstream_not_found",
-                message=f"x-rosetta-upstream 指定的 '{header_upstream}' 不存在",
+                message=f"r-upstream 指定的 '{header_upstream}' 不存在",
             )
         if not upstream.enabled:
             raise ServiceError(
                 status=400,
                 code="upstream_disabled",
-                message=f"x-rosetta-upstream 指定的 '{header_upstream}' 被禁用",
+                message=f"r-upstream 指定的 '{header_upstream}' 被禁用",
             )
         return upstream
 
@@ -53,7 +53,7 @@ async def pick_upstream(
         raise ServiceError(
             status=400,
             code="missing_rosetta_upstream",
-            message=f"未传 x-rosetta-upstream header 且 server_api={server_api.value} "
+            message=f"未传 r-upstream header 且 server_api={server_api.value} "
             "无可用 default upstream",
         )
     return default
