@@ -3,7 +3,7 @@
  *
  * 对齐 `rosetta/cli/commands/chat_core.py` 的 `_build_body` + `run_turn`:
  * - v0.1 历史只存纯文本 `{role, content}[]`,三格式的多轮表达都能直接消化
- * - 浏览器走 `fetch` + SSE;`override api-key` → `x-api-key` 头;指定 upstream → `x-rosetta-upstream` 头
+ * - 浏览器走 `fetch` + SSE;`override api-key` 按入口协议写 `x-api-key`(Claude) 或 `Authorization: Bearer`(OpenAI);指定 upstream → `r-upstream` 头
  * - 返回 `(assistantText, inputTokens, outputTokens, latencyMs)`;非 2xx 抛 `ChatError`
  */
 
@@ -63,8 +63,14 @@ export async function runTurn(
 ): Promise<ChatTurnResult> {
   const body = buildBody(opts.serverApi, messages, opts.model, opts.maxTokens);
   const headers: Record<string, string> = { "content-type": "application/json" };
-  if (opts.upstreamName) headers["x-rosetta-upstream"] = opts.upstreamName;
-  if (opts.overrideApiKey) headers["x-api-key"] = opts.overrideApiKey;
+  if (opts.upstreamName) headers["r-upstream"] = opts.upstreamName;
+  if (opts.overrideApiKey) {
+    if (opts.serverApi === ServerApi.MESSAGES) {
+      headers["x-api-key"] = opts.overrideApiKey;
+    } else {
+      headers["authorization"] = `Bearer ${opts.overrideApiKey}`;
+    }
+  }
 
   const base = await apiBase();
   const url = URL_BY_SERVER_API[opts.serverApi];
