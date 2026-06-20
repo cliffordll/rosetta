@@ -17,7 +17,7 @@ test("raw chat turn output includes sent request and received response frames", 
       url: "/v1/messages",
       headers: {
         "content-type": "application/json",
-        "x-rosetta-upstream": "mock",
+        "r-upstream": "mock",
       },
       body: {
         stream: true,
@@ -38,7 +38,7 @@ test("raw chat turn output includes sent request and received response frames", 
 
   assert.match(output, /request/);
   assert.match(output, /response/);
-  assert.match(output, /"x-rosetta-upstream": "mock"/);
+  assert.match(output, /"r-upstream": "mock"/);
   assert.match(output, /"event": "content_block_delta"/);
   assert.match(output, /"text": "hi"/);
 });

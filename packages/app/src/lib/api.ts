@@ -76,7 +76,7 @@ export interface UpstreamOut {
   /** 该 upstream 的默认模型;client body 不传 model 时 server fallback 用这个。可空。 */
   model: string | null;
   enabled: boolean;
-  /** 该 upstream 是否为其 native API 的默认上游(`x-rosetta-upstream` header 缺失时回退用)。 */
+  /** 该 upstream 是否为其 native API 的默认上游(`r-upstream` header 缺失时回退用)。 */
   is_default: boolean;
   created_at: string;
 }
