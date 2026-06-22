@@ -84,9 +84,7 @@ async def test_completions_tool_delta_without_initial_name_still_completes() -> 
                     {
                         "index": 0,
                         "delta": {
-                            "tool_calls": [
-                                {"index": 0, "function": {"arguments": '{"city'}}
-                            ]
+                            "tool_calls": [{"index": 0, "function": {"arguments": '{"city'}}]
                         },
                         "finish_reason": None,
                     }

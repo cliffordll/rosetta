@@ -528,9 +528,9 @@ async def test_default_max_tokens_does_not_override_explicit_responses_value(
         },
     )
 
-    body = json.dumps(
-        {"model": "gpt-4o-mini", "input": "hi", "max_output_tokens": 1234}
-    ).encode("utf-8")
+    body = json.dumps({"model": "gpt-4o-mini", "input": "hi", "max_output_tokens": 1234}).encode(
+        "utf-8"
+    )
     await forwarder.forward(
         upstream=_openai_upstream(),
         server_api=ServerApi.RESPONSES,
