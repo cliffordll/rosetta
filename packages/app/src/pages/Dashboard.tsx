@@ -212,6 +212,13 @@ function CopyButton({ text }: { text: string }) {
           >
             Claude
           </button>
+          <span className="text-muted-foreground/40">·</span>
+          <button
+            className="text-sm underline hover:text-foreground text-muted-foreground"
+            onClick={() => void loadGuide("readme")}
+          >
+            README
+          </button>
         </div>
       </div>
 

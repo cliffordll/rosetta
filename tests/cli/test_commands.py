@@ -104,6 +104,23 @@ def test_upstream_test_help_exists() -> None:
     assert "test" in _plain(result.output)
 
 
+def test_upstream_guide_help_exists() -> None:
+    result = runner.invoke(app, ["upstream", "guide", "--help"])
+    assert result.exit_code == 0
+    out = _plain(result.output)
+    assert "codex" in out
+    assert "claude" in out
+
+
+def test_upstream_guide_prints_provider_doc_path() -> None:
+    result = runner.invoke(app, ["upstream", "guide", "codex"])
+    assert result.exit_code == 0
+    out = _plain(result.output)
+    assert "docs" in out
+    assert "providers" in out
+    assert "codex.md" in out
+
+
 def test_upstream_list_table_omits_default_column(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 

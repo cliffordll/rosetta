@@ -200,13 +200,8 @@ async def test_openai_passthrough_url_and_headers(
 def test_authorization_header_is_upstream_key_override_for_completions() -> None:
     request = SimpleNamespace(headers={"authorization": "Bearer codex-local-token"})
 
-    assert (
-        _extract_client_api_key(request, ServerApi.CHAT_COMPLETIONS)
-        == "codex-local-token"
-    )
-    assert (
-        _extract_client_api_key(request, ServerApi.RESPONSES) == "codex-local-token"
-    )
+    assert _extract_client_api_key(request, ServerApi.CHAT_COMPLETIONS) == "codex-local-token"
+    assert _extract_client_api_key(request, ServerApi.RESPONSES) == "codex-local-token"
 
 
 def test_authorization_header_is_not_extracted_for_messages() -> None:
@@ -475,6 +470,94 @@ async def test_model_no_fallback_when_upstream_has_no_model(
     )
     sent = json.loads(mock_client["request"].content)
     assert "model" not in sent
+
+
+async def test_default_max_tokens_added_when_missing_for_responses_to_completions(
+    mock_client: dict[str, Any],
+) -> None:
+    """Responses client 不传 max_output_tokens 时,server 给 completions upstream 补默认值。"""
+    mock_client["handler"] = lambda req: httpx.Response(
+        200,
+        json={
+            "id": "chatcmpl_1",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "gpt-4o-mini",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "hi"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        },
+    )
+
+    body = json.dumps({"model": "gpt-4o-mini", "input": "hi"}).encode("utf-8")
+    await forwarder.forward(
+        upstream=_openai_upstream(),
+        server_api=ServerApi.RESPONSES,
+        body=body,
+        content_type="application/json",
+    )
+
+    sent = json.loads(mock_client["request"].content)
+    assert sent["max_tokens"] == 32768
+
+
+async def test_default_max_tokens_does_not_override_explicit_responses_value(
+    mock_client: dict[str, Any],
+) -> None:
+    """客户端显式传 max_output_tokens 时,server 不覆盖。"""
+    mock_client["handler"] = lambda req: httpx.Response(
+        200,
+        json={
+            "id": "chatcmpl_1",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "gpt-4o-mini",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "hi"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        },
+    )
+
+    body = json.dumps(
+        {"model": "gpt-4o-mini", "input": "hi", "max_output_tokens": 1234}
+    ).encode("utf-8")
+    await forwarder.forward(
+        upstream=_openai_upstream(),
+        server_api=ServerApi.RESPONSES,
+        body=body,
+        content_type="application/json",
+    )
+
+    sent = json.loads(mock_client["request"].content)
+    assert sent["max_tokens"] == 1234
+
+
+async def test_default_max_tokens_added_when_missing_for_chat_passthrough(
+    mock_client: dict[str, Any],
+) -> None:
+    """Chat Completions 同格式直通没传 max_tokens 时也补默认值。"""
+    mock_client["handler"] = lambda req: httpx.Response(200, json={})
+
+    body = json.dumps({"model": "gpt-4o-mini", "messages": []}).encode("utf-8")
+    await forwarder.forward(
+        upstream=_openai_upstream(),
+        server_api=ServerApi.CHAT_COMPLETIONS,
+        body=body,
+        content_type="application/json",
+    )
+
+    sent = json.loads(mock_client["request"].content)
+    assert sent["max_tokens"] == 32768
 
 
 # ---------- extra_response_headers ----------
