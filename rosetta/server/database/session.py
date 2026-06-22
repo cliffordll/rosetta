@@ -7,6 +7,8 @@ migrations 用 SA 跑,aiosqlite 只作 `sqlite+aiosqlite://` 驱动依赖。
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +16,7 @@ from typing import Annotated
 
 from fastapi import Depends
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -23,6 +26,8 @@ from sqlalchemy.ext.asyncio import (
 
 DEFAULT_DB_PATH = Path.home() / ".rosetta" / "rosetta.db"
 CURRENT_SCHEMA_VERSION = 9
+
+_log = logging.getLogger("rosetta.server.database.session")
 
 
 @dataclass
@@ -105,7 +110,13 @@ async def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
 async def dispose_db() -> None:
     """释放连接池;SQLite WAL checkpoint 在最后一个连接关闭时触发。"""
     if _state.engine is not None:
-        await _state.engine.dispose()
+        try:
+            await asyncio.shield(_state.engine.dispose())
+        except asyncio.CancelledError:
+            # shutdown 阶段事件循环被取消属于正常生命周期,不冒泡
+            _log.debug("engine.dispose() cancelled during shutdown, ignored")
+        except Exception as e:
+            _log.warning("engine.dispose() raised %s during shutdown: %s", type(e).__name__, e)
     _state.engine = None
     _state.session_maker = None
 
@@ -114,8 +125,23 @@ async def get_session() -> AsyncIterator[AsyncSession]:
     """FastAPI 依赖:每请求一个独立 session,退出时自动关(未 commit 则 rollback)。"""
     if _state.session_maker is None:
         raise RuntimeError("DB 未初始化,先调 init_db()")
-    async with _state.session_maker() as session:
+    session = _state.session_maker()
+    try:
         yield session
+    finally:
+        await close_session_safely(session)
+
+
+async def close_session_safely(session: AsyncSession) -> None:
+    """关闭 session;服务关闭/客户端中断导致 sqlite 连接已失效时只记录不冒泡。"""
+    try:
+        await asyncio.shield(session.close())
+    except asyncio.CancelledError:
+        _log.debug("session.close() cancelled during client disconnect, ignored")
+    except OperationalError as e:
+        if "no active connection" not in str(e).lower():
+            raise
+        _log.debug("sqlite session close ignored: no active connection")
 
 
 def get_session_maker() -> async_sessionmaker[AsyncSession] | None:
@@ -134,5 +160,8 @@ async def count_upstreams() -> int:
 
     if _state.session_maker is None:
         return 0
-    async with _state.session_maker() as session:
+    session = _state.session_maker()
+    try:
         return await UpstreamRepo(session).count()
+    finally:
+        await close_session_safely(session)
