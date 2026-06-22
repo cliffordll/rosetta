@@ -15,7 +15,7 @@ def register(app_root: typer.Typer) -> None:
     """将 guide 命令注册到 rosetta 主 Typer。"""
 
     @app_root.command(name="guide", help="显示客户端配置说明(codex / claude / readme)")
-    def guide_cmd(
+    def guide_cmd(  # pyright: ignore[reportUnusedFunction] — typer registers this nested command
         provider: Annotated[str, typer.Argument(help="配置说明: codex | claude | readme")],
     ) -> None:
         """通过后端 API 显示客户端配置说明文档。"""
@@ -33,4 +33,4 @@ async def _guide(provider: str) -> None:
         Renderer.die(str(e))
         return
     print(f"\n=== Provider: {provider} ===\n")
-    Renderer.out(result["content"])
+    Renderer.out(result.content)
