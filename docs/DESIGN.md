@@ -448,23 +448,29 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 
 ### 8.4 路由规则
 
-**rosetta 不做 model-based 自动路由**;选 upstream 走**两段策略**:**显式 header 优先**,**header 缺失时按入口 server_api 取 default upstream**。default 采用两层配置:先查 `default_upstream_id:<server_api>`,没有再查全局 `default_upstream_id`;原设计里按 `model_glob` 自动匹配 upstream 的 `routes` 表已经移除(2026-04 简化)。
+**选 upstream 走三阶段策略**:**r-upstream header** 优先 → **model** 逐级匹配 → 400。
 
 ```
 1. header 有 r-upstream: <name>?
    · 有 → 按 name 精确匹配 upstream
-      · 找到 enabled → 用它
+      · 存在且启用 → 用该 upstream;客户端传来的 model / api-key 覆盖 DB 值(仅本次请求)
       · 不存在 → 400 upstream_not_found
       · 被禁用 → 400 upstream_disabled
-   · 没有 → 先按入口 server_api 找 per-server_api default
-      · 没有 → 再查 global default
-      · 命中 enabled upstream → 用它
-      · 都没设(或 default 被禁用) → 400 missing_rosetta_upstream
+   · 没有 → 进入 model 匹配阶段
+
+2. body 有 model?
+   · 有 → 按 model 精确匹配 upstream
+      · 匹配到 1 个 → 用该 upstream
+      · 匹配到多个(同 model 配了多个 upstream)
+         · settings 表有 default_model:<model> → 用该 upstream
+         · 没有 → 400 model_ambiguous
+      · 匹配到 0 个 → 400 no_upstream_for_model
+   · 没有 → 进入下一步
+
+3. 无 r-upstream、无 model → 400 missing_routing_info
 ```
 
-**允许跨 API 借用**:default upstream 的 `native_api` 可与入口 server_api 不同;命中后照常走 §8.3 翻译。这样一个 global default 可以同时服务多个入口 API,显式 `r-upstream` 仍然优先。
-
-**default 的写入**:`PUT /admin/upstreams/{name}/default` / `rosetta upstream default <name> [--server-api ...]` / GUI Upstreams 页 Defaults 区块三选一。default 直接写 settings 表,不再把状态塞进 upstream 列表本身。
+**同 model 多 upstream 的默认管理**:写到 settings 表,key = `default_model:<model_name>`,value = `upstream_id`。管理入口:`PUT /admin/upstreams/{name}/model-default?model=<model>` / CLI `rosetta upstream model-default <name> --model <model>` / GUI 对应操作。
 
 **关于选中的 upstream 与入口 API 格式**:选中 upstream 的 `native_api` 与入口 `server_api` 不一致时,自动走 §8.3 翻译(对角线直通仅发生在两者一致的情况)。例如入口 `/v1/messages` + upstream `native_api=completions` → IR 翻译为 Chat Completions 请求。
 
@@ -480,7 +486,7 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 {
   "error": {
     "type": "rosetta_error",
-    "code": "upstream_not_found",   // 或 missing_rosetta_upstream / upstream_disabled
+    "code": "upstream_not_found",   // 或 upstream_disabled / model_ambiguous / no_upstream_for_model / missing_routing_info
     "message": "r-upstream 指定的 'ghost' 不存在"
   }
 }
@@ -489,9 +495,11 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 该结构**不伪装**上游格式(不套 Claude/OpenAI 的错误壳),由 CLI / GUI 识别 `error.type == "rosetta_error"` 后格式化展示。
 
 **客户端配合**:
-- `rosetta chat --upstream <name>` 自动注入 header;`--upstream` 不传则不带 header,让 server 走 server_api default fallback
-- GUI Chat 页 "Upstream 下拉" 默认预选当前 server_api 的 default;用户可手选切换或留空(留空也走 fallback)
-- 外部 SDK 调用:应用层在 HTTP client 里按需加 header(显式选 upstream 时加,走默认时省)
+- `rosetta chat --upstream <name>` 自动注入 `r-upstream` header;`--upstream` 不传则不带 header,让 server 走 model 匹配
+- GUI Chat 页 "Upstream 下拉" 用户可手选(精确路由)或留空(走 model 匹配)
+- 外部 SDK 调用:应用层在 HTTP client 里按需加 `r-upstream` header(需要精确选 upstream 时加);不加则走 model 匹配
+
+**数据面不再使用的内容**(2026-06):`/v1/*` 路由不再读取 per-server_api / global default upstream,也不再用 `default_upstream_id` 和 `default_upstream_id:<server_api>` 做 fallback。路由完全由 r-upstream header 或 model 字段驱动。
 
 ### 8.5 端到端请求链路（以 CLI chat 为例）
 
@@ -557,7 +565,7 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 | 上游 api-key | 8 | **客户端真实鉴权头**（Messages 为 `x-api-key`，OpenAI-compatible 为 `Authorization: Bearer`）→ **否则 `upstreams.api_key`** | httpx 请求头（按上游 type 选具体写法） | v0 无"rosetta 本地 key"概念；`r-api-key` 预留为 server-level auth |
 | `model` | 2 → 8 | **客户端 body.model**(若有)→ **否则 `upstreams.model`** 兜底 | 上游 `body.model` | client 显式优先;forwarder 在 body.model 缺失或为空时注入 upstream.model;两边都没就维持原 body 让上游 4xx |
 | `messages[]` | 2 → 8 | CLI 内存数组（多轮历史） | 上游 body（直通）或 adapter 翻译后（跨格式） | |
-| `r-upstream: foo`（可选） | 2 | CLI `--upstream foo`(留空走 server_api default) | server 按 name 查;缺失则按入口 server_api 取 default | **不转发上游**;缺失且无 default 时 400 |
+| `r-upstream: foo`（可选） | 2 | CLI `--upstream foo`(不传则走 model 匹配) | server 按 name 查 r-upstream;没有则用 model 匹配 | **不转发上游**;两者都无时 400 |
 
 #### 客户端显式传 `--api-key` 的分支
 
