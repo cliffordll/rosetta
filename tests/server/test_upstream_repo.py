@@ -105,6 +105,26 @@ class TestSetDefault:
         assert await repo.default_upstream_id("messages") == again.id
 
 
+class TestModelDefault:
+    async def test_model_default_missing_returns_none(self, session: AsyncSession) -> None:
+        assert await UpstreamRepo(session).default_model_upstream_id("gpt-4o") is None
+
+    async def test_set_model_default(self, session: AsyncSession) -> None:
+        upstream = await _insert(session, name="a", native_api="messages")
+        repo = UpstreamRepo(session)
+
+        result = await repo.set_model_default("a", "gpt-4o")
+
+        assert result.id == upstream.id
+        assert await repo.default_model_upstream_id("gpt-4o") == upstream.id
+        assert await repo.list_model_defaults() == {"gpt-4o": "a"}
+
+    async def test_set_model_default_unknown_raises(self, session: AsyncSession) -> None:
+        repo = UpstreamRepo(session)
+        with pytest.raises(LookupError):
+            await repo.set_model_default("ghost", "gpt-4o")
+
+
 class TestUpdate:
     async def test_update_single_field(self, session: AsyncSession) -> None:
         a = await _insert(session, name="a", native_api="messages")

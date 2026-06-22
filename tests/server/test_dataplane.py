@@ -247,12 +247,16 @@ async def test_parse_request_uses_endpoint_server_api_for_client_key() -> None:
     ctx = await parse_request(request, ServerApi.MESSAGES)  # type: ignore[arg-type]
 
     assert ctx.client_api_key == "sk-ant-client"
+    assert ctx.model == "claude-haiku-4-5"
 
 
 async def test_dataplane_route_does_not_use_fastapi_session_dependency(
     session: AsyncSession,
 ) -> None:
-    await UpstreamRepo(session).set_default("mock")
+    repo = UpstreamRepo(session)
+    mock = await repo.get_by_name("mock")
+    assert mock is not None
+    await repo.update(mock.id, model="claude-haiku-4-5")
 
     app = FastAPI()
     app.include_router(dataplane_router)

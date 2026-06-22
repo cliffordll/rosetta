@@ -99,6 +99,20 @@ def test_upstream_defaults_help_exists() -> None:
     assert "defaults" in _plain(result.output)
 
 
+def test_upstream_model_default_help_exists() -> None:
+    result = runner.invoke(app, ["upstream", "model-default", "--help"])
+    assert result.exit_code == 0
+    out = _plain(result.output)
+    assert "--model" in out
+    assert "model-default" in out
+
+
+def test_upstream_model_defaults_help_exists() -> None:
+    result = runner.invoke(app, ["upstream", "model-defaults", "--help"])
+    assert result.exit_code == 0
+    assert "model-defaults" in _plain(result.output)
+
+
 def test_upstream_test_help_exists() -> None:
     result = runner.invoke(app, ["upstream", "test", "--help"])
     assert result.exit_code == 0
@@ -190,6 +204,30 @@ def test_upstream_defaults_renders_scope_table(monkeypatch: pytest.MonkeyPatch) 
         ["completions (/v1/chat/completions)", "-"],
         ["responses (/v1/responses)", "mock"],
     ]
+
+
+def test_upstream_model_defaults_renders_model_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeClient:
+        async def list_model_defaults(self) -> dict[str, str]:
+            return {"gpt-4o": "oai"}
+
+    @asynccontextmanager
+    async def _discover_session(**_: object):
+        yield _FakeClient()
+
+    def _capture_table(columns: list[str], rows: list[list[object]]) -> None:
+        captured["columns"] = columns
+        captured["rows"] = rows
+
+    monkeypatch.setattr(upstream_mod.ProxyClient, "discover_session", _discover_session)
+    monkeypatch.setattr(upstream_mod.Renderer, "table", _capture_table)
+
+    asyncio.run(upstream_mod._model_defaults())
+
+    assert captured["columns"] == ["model", "upstream"]
+    assert captured["rows"] == [["gpt-4o", "oai"]]
 
 
 def test_upstream_test_renders_success(monkeypatch: pytest.MonkeyPatch) -> None:
