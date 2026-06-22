@@ -292,6 +292,50 @@ async def _defaults() -> None:
     )
 
 
+@app.command("model-default")
+def model_default_cmd(
+    name: Annotated[str, typer.Argument(help="要设为 model 默认的 upstream name")],
+    model: Annotated[str, typer.Option("--model", help="模型名称")],
+) -> None:
+    """把 upstream 设为某个 model 的默认路由。"""
+    asyncio.run(_model_default(name, model))
+
+
+async def _model_default(name: str, model: str) -> None:
+    try:
+        async with ProxyClient.discover_session(spawn_if_missing=False) as client:
+            updated = await client.set_model_default_upstream(name, model=model)
+    except httpx.HTTPStatusError as e:
+        Renderer.die(f"设置 model 默认失败: {e.response.status_code} {e.response.text}")
+        return
+    except RuntimeError as e:
+        Renderer.die(f"server 未就绪: {e}")
+        return
+    Renderer.out(f"upstream '{updated.name}' is now default for model '{model}'")
+
+
+@app.command("model-defaults")
+def model_defaults_cmd() -> None:
+    """查看 model 默认路由映射。"""
+    asyncio.run(_model_defaults())
+
+
+async def _model_defaults() -> None:
+    try:
+        async with ProxyClient.discover_session(spawn_if_missing=False) as client:
+            defaults = await client.list_model_defaults()
+    except httpx.HTTPStatusError as e:
+        Renderer.die(f"读取 model 默认映射失败: {e.response.status_code} {e.response.text}")
+        return
+    except RuntimeError as e:
+        Renderer.die(f"server 未就绪: {e}")
+        return
+    if not defaults:
+        Renderer.out("(empty)")
+        return
+    Renderer.table(["model", "upstream"], [[model, name] for model, name in defaults.items()])
+
+
 @app.command("test")
 def test_cmd(upstream_id: Annotated[str, typer.Argument(help="要测试的 upstream id")]) -> None:
     """按 upstream 自己的 native_api 发最小探测请求。"""

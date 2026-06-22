@@ -122,6 +122,12 @@ async def get_upstream_defaults(repo: UpstreamRepoDep) -> UpstreamDefaultsOut:
     return UpstreamDefaultsOut.model_validate(await repo.list_defaults())
 
 
+@router.get("/upstreams/model-defaults", response_model=dict[str, str])
+async def get_model_defaults(repo: UpstreamRepoDep) -> dict[str, str]:
+    """返回 model -> upstream name 的默认路由映射。"""
+    return await repo.list_model_defaults()
+
+
 @router.post("/upstreams", response_model=UpstreamOut, status_code=status.HTTP_201_CREATED)
 async def create_upstream(
     payload: UpstreamCreate,
@@ -239,6 +245,23 @@ async def set_default_upstream(
             detail=f"upstream name='{name}' 不存在",
         ) from e
     return UpstreamOut.model_validate(upstream).model_copy(update={"is_default": True})
+
+
+@router.put("/upstreams/{name}/model-default", response_model=UpstreamOut)
+async def set_model_default_upstream(
+    name: str,
+    repo: UpstreamRepoDep,
+    model: Annotated[str, Query(min_length=1)],
+) -> UpstreamOut:
+    """把 `name` 设为指定 model 的默认 upstream。"""
+    try:
+        upstream = await repo.set_model_default(name, model)
+    except LookupError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"upstream name='{name}' 不存在",
+        ) from e
+    return UpstreamOut.model_validate(upstream)
 
 
 @router.post("/upstreams/{upstream_id}/test", response_model=UpstreamProbeOut)

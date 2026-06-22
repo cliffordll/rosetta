@@ -20,7 +20,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Literal, Self
+from typing import Any, Literal, Self, cast
 
 import httpx
 
@@ -128,6 +128,19 @@ class ProxyClient:
         resp.raise_for_status()
         return UpstreamDefaultsOut.model_validate(resp.json())
 
+    async def list_model_defaults(self) -> dict[str, str]:
+        self._require_server("list_model_defaults")
+        resp = await self.http.get(
+            f"{self.base_url}/admin/upstreams/model-defaults",
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if not isinstance(data, dict):
+            raise RuntimeError("GET /admin/upstreams/model-defaults 返回非 dict")
+        items = cast(dict[str, Any], data)
+        return {str(k): str(v) for k, v in items.items()}
+
     async def test_upstream(self, upstream_id: str) -> UpstreamProbeOut:
         self._require_server("test_upstream")
         resp = await self.http.post(
@@ -175,6 +188,16 @@ class ProxyClient:
         resp = await self.http.put(
             f"{self.base_url}/admin/upstreams/{name}/default",
             params=params,
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return UpstreamOut.model_validate(resp.json())
+
+    async def set_model_default_upstream(self, name: str, *, model: str) -> UpstreamOut:
+        self._require_server("set_model_default_upstream")
+        resp = await self.http.put(
+            f"{self.base_url}/admin/upstreams/{name}/model-default",
+            params={"model": model},
             timeout=_ADMIN_TIMEOUT,
         )
         resp.raise_for_status()
