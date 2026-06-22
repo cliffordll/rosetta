@@ -52,9 +52,40 @@ class UpstreamRepo:
         result = await self.session.execute(select(Upstream).where(Upstream.name == name))
         return result.scalar_one_or_none()
 
+    async def get_by_model(self, model: str) -> Sequence[Upstream]:
+        result = await self.session.execute(
+            select(Upstream)
+            .where(Upstream.model == model, Upstream.enabled.is_(True))
+            .order_by(Upstream.created_at, Upstream.id)
+        )
+        return result.scalars().all()
+
     async def count(self) -> int:
         result = await self.session.execute(select(func.count()).select_from(Upstream))
         return int(result.scalar_one())
+
+    async def default_model_upstream_id(self, model: str) -> str | None:
+        setting = await self.session.get(Setting, f"default_model:{model}")
+        return setting.value if setting is not None else None
+
+    async def set_model_default(self, name: str, model: str) -> Upstream:
+        target = await self.get_by_name(name)
+        if target is None:
+            raise LookupError(f"upstream name={name!r} 不存在")
+        await self.session.merge(Setting(key=f"default_model:{model}", value=target.id))
+        await self.session.commit()
+        return target
+
+    async def list_model_defaults(self) -> dict[str, str]:
+        result = await self.session.execute(
+            select(Setting).where(Setting.key.like("default_model:%")).order_by(Setting.key)
+        )
+        defaults: dict[str, str] = {}
+        for setting in result.scalars().all():
+            upstream = await self.get_by_id(setting.value)
+            if upstream is not None:
+                defaults[setting.key.removeprefix("default_model:")] = upstream.name
+        return defaults
 
     async def api_type_paths(self) -> dict[str, str]:
         """读取启用的 API 类型 name → path 映射,供 forwarder 拼上游 URL。"""
