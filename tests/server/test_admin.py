@@ -346,6 +346,51 @@ async def test_get_upstream_defaults(client: AsyncClient) -> None:
     }
 
 
+async def test_set_model_default_success(client: AsyncClient) -> None:
+    await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "model-owner",
+            "native_api": "messages",
+            "api_key": "sk",
+            "base_url": "https://api.example.com/model-owner",
+            "model": "gpt-4o",
+        },
+    )
+
+    r = await client.put("/admin/upstreams/model-owner/model-default?model=gpt-4o")
+
+    assert r.status_code == 200
+    assert r.json()["name"] == "model-owner"
+
+
+async def test_get_model_defaults(client: AsyncClient) -> None:
+    await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "model-owner",
+            "native_api": "messages",
+            "api_key": "sk",
+            "base_url": "https://api.example.com/model-owner",
+            "model": "gpt-4o",
+        },
+    )
+    assert (
+        await client.put("/admin/upstreams/model-owner/model-default?model=gpt-4o")
+    ).status_code == 200
+
+    r = await client.get("/admin/upstreams/model-defaults")
+
+    assert r.status_code == 200
+    assert r.json() == {"gpt-4o": "model-owner"}
+
+
+async def test_set_model_default_not_found(client: AsyncClient) -> None:
+    r = await client.put("/admin/upstreams/ghost/model-default?model=gpt-4o")
+
+    assert r.status_code == 404
+
+
 async def test_test_upstream_success(client: AsyncClient) -> None:
     captured: dict[str, httpx.Request | None] = {"request": None}
 

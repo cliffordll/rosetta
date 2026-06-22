@@ -145,6 +145,19 @@ async def test_list_upstream_defaults(
     assert captured["request"].url.path == "/admin/upstreams/defaults"
 
 
+async def test_list_model_defaults(
+    echo_client: tuple[ProxyClient, dict[str, Any]],
+) -> None:
+    client, captured = echo_client
+    captured["response"] = httpx.Response(200, json={"gpt-4o": "oai"})
+
+    defaults = await client.list_model_defaults()
+
+    assert defaults == {"gpt-4o": "oai"}
+    assert captured["request"].method == "GET"
+    assert captured["request"].url.path == "/admin/upstreams/model-defaults"
+
+
 async def test_test_upstream(
     echo_client: tuple[ProxyClient, dict[str, Any]],
 ) -> None:
@@ -326,6 +339,34 @@ async def test_set_default_upstream(
     req = captured["request"]
     assert req.method == "PUT"
     assert req.url.path == "/admin/upstreams/p1/default"
+
+
+async def test_set_model_default_upstream(
+    echo_client: tuple[ProxyClient, dict[str, Any]],
+) -> None:
+    client, captured = echo_client
+    captured["response"] = httpx.Response(
+        200,
+        json={
+            "id": "p1-id",
+            "name": "p1",
+            "native_api": "messages",
+            "provider": "anthropic",
+            "base_url": "https://api.anthropic.com",
+            "enabled": True,
+            "is_default": False,
+            "model": "gpt-4o",
+            "created_at": "2026-04-22T10:00:00",
+        },
+    )
+
+    updated = await client.set_model_default_upstream("p1", model="gpt-4o")
+
+    assert updated.name == "p1"
+    req = captured["request"]
+    assert req.method == "PUT"
+    assert req.url.path == "/admin/upstreams/p1/model-default"
+    assert req.url.params["model"] == "gpt-4o"
 
 
 # ---------- logs / stats / shutdown ----------
