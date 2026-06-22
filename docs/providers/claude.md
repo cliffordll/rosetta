@@ -1,115 +1,94 @@
 # Claude 使用说明
 
-> 通过 Rosetta 让 Claude Code 使用任意 LLM 上游。
+> 请根据实际 Claude 客户端、模型和密钥管理方式替换内容。
 
-## 1. 启动 Rosetta
+## 1. 适用场景
 
-```bash
-# 启动 Rosetta 服务（默认 127.0.0.1:1687）
-rosetta start
-```
+当 Claude 客户端支持配置 Anthropic Messages endpoint 时，可以把 Rosetta 作为本地代理入口。
 
-或者用 python 直接启动：
+## 2. 服务端使用说明
 
-```bash
-uv run python -m rosetta.server
-```
-
-## 2. 添加 Upstream
-
-将真实 LLM 服务配置为 upstream 供客户端使用。
+### 2.1. 添加 Upstream 示例
 
 ```bash
-# 添加一个 Anthropic upstream
 rosetta upstream add \
-  --name claude-upstream \
-  --provider anthropic \
-  --native-api messages \
-  --base-url https://api.anthropic.com \
-  --api-key sk-ant-your-key \
-  --model claude-sonnet-4-20250514
-
-# 查看所有 upstream
-rosetta upstream list
+  --name ds-upstream \
+  --provider ollama \
+  --native-api completions \
+  --base-url http://localhost:11434/ \
+  --api-key sk-ant-default-key \
+  --model deepseek-v4-flash
 ```
 
-## 3. 配置默认模型
+### 2.2. 配置默认模型
+
+如果客户端无法传递 `r-upstream`，Rosetta 会按请求体里的 `model` 匹配 upstream。
+同一个 model 对应多个 upstream 时，需要设置默认 upstream：
 
 ```bash
-rosetta upstream default claude-upstream --model claude-sonnet-4-20250514
+rosetta upstream default ds-upstream --model deepseek-v4-flash
 ```
 
-## 4. Claude Code 客户端配置
+## 3. 客户端使用说明
 
-通过环境变量让 Claude Code 指向 Rosetta。
+这是最关键的一步。你需要通过设置几个环境变量，告诉 Claude Code 去找本地的 Resotta 服务，而不是官方的云端 API。
 
-### 4.1 临时配置
+### 3.1. 方法 A：临时配置
+
+直接在终端里运行下面的命令，效果只对当前这个终端窗口有效。
+
+powershell
+
+```powershell
+$env:ANTHROPIC_BASE_URL = "http://localhost:1687"
+# 放在请求头 X-Api-Key 里。	最标准的方式。(Rosetta 使用该方式)
+$env:ANTHROPIC_API_KEY = "sk-ant-your-key"
+# 放在请求头 Authorization: Bearer <token> 里。	网关或代理服务要求 Bearer Token 认证时使用。
+$env:ANTHROPIC_AUTH_TOKEN = "ollama"
+
+$env:ANTHROPIC_DEFAULT_SONNET_MODEL = "deepseek-v4-flash"
+$env:ANTHROPIC_DEFAULT_HAIKU_MODEL = "deepseek-v4-flash"
+$env:ANTHROPIC_DEFAULT_OPUS_MODEL = "deepseek-v4-flash"
+```
+
+bash
 
 ```bash
 export ANTHROPIC_BASE_URL="http://localhost:1687"
-export ANTHROPIC_API_KEY="sk-ant-your-key"
-export ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-20250514"
-export ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-haiku-4-20250514"
-export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-20250514"
+export ANTHROPIC_API_KEY="sk-ant-your-key" # 本地服务不验证，随便填
+export ANTHROPIC_AUTH_TOKEN="ollama"
+
+# 这几行特别重要：把 Claude Code 请求的模型名映射成你本地的模型名
+export ANTHROPIC_DEFAULT_SONNET_MODEL="deepseek-v4-flash"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="deepseek-v4-flashb"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="deepseek-v4-flash"
 ```
 
-### 4.2 永久配置
+### 3.2. 方法 B：永久配置
 
-在 `~/.claude/settings.json` 中：
+在 Claude Code 的用户设置文件 ~/.claude/settings.json 里添加 "env" 字段，这样配置会一直生效。
 
 ```json
 {
   "env": {
     "ANTHROPIC_BASE_URL": "http://localhost:1687",
     "ANTHROPIC_API_KEY": "sk-ant-your-key",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-20250514",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-20250514",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-20250514"
+    "ANTHROPIC_AUTH_TOKEN": "ollama",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4-flash",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4-flash",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4-flash"
   }
 }
 ```
 
-### 4.3 启动
+### 3.3. Claude 启动
 
 ```bash
 claude
 ```
 
-## 5. CLI 常用命令
+## 4. 注意事项
 
-```bash
-# 查看帮助
-rosetta --help
-
-# upstream 管理
-rosetta upstream list                               # 列出所有 upstream
-rosetta upstream add --help                         # 查看添加参数
-rosetta upstream update <id> --name new-name        # 更新
-rosetta upstream remove <id>                        # 删除
-rosetta upstream default <name> --model <model>     # 设为默认
-rosetta upstream defaults                           # 查看默认映射
-rosetta upstream test <id>                          # 测试连通性
-rosetta upstream restore-mock                       # 恢复内置 mock
-
-# 聊天
-rosetta chat "你好"                                  # 用默认 upstream 对话
-rosetta chat --upstream <name> "你好"                # 指定 upstream
-rosetta chat --raw "你好"                            # 查看原始 request/response
-
-# 日志
-rosetta logs                                         # 最近日志
-rosetta logs -f                                      # 实时追踪
-rosetta logs --upstream <name> --limit 20            # 筛选
-
-# 查看配置说明
-rosetta upstream guide codex                         # Codex 说明
-rosetta upstream guide claude                        # 本说明
-rosetta upstream guide readme                        # 快速入门
-```
-
-## 6. 注意事项
-
-- upstream 的 `base_url` 填真实 LLM 服务地址（如 https://api.anthropic.com），不要带路径。
-- 客户端连接 Rosetta 时，base_url 设为 `http://localhost:1687`。
-- Claude Messages 入口使用 `x-api-key` 鉴权头。
-- 客户端传入 api-key 时会覆盖 upstream 中保存的 key。
+- Claude Messages 入口通常使用 `x-api-key` 鉴权头。
+- Rosetta 会按入口协议读取客户端 API key；如果客户端传入 key，会覆盖 upstream 中保存的 key。
+- upstream 的 `base_url` 填真实 Claude 上游根地址，不要带 `/v1/messages`。
