@@ -160,6 +160,14 @@ export interface LogsConfigOut {
   page_size: 10 | 20 | 50 | 100;
 }
 
+export interface StatsOut {
+  period: string;
+  since: string;
+  total_requests: number;
+  success_rate: number;
+  avg_latency_ms: number;
+}
+
 export class ApiError extends Error {
   status: number;
   body: string;
@@ -268,6 +276,9 @@ export const api = {
 
   getProviderGuide(provider: string): Promise<{provider: string; content: string}> {
     return request(`/admin/upstreams/guide/${provider}`, { method: "GET" });
+  },
+  stats(period = "today"): Promise<StatsOut> {
+    return request(`/admin/stats?period=${period}`);
   },
   restoreMockUpstream(force = false): Promise<RestoreMockResult> {
     return request(
