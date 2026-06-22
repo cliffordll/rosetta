@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 from typing import Literal
 
-from rosetta.server.database.session import get_session_maker
+from rosetta.server.database.session import close_session_safely, get_session_maker
 from rosetta.server.logs_config import apply_log_content_mode
 from rosetta.server.repository.log import LogRepo
 from rosetta.server.repository.settings import SettingsRepo
@@ -53,22 +53,22 @@ class LogWriter:
         if session_maker is None:
             _log.debug("log_writer: session_maker 未初始化,跳过落库")
             return
+        session = session_maker()
         try:
-            async with session_maker() as session:
-                cfg = await SettingsRepo(session).get_logs_config()
-                await LogRepo(session).create(
-                    upstream_id=upstream_id,
-                    model=model,
-                    status=status,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    latency_ms=latency_ms,
-                    error=error,
-                    client_addr=client_addr,
-                    upstream_url=upstream_url,
-                    request_text=apply_log_content_mode(cfg.log_content, request_text),
-                    response_text=apply_log_content_mode(cfg.log_content, response_text),
-                )
+            cfg = await SettingsRepo(session).get_logs_config()
+            await LogRepo(session).create(
+                upstream_id=upstream_id,
+                model=model,
+                status=status,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                latency_ms=latency_ms,
+                error=error,
+                client_addr=client_addr,
+                upstream_url=upstream_url,
+                request_text=apply_log_content_mode(cfg.log_content, request_text),
+                response_text=apply_log_content_mode(cfg.log_content, response_text),
+            )
         except Exception as e:
             _log.warning(
                 "log_writer: 写入失败,忽略 (status=%s, upstream_id=%s): %s",
@@ -76,6 +76,16 @@ class LogWriter:
                 upstream_id,
                 e,
             )
+        finally:
+            try:
+                await close_session_safely(session)
+            except Exception as e:
+                _log.warning(
+                    "log_writer: 关闭 session 失败,忽略 (status=%s, upstream_id=%s): %s",
+                    status,
+                    upstream_id,
+                    e,
+                )
 
 
 log_writer = LogWriter()
