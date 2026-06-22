@@ -88,6 +88,8 @@ export interface UpstreamDefaultsOut {
   responses: string | null;
 }
 
+export type ModelDefaultsOut = Record<string, string>;
+
 export interface UpstreamProbeOut {
   ok: boolean;
   upstream_id: string;
@@ -238,6 +240,9 @@ export const api = {
   listUpstreamDefaults(): Promise<UpstreamDefaultsOut> {
     return request("/admin/upstreams/defaults");
   },
+  listModelDefaults(): Promise<ModelDefaultsOut> {
+    return request("/admin/upstreams/model-defaults");
+  },
   testUpstream(id: string): Promise<UpstreamProbeOut> {
     return request(`/admin/upstreams/${id}/test`, {
       method: "POST",
@@ -246,6 +251,12 @@ export const api = {
   setDefaultUpstream(name: string, serverApi?: ServerApi): Promise<UpstreamOut> {
     const query = serverApi ? `?server_api=${encodeURIComponent(serverApi)}` : "";
     return request(`/admin/upstreams/${encodeURIComponent(name)}/default${query}`, {
+      method: "PUT",
+    });
+  },
+  setModelDefaultUpstream(name: string, model: string): Promise<UpstreamOut> {
+    const query = `?model=${encodeURIComponent(model)}`;
+    return request(`/admin/upstreams/${encodeURIComponent(name)}/model-default${query}`, {
       method: "PUT",
     });
   },

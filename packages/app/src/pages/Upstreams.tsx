@@ -43,32 +43,26 @@ import {
   UPSTREAM_PROVIDERS,
   api,
   serverApiLabel,
-  type ServerApi,
+  type ModelDefaultsOut,
   type UpstreamCreate,
-  type UpstreamDefaultsOut,
   type UpstreamOut,
   type UpstreamNativeApi,
   type UpstreamProvider,
   type UpstreamUpdate,
 } from "@/lib/api";
 import {
-  defaultBindingRows,
   formatUpstreamOptionLabel,
-  type UpstreamDefaultScope,
+  modelUpstreamGroups,
+  type ModelUpstreamGroup,
 } from "@/lib/upstream-defaults";
 
 const NATIVE_APIS: UpstreamNativeApi[] = ["messages", "completions", "responses"];
 
 export default function Upstreams() {
   const [items, setItems] = useState<UpstreamOut[] | null>(null);
-  const [defaults, setDefaults] = useState<UpstreamDefaultsOut | null>(null);
-  const [defaultDrafts, setDefaultDrafts] = useState<Record<UpstreamDefaultScope, string>>({
-    global: "",
-    messages: "",
-    completions: "",
-    responses: "",
-  });
-  const [savingScope, setSavingScope] = useState<UpstreamDefaultScope | null>(null);
+  const [modelDefaults, setModelDefaults] = useState<ModelDefaultsOut | null>(null);
+  const [modelDefaultDrafts, setModelDefaultDrafts] = useState<Record<string, string>>({});
+  const [savingModel, setSavingModel] = useState<string | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [openAdd, setOpenAdd] = useState(false);
   const [toEdit, setToEdit] = useState<UpstreamOut | null>(null);
@@ -83,36 +77,23 @@ export default function Upstreams() {
     try {
       const [list, bindings] = await Promise.all([
         api.listUpstreams(),
-        api.listUpstreamDefaults(),
+        api.listModelDefaults(),
       ]);
-      setItems([...list].reverse());
-      setDefaults(bindings);
-      setDefaultDrafts(defaultsToDrafts(bindings));
+      const ordered = [...list].reverse();
+      setItems(ordered);
+      setModelDefaults(bindings);
+      setModelDefaultDrafts(modelDefaultsToDrafts(ordered, bindings));
     } catch (e) {
       setLoadErr(e instanceof Error ? e.message : String(e));
       setItems([]);
-      setDefaults(null);
-      setDefaultDrafts({
-        global: "",
-        messages: "",
-        completions: "",
-        responses: "",
-      });
+      setModelDefaults(null);
+      setModelDefaultDrafts({});
     }
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
-
-  const upstreamOptions = useMemo(
-    () =>
-      (items ?? []).map((upstream) => ({
-        name: upstream.name,
-        label: formatUpstreamOptionLabel(upstream),
-      })),
-    [items],
-  );
 
   async function handleDelete(id: string) {
     try {
@@ -125,24 +106,26 @@ export default function Upstreams() {
     }
   }
 
-  async function handleSaveDefault(scope: UpstreamDefaultScope) {
-    const nextName = defaultDrafts[scope];
+  const modelGroups = useMemo(
+    () => modelUpstreamGroups(items ?? [], modelDefaults ?? {}),
+    [items, modelDefaults],
+  );
+
+  async function handleSaveModelDefault(model: string) {
+    const nextName = modelDefaultDrafts[model];
     if (!nextName) return;
 
     setInfo(null);
     setLoadErr(null);
-    setSavingScope(scope);
+    setSavingModel(model);
     try {
-      const updated = await api.setDefaultUpstream(
-        nextName,
-        scope === "global" ? undefined : (scope as ServerApi),
-      );
-      setInfo(`default ${scope} -> ${updated.name}`);
+      const updated = await api.setModelDefaultUpstream(nextName, model);
+      setInfo(`model default ${model} -> ${updated.name}`);
       await load();
     } catch (e) {
       setLoadErr(e instanceof Error ? e.message : String(e));
     } finally {
-      setSavingScope(null);
+      setSavingModel(null);
     }
   }
 
@@ -213,16 +196,15 @@ export default function Upstreams() {
         />
       ) : (
         <>
-          {defaults && (
-            <DefaultsPanel
-              defaults={defaults}
-              drafts={defaultDrafts}
-              options={upstreamOptions}
-              savingScope={savingScope}
-              onDraftChange={(scope, name) =>
-                setDefaultDrafts((current) => ({ ...current, [scope]: name }))
+          {modelDefaults && (
+            <ModelDefaultsPanel
+              groups={modelGroups}
+              drafts={modelDefaultDrafts}
+              savingModel={savingModel}
+              onDraftChange={(model, name) =>
+                setModelDefaultDrafts((current) => ({ ...current, [model]: name }))
               }
-              onSave={(scope) => void handleSaveDefault(scope)}
+              onSave={(model) => void handleSaveModelDefault(model)}
             />
           )}
 
@@ -411,81 +393,117 @@ export default function Upstreams() {
   );
 }
 
-function DefaultsPanel({
-  defaults,
+function ModelDefaultsPanel({
+  groups,
   drafts,
-  options,
-  savingScope,
+  savingModel,
   onDraftChange,
   onSave,
 }: {
-  defaults: UpstreamDefaultsOut;
-  drafts: Record<UpstreamDefaultScope, string>;
-  options: Array<{ name: string; label: string }>;
-  savingScope: UpstreamDefaultScope | null;
-  onDraftChange: (scope: UpstreamDefaultScope, name: string) => void;
-  onSave: (scope: UpstreamDefaultScope) => void;
+  groups: ModelUpstreamGroup[];
+  drafts: Record<string, string>;
+  savingModel: string | null;
+  onDraftChange: (model: string, name: string) => void;
+  onSave: (model: string) => void;
 }) {
+  const duplicateGroups = groups.filter((group) => group.upstreams.length > 1);
+  const singleGroups = groups.filter((group) => group.upstreams.length === 1);
+
   return (
     <div className="mb-6 rounded-lg border border-border">
-      <div className="border-b border-border px-4 py-3">
-        <h2 className="text-sm font-semibold">Defaults</h2>
+      <div className="space-y-1 border-b border-border px-4 py-3">
+        <h2 className="text-sm font-semibold">Model defaults</h2>
+        <p className="text-xs text-muted-foreground">
+          无 r-upstream 时按 body.model 匹配 upstream；同一个 model 对应多个 upstream 时，必须在这里指定默认 upstream。
+        </p>
       </div>
-      <Table>
-        <TableHeader>
-          <TableRow className="bg-muted/45 hover:bg-muted/45">
-            <TableHead className="w-32">server_api</TableHead>
-            <TableHead className="w-[22%]">current</TableHead>
-            <TableHead>upstream</TableHead>
-            <TableHead className="w-24 text-right">action</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {defaultBindingRows(defaults).map((row) => {
-            const draft = drafts[row.scope];
-            const unchanged = draft === (row.upstreamName ?? "");
-            const saving = savingScope === row.scope;
-            return (
-              <TableRow key={row.scope}>
-                <TableCell className="font-medium">
-                  {row.scope === "global" ? "global" : serverApiLabel(row.scope)}
-                </TableCell>
-                <TableCell className="truncate text-xs text-muted-foreground">
-                  {row.upstreamName ?? "-"}
-                </TableCell>
-                <TableCell>
-                  <Select
-                    value={draft || undefined}
-                    onValueChange={(value) => onDraftChange(row.scope, value)}
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue placeholder="Select upstream" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {options.map((option) => (
-                        <SelectItem key={`${row.scope}-${option.name}`} value={option.name}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </TableCell>
-                <TableCell className="text-right">
-                  <Button
-                    variant="outline"
-                    size="icon-sm"
-                    title={saving ? "Saving…" : `Save ${row.scope} default`}
-                    disabled={!draft || unchanged || saving}
-                    onClick={() => onSave(row.scope)}
-                  >
-                    <SaveIcon />
-                  </Button>
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
+      {groups.length === 0 ? (
+        <div className="px-4 py-4 text-sm text-muted-foreground">
+          当前没有配置 model 的 upstream。客户端必须传 r-upstream，或先给 upstream 配置 model。
+        </div>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/45 hover:bg-muted/45">
+              <TableHead className="w-[22%]">model</TableHead>
+              <TableHead className="w-[12%]">status</TableHead>
+              <TableHead className="w-[22%]">current default</TableHead>
+              <TableHead>upstream</TableHead>
+              <TableHead className="w-24 text-right">action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {duplicateGroups.map((group) => {
+              const draft = drafts[group.model] ?? "";
+              const unchanged = draft === (group.defaultUpstreamName ?? "");
+              const saving = savingModel === group.model;
+              return (
+                <TableRow key={group.model}>
+                  <TableCell className="truncate font-mono text-xs" title={group.model}>
+                    {group.model}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={group.defaultUpstreamName ? "outline" : "destructive"}>
+                      {group.defaultUpstreamName ? "configured" : "required"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="truncate text-xs text-muted-foreground">
+                    {group.defaultUpstreamName ?? "-"}
+                  </TableCell>
+                  <TableCell>
+                    <Select
+                      value={draft || undefined}
+                      onValueChange={(value) => onDraftChange(group.model, value)}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Select upstream" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {group.upstreams.map((upstream) => (
+                          <SelectItem key={`${group.model}-${upstream.name}`} value={upstream.name}>
+                            {formatUpstreamOptionLabel(upstream)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      variant="outline"
+                      size="icon-sm"
+                      title={saving ? "Saving…" : `Save ${group.model} default`}
+                      disabled={!draft || unchanged || saving}
+                      onClick={() => onSave(group.model)}
+                    >
+                      <SaveIcon />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+            {singleGroups.map((group) => {
+              const upstream = group.upstreams[0];
+              return (
+                <TableRow key={group.model}>
+                  <TableCell className="truncate font-mono text-xs" title={group.model}>
+                    {group.model}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline">unique</Badge>
+                  </TableCell>
+                  <TableCell className="truncate text-xs text-muted-foreground">
+                    {upstream.name}
+                  </TableCell>
+                  <TableCell className="truncate text-xs text-muted-foreground">
+                    {formatUpstreamOptionLabel(upstream)}
+                  </TableCell>
+                  <TableCell className="text-right text-xs text-muted-foreground">auto</TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      )}
     </div>
   );
 }
@@ -518,8 +536,7 @@ type FormMode = "add" | "edit" | "copy";
  * Add / Edit / Copy 共用对话框。
  *
  * - `add`:空白表单 → POST createUpstream
- * - `edit`:initial 预填 → PUT updateUpstream(只发改过的字段;native API 变化时
- *   server 自动清 is_default;api_key 留空 = 不动)
+ * - `edit`:initial 预填 → PUT updateUpstream(只发改过的字段;api_key 留空 = 不动)
  * - `copy`:initial 预填(name 加 `-copy` 后缀,api_key 不带) → POST createUpstream;
  *   等价于"以选中行为模板新建一个"
  */
@@ -634,7 +651,7 @@ function UpstreamFormDialog({
     ? "修改字段后保存;api_key 会回显,留空保存会清空。"
     : isCopy
       ? `以 '${initial?.name}' 为模板新建一行;name 已加 -copy 后缀避免冲突,api_key 会带过来,可按需修改。`
-      : "新建上游 upstream;model 留空时,客户端必须自带 body.model。base_url 填根地址,不要带 /v1 或具体 API 路径。";
+      : "新建上游 upstream;model 用于无 r-upstream 时自动匹配。base_url 填根地址,不要带 /v1 或具体 API 路径。";
 
   const keyStatus =
     isEdit && initial
@@ -713,7 +730,10 @@ function UpstreamFormDialog({
           </div>
           <div className="space-y-2">
             <Label htmlFor="u-model">
-              model <span className="text-xs text-muted-foreground">(可选 · 默认模型)</span>
+              model{" "}
+              <span className="text-xs text-muted-foreground">
+                (可选 · 无 r-upstream 时用于自动匹配)
+              </span>
             </Label>
             <Input
               id="u-model"
@@ -779,11 +799,14 @@ function formatDate(iso: string): string {
   return d.toLocaleString();
 }
 
-function defaultsToDrafts(defaults: UpstreamDefaultsOut): Record<UpstreamDefaultScope, string> {
-  return {
-    global: defaults.global ?? "",
-    messages: defaults.messages ?? "",
-    completions: defaults.completions ?? "",
-    responses: defaults.responses ?? "",
-  };
+function modelDefaultsToDrafts(
+  upstreams: UpstreamOut[],
+  defaults: ModelDefaultsOut,
+): Record<string, string> {
+  const drafts: Record<string, string> = {};
+  for (const group of modelUpstreamGroups(upstreams, defaults)) {
+    if (group.upstreams.length <= 1) continue;
+    drafts[group.model] = group.defaultUpstreamName ?? "";
+  }
+  return drafts;
 }
