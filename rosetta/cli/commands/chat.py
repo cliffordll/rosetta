@@ -3,9 +3,8 @@
 两种连接模式
 ------------
 - server 模式(默认):通过本地 rosetta-server 转发;`--upstream` 指定上游,
-  未给则不传 `r-upstream` header,server 按入口 server_api 选 default
-  upstream(先查 per-server_api default,没有再查 global default);都没有时 server
-  返 400,提示去 `rosetta upstream set-default <name>` 设一个。
+  未给则不传 `r-upstream` header,server 按 body.model 匹配 upstream;同 model
+  多 upstream 时用 `rosetta upstream default --model ...` 指定默认。
   `--model` 同样可选,留空时不发 `body.model`,server forwarder 用 `upstream.model`
   兜底(与 `--api-key` 行为对称)。
 - direct 模式:`--base-url` 给上游根地址,绕过 server 直连;必须同时传
@@ -46,7 +45,7 @@ def chat_cmd(
         str | None,
         typer.Option(
             "--upstream",
-            help="server 模式 upstream 名;未给则按 server_api 取 default;--base-url 给时失效",
+            help="server 模式 upstream 名;未给则 server 按 model 匹配;--base-url 给时失效",
         ),
     ] = None,
     base_url: Annotated[
@@ -110,8 +109,7 @@ def chat_cmd(
         effective_model: str | None = model
         effective_upstream: str | None = None
     else:
-        # server 模式:--upstream / --model 都不缺省;None 让 server 走 fallback
-        # (--upstream 走 server_api default;--model 走 upstream.model)
+        # server 模式:--upstream / --model 都不缺省;None 让 server 按数据面规则处理
         effective_upstream = upstream
         effective_model = model
 

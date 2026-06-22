@@ -26,14 +26,6 @@ from uuid import uuid4
 from sqlalchemy import ForeignKey, Index
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-DEFAULT_UPSTREAM_KEY_PREFIX = "default_upstream_id"
-
-
-def default_upstream_key(server_api: str) -> str:
-    """settings 表中某个 server_api 的 default upstream key。"""
-    return f"{DEFAULT_UPSTREAM_KEY_PREFIX}:{server_api}"
-
-
 UpstreamNativeApi = Literal["messages", "completions", "responses", "any"]
 UpstreamProvider = Literal[
     "anthropic",

@@ -104,7 +104,6 @@ async def test_create_upstream_success(client: AsyncClient) -> None:
     assert body["name"] == "ant-main"
     assert body["native_api"] == "messages"
     assert body["enabled"] is True
-    assert body["is_default"] is False  # 新建默认不是 default
     assert body["api_key"] == "sk-ant-xxx"
     assert "has_api_key" not in body
 
@@ -247,103 +246,7 @@ async def test_restore_mock_force_rebuilds(client: AsyncClient) -> None:
     assert r.json()["created"] is True
 
 
-# ---------- default ----------
-
-
-async def test_set_default_success(client: AsyncClient) -> None:
-    """PUT /admin/upstreams/{name}/default 设默认,is_default 翻 true。"""
-    await client.post(
-        "/admin/upstreams",
-        json={
-            "name": "p1",
-            "native_api": "messages",
-            "api_key": "sk-1",
-            "base_url": "https://api.example.com/p1",
-        },
-    )
-    r = await client.put("/admin/upstreams/p1/default")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["name"] == "p1"
-    assert body["is_default"] is True
-
-
-async def test_set_default_switches_old_global_default(client: AsyncClient) -> None:
-    """切 global default 时,旧 global default 的 is_default 归零。"""
-    for name, native_api in (("a", "messages"), ("b", "completions")):
-        await client.post(
-            "/admin/upstreams",
-            json={
-                "name": name,
-                "native_api": native_api,
-                "api_key": "sk",
-                "base_url": f"https://api.example.com/{name}",
-            },
-        )
-    assert (await client.put("/admin/upstreams/a/default")).status_code == 200
-    assert (await client.put("/admin/upstreams/b/default")).status_code == 200
-
-    listed = (await client.get("/admin/upstreams")).json()
-    a_row = next(u for u in listed if u["name"] == "a")
-    b_row = next(u for u in listed if u["name"] == "b")
-    assert a_row["is_default"] is False
-    assert b_row["is_default"] is True
-
-
-async def test_set_default_per_server_api(client: AsyncClient) -> None:
-    """?server_api=xxx 设 per-server_api default,列表按对应 server_api 显示 default。"""
-    for name, native_api in (("a", "messages"), ("b", "completions")):
-        await client.post(
-            "/admin/upstreams",
-            json={
-                "name": name,
-                "native_api": native_api,
-                "api_key": "sk",
-                "base_url": f"https://api.example.com/{name}",
-            },
-        )
-    assert (await client.put("/admin/upstreams/a/default?server_api=messages")).status_code == 200
-    assert (
-        await client.put("/admin/upstreams/b/default?server_api=completions")
-    ).status_code == 200
-
-    messages_list = (await client.get("/admin/upstreams?server_api=messages")).json()
-    completions_list = (await client.get("/admin/upstreams?server_api=completions")).json()
-    a_messages = next(u for u in messages_list if u["name"] == "a")
-    b_messages = next(u for u in messages_list if u["name"] == "b")
-    a_completions = next(u for u in completions_list if u["name"] == "a")
-    b_completions = next(u for u in completions_list if u["name"] == "b")
-    assert a_messages["is_default"] is True
-    assert b_messages["is_default"] is False
-    assert a_completions["is_default"] is False
-    assert b_completions["is_default"] is True
-
-
-async def test_get_upstream_defaults(client: AsyncClient) -> None:
-    """专用 defaults 端点直接返回 global + per-server_api 绑定。"""
-    await client.post(
-        "/admin/upstreams",
-        json={
-            "name": "shared",
-            "native_api": "messages",
-            "api_key": "sk",
-            "base_url": "https://api.example.com/shared",
-        },
-    )
-    assert (await client.put("/admin/upstreams/shared/default")).status_code == 200
-    assert (
-        await client.put("/admin/upstreams/mock/default?server_api=responses")
-    ).status_code == 200
-
-    r = await client.get("/admin/upstreams/defaults")
-
-    assert r.status_code == 200
-    assert r.json() == {
-        "global": "shared",
-        "messages": None,
-        "completions": None,
-        "responses": "mock",
-    }
+# ---------- model default ----------
 
 
 async def test_set_model_default_success(client: AsyncClient) -> None:
@@ -496,11 +399,6 @@ async def test_test_upstream_auth_failure_reports_auth(client: AsyncClient) -> N
         forwarder._client = prev
 
 
-async def test_set_default_not_found(client: AsyncClient) -> None:
-    r = await client.put("/admin/upstreams/ghost/default")
-    assert r.status_code == 404
-
-
 # ---------- update ----------
 
 
@@ -545,7 +443,7 @@ async def test_update_upstream_clear_api_key(client: AsyncClient) -> None:
     assert "has_api_key" not in r.json()
 
 
-async def test_update_upstream_native_api_keeps_default(client: AsyncClient) -> None:
+async def test_update_upstream_native_api(client: AsyncClient) -> None:
     create = await client.post(
         "/admin/upstreams",
         json={
@@ -556,12 +454,10 @@ async def test_update_upstream_native_api_keeps_default(client: AsyncClient) -> 
         },
     )
     pid = create.json()["id"]
-    assert (await client.put("/admin/upstreams/u3/default")).status_code == 200
     r = await client.put(f"/admin/upstreams/{pid}", json={"native_api": "completions"})
     assert r.status_code == 200
     body = r.json()
     assert body["native_api"] == "completions"
-    assert body["is_default"] is True
 
 
 async def test_update_upstream_not_found(client: AsyncClient) -> None:

@@ -84,33 +84,18 @@ def test_upstream_add_missing_required() -> None:
     assert result.exit_code != 0
 
 
-def test_upstream_default_help_exposes_short_server_api_option() -> None:
-    """upstream default 子命令暴露 --server-api 选项和 -s 短参数。"""
+def test_upstream_default_help_exists() -> None:
     result = runner.invoke(app, ["upstream", "default", "--help"])
     assert result.exit_code == 0
     out = _plain(result.output)
-    assert "-s" in out
-    assert "--server-api" in out
+    assert "--model" in out
+    assert "default" in out
 
 
 def test_upstream_defaults_help_exists() -> None:
     result = runner.invoke(app, ["upstream", "defaults", "--help"])
     assert result.exit_code == 0
     assert "defaults" in _plain(result.output)
-
-
-def test_upstream_model_default_help_exists() -> None:
-    result = runner.invoke(app, ["upstream", "model-default", "--help"])
-    assert result.exit_code == 0
-    out = _plain(result.output)
-    assert "--model" in out
-    assert "model-default" in out
-
-
-def test_upstream_model_defaults_help_exists() -> None:
-    result = runner.invoke(app, ["upstream", "model-defaults", "--help"])
-    assert result.exit_code == 0
-    assert "model-defaults" in _plain(result.output)
 
 
 def test_upstream_test_help_exists() -> None:
@@ -133,7 +118,6 @@ def test_upstream_list_table_omits_default_column(monkeypatch: pytest.MonkeyPatc
                     model=None,
                     base_url="https://api.example.com",
                     enabled=True,
-                    is_default=True,
                 )
             ]
 
@@ -141,9 +125,10 @@ def test_upstream_list_table_omits_default_column(monkeypatch: pytest.MonkeyPatc
     async def _discover_session(**_: object):
         yield _FakeClient()
 
-    def _capture_table(columns: list[str], rows: list[list[object]]) -> None:
+    def _capture_table(columns: list[str], rows: list[list[object]], **kwargs: object) -> None:
         captured["columns"] = columns
         captured["rows"] = rows
+        captured["kwargs"] = kwargs
 
     monkeypatch.setattr(upstream_mod.ProxyClient, "discover_session", _discover_session)
     monkeypatch.setattr(upstream_mod.Renderer, "table", _capture_table)
@@ -170,40 +155,10 @@ def test_upstream_list_table_omits_default_column(monkeypatch: pytest.MonkeyPatc
             True,
         ]
     ]
-
-
-def test_upstream_defaults_renders_scope_table(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, object] = {}
-
-    class _FakeClient:
-        async def list_upstream_defaults(self) -> SimpleNamespace:
-            return SimpleNamespace(
-                global_="shared",
-                messages="shared",
-                completions=None,
-                responses="mock",
-            )
-
-    @asynccontextmanager
-    async def _discover_session(**_: object):
-        yield _FakeClient()
-
-    def _capture_table(columns: list[str], rows: list[list[object]]) -> None:
-        captured["columns"] = columns
-        captured["rows"] = rows
-
-    monkeypatch.setattr(upstream_mod.ProxyClient, "discover_session", _discover_session)
-    monkeypatch.setattr(upstream_mod.Renderer, "table", _capture_table)
-
-    asyncio.run(upstream_mod._defaults())
-
-    assert captured["columns"] == ["server_api", "upstream"]
-    assert captured["rows"] == [
-        ["global", "shared"],
-        ["messages (/v1/messages)", "shared"],
-        ["completions (/v1/chat/completions)", "-"],
-        ["responses (/v1/responses)", "mock"],
-    ]
+    assert captured["kwargs"] == {
+        "no_wrap_columns": {"id", "name", "provider", "enabled"},
+        "max_widths": {"base_url": 48, "model": 32},
+    }
 
 
 def test_upstream_model_defaults_renders_model_table(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -217,9 +172,10 @@ def test_upstream_model_defaults_renders_model_table(monkeypatch: pytest.MonkeyP
     async def _discover_session(**_: object):
         yield _FakeClient()
 
-    def _capture_table(columns: list[str], rows: list[list[object]]) -> None:
+    def _capture_table(columns: list[str], rows: list[list[object]], **kwargs: object) -> None:
         captured["columns"] = columns
         captured["rows"] = rows
+        captured["kwargs"] = kwargs
 
     monkeypatch.setattr(upstream_mod.ProxyClient, "discover_session", _discover_session)
     monkeypatch.setattr(upstream_mod.Renderer, "table", _capture_table)

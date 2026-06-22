@@ -12,16 +12,15 @@ export function changeServerApiSelection<TServerApi extends string>(
 }
 
 export function initialUpstreamChoice(
-  upstreams: ReadonlyArray<{ id: string; enabled: boolean; is_default: boolean }>,
+  upstreams: ReadonlyArray<{ id: string; enabled: boolean }>,
   emptyChoice: string,
 ): string {
-  const globalDefault = upstreams.find((upstream) => upstream.enabled && upstream.is_default);
-  return globalDefault?.id ?? upstreams.find((upstream) => upstream.enabled)?.id ?? emptyChoice;
+  return upstreams.find((upstream) => upstream.enabled)?.id ?? emptyChoice;
 }
 
 export function ensureUpstreamChoice(
   currentChoice: string,
-  upstreams: ReadonlyArray<{ id: string; enabled: boolean; is_default: boolean }>,
+  upstreams: ReadonlyArray<{ id: string; enabled: boolean }>,
   emptyChoice: string,
 ): string {
   return currentChoice === emptyChoice

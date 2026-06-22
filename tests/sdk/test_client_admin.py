@@ -108,7 +108,6 @@ async def test_list_upstreams(echo_client: tuple[ProxyClient, dict[str, Any]]) -
                 "provider": "anthropic",
                 "base_url": "https://api.anthropic.com",
                 "enabled": True,
-                "is_default": False,
                 "model": None,
                 "created_at": datetime(2026, 4, 22, 10, 0, 0).isoformat(),
             }
@@ -119,30 +118,6 @@ async def test_list_upstreams(echo_client: tuple[ProxyClient, dict[str, Any]]) -
     assert upstreams[0].name == "ant"
     assert captured["request"].method == "GET"
     assert captured["request"].url.path == "/admin/upstreams"
-
-
-async def test_list_upstream_defaults(
-    echo_client: tuple[ProxyClient, dict[str, Any]],
-) -> None:
-    client, captured = echo_client
-    captured["response"] = httpx.Response(
-        200,
-        json={
-            "global": "shared",
-            "messages": "shared",
-            "completions": None,
-            "responses": "mock",
-        },
-    )
-
-    defaults = await client.list_upstream_defaults()
-
-    assert defaults.global_ == "shared"
-    assert defaults.messages == "shared"
-    assert defaults.completions is None
-    assert defaults.responses == "mock"
-    assert captured["request"].method == "GET"
-    assert captured["request"].url.path == "/admin/upstreams/defaults"
 
 
 async def test_list_model_defaults(
@@ -243,7 +218,6 @@ async def test_create_upstream(echo_client: tuple[ProxyClient, dict[str, Any]]) 
             "provider": "anthropic",
             "base_url": "https://api.anthropic.com",
             "enabled": True,
-            "is_default": False,
             "model": None,
             "created_at": "2026-04-22T10:00:00",
         },
@@ -298,7 +272,6 @@ async def test_update_upstream(echo_client: tuple[ProxyClient, dict[str, Any]]) 
             "provider": "anthropic",
             "base_url": "https://api.anthropic.com",
             "enabled": True,
-            "is_default": False,
             "model": "claude-sonnet-4-5",
             "created_at": "2026-04-22T10:00:00",
         },
@@ -316,31 +289,6 @@ async def test_update_upstream(echo_client: tuple[ProxyClient, dict[str, Any]]) 
     assert set(sent.keys()) == {"name", "model"}
 
 
-async def test_set_default_upstream(
-    echo_client: tuple[ProxyClient, dict[str, Any]],
-) -> None:
-    client, captured = echo_client
-    captured["response"] = httpx.Response(
-        200,
-        json={
-            "id": "p1-id",
-            "name": "p1",
-            "native_api": "messages",
-            "provider": "anthropic",
-            "base_url": "https://api.anthropic.com",
-            "enabled": True,
-            "is_default": True,
-            "model": None,
-            "created_at": "2026-04-22T10:00:00",
-        },
-    )
-    updated = await client.set_default_upstream("p1")
-    assert updated.is_default is True
-    req = captured["request"]
-    assert req.method == "PUT"
-    assert req.url.path == "/admin/upstreams/p1/default"
-
-
 async def test_set_model_default_upstream(
     echo_client: tuple[ProxyClient, dict[str, Any]],
 ) -> None:
@@ -354,7 +302,6 @@ async def test_set_model_default_upstream(
             "provider": "anthropic",
             "base_url": "https://api.anthropic.com",
             "enabled": True,
-            "is_default": False,
             "model": "gpt-4o",
             "created_at": "2026-04-22T10:00:00",
         },

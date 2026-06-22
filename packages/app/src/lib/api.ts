@@ -76,16 +76,7 @@ export interface UpstreamOut {
   /** 该 upstream 的默认模型;client body 不传 model 时 server fallback 用这个。可空。 */
   model: string | null;
   enabled: boolean;
-  /** 该 upstream 是否为其 native API 的默认上游(`r-upstream` header 缺失时回退用)。 */
-  is_default: boolean;
   created_at: string;
-}
-
-export interface UpstreamDefaultsOut {
-  global: string | null;
-  messages: string | null;
-  completions: string | null;
-  responses: string | null;
 }
 
 export type ModelDefaultsOut = Record<string, string>;
@@ -114,7 +105,6 @@ export interface UpstreamCreate {
 /** PUT /admin/upstreams/{id} body;只发显式 set 的字段。
  *
  * - `api_key` / `model` 显式 `null` → 清空该字段;未传 → 不动
- * - `native_api` 改了且原行是 default → server 自动清 is_default
  */
 export interface UpstreamUpdate {
   name?: string;
@@ -237,21 +227,12 @@ export const api = {
   deleteUpstream(id: string): Promise<void> {
     return request(`/admin/upstreams/${id}`, { method: "DELETE" });
   },
-  listUpstreamDefaults(): Promise<UpstreamDefaultsOut> {
-    return request("/admin/upstreams/defaults");
-  },
   listModelDefaults(): Promise<ModelDefaultsOut> {
     return request("/admin/upstreams/model-defaults");
   },
   testUpstream(id: string): Promise<UpstreamProbeOut> {
     return request(`/admin/upstreams/${id}/test`, {
       method: "POST",
-    });
-  },
-  setDefaultUpstream(name: string, serverApi?: ServerApi): Promise<UpstreamOut> {
-    const query = serverApi ? `?server_api=${encodeURIComponent(serverApi)}` : "";
-    return request(`/admin/upstreams/${encodeURIComponent(name)}/default${query}`, {
-      method: "PUT",
     });
   },
   setModelDefaultUpstream(name: string, model: string): Promise<UpstreamOut> {

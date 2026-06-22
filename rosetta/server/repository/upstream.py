@@ -20,7 +20,6 @@ from rosetta.server.database.models import (
     ApiType,
     Setting,
     Upstream,
-    default_upstream_key,
 )
 
 MOCK_UPSTREAM_FIELDS: dict[str, Any] = {
@@ -142,8 +141,6 @@ class UpstreamRepo:
         - name 冲突 → `IntegrityError`(调用方转 409)
         - api_key / model 用 sentinel `...`(Ellipsis) 区分"传 None 显式清空"和
           "未传保持原值";其他字段用 None 即"未传"
-        - `is_default` 已迁到 `settings` 表按 server_api 维护;改 native_api 后若该
-          upstream 仍是某 server_api 的 default,selector 会按新的 native_api 查找
         """
         target = await self.get_by_id(upstream_id)
         if target is None:
@@ -175,67 +172,6 @@ class UpstreamRepo:
     async def delete(self, upstream: Upstream) -> None:
         await self.session.delete(upstream)
         await self.session.commit()
-
-    async def default_upstream_id(self, server_api: str) -> str | None:
-        """从 settings 表读指定 server_api 的 default upstream id;没有则读 global。"""
-        setting = await self.session.get(Setting, default_upstream_key(server_api))
-        if setting is not None:
-            return setting.value
-        global_setting = await self.session.get(Setting, "default_upstream_id")
-        return global_setting.value if global_setting is not None else None
-
-    async def get_default(self, server_api: str) -> Upstream | None:
-        """查指定 server_api 的 enabled default upstream。
-
-        优先级:
-          1. settings['default_upstream_id:<server_api>']
-          2. settings['default_upstream_id']
-          3. 都没有 / 命中但被禁 → None
-        """
-        upstream_id = await self.default_upstream_id(server_api)
-        if upstream_id is None:
-            return None
-        upstream = await self.get_by_id(upstream_id)
-        if upstream is None or not upstream.enabled:
-            return None
-        return upstream
-
-    async def list_defaults(self) -> dict[str, str | None]:
-        """返回 global + per-server_api 的默认 upstream name 绑定。"""
-        defaults: dict[str, str | None] = {}
-        for scope, upstream_id in (
-            ("global", await self._setting_value("default_upstream_id")),
-            ("messages", await self._setting_value(default_upstream_key("messages"))),
-            ("completions", await self._setting_value(default_upstream_key("completions"))),
-            ("responses", await self._setting_value(default_upstream_key("responses"))),
-        ):
-            if upstream_id is None:
-                defaults[scope] = None
-                continue
-            upstream = await self.get_by_id(upstream_id)
-            defaults[scope] = upstream.name if upstream is not None else None
-        return defaults
-
-    async def set_default(self, name: str, server_api: str | None = None) -> Upstream:
-        """把 `name` 设为 default;写入 `settings` 表。
-
-        - `server_api` 给值 → 设 per-server_api default
-        - `server_api` 为 None → 设 global default
-        - name 不存在 → `LookupError`(调用方转 404)
-        - mock 行(native_api='any')也允许设 default
-        """
-        target = await self.get_by_name(name)
-        if target is None:
-            raise LookupError(f"upstream name={name!r} 不存在")
-
-        key = default_upstream_key(server_api) if server_api is not None else "default_upstream_id"
-        await self.session.merge(Setting(key=key, value=target.id))
-        await self.session.commit()
-        return target
-
-    async def _setting_value(self, key: str) -> str | None:
-        setting = await self.session.get(Setting, key)
-        return setting.value if setting is not None else None
 
     async def restore_mock(self, *, force: bool) -> tuple[bool, Upstream]:
         """恢复内置 mock 上游。幂等:存在则按 `force` 决定行为。
