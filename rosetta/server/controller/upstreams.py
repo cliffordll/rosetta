@@ -234,7 +234,7 @@ async def delete_upstream(upstream_id: str, repo: UpstreamRepoDep) -> Response:
 async def get_provider_guide(provider: str) -> dict:
     """Return provider guide doc content for codex/claude."""
     import os as _os
-    valid = {"codex": "codex.md", "claude": "claude.md"}
+    valid = {"codex": "codex.md", "claude": "claude.md", "readme": "readme.md"}
     filename = valid.get(provider.lower())
     if filename is None:
         from fastapi import HTTPException

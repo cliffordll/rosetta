@@ -84,9 +84,7 @@ class TestModelUpstream:
 
         assert picked.id == picked_expected.id
 
-    async def test_multiple_model_matches_use_settings_default(
-        self, session: AsyncSession
-    ) -> None:
+    async def test_multiple_model_matches_use_settings_default(self, session: AsyncSession) -> None:
         await _insert_upstream(session, name="a", model="gpt-4o")
         picked_expected = await _insert_upstream(session, name="b", model="gpt-4o")
         session.add(Setting(key="default_model:gpt-4o", value=picked_expected.id))
@@ -96,9 +94,7 @@ class TestModelUpstream:
 
         assert picked.id == picked_expected.id
 
-    async def test_multiple_model_matches_without_default_400(
-        self, session: AsyncSession
-    ) -> None:
+    async def test_multiple_model_matches_without_default_400(self, session: AsyncSession) -> None:
         await _insert_upstream(session, name="a", model="gpt-4o")
         await _insert_upstream(session, name="b", model="gpt-4o")
 
