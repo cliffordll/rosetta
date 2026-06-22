@@ -1,4 +1,4 @@
-﻿"""`rosetta upstream` 命令集。
+"""`rosetta upstream` 命令集。
 
 覆盖 add / list / update / remove / default / defaults / test / restore。
 """
@@ -271,8 +271,6 @@ async def _model_defaults() -> None:
     Renderer.table(["model", "upstream"], [[model, name] for model, name in defaults.items()])
 
 
-
-
 @app.command("test")
 def test_cmd(upstream_id: Annotated[str, typer.Argument(help="要测试的 upstream id")]) -> None:
     """按 upstream 自己的 native_api 发最小探测请求。"""
@@ -329,6 +327,21 @@ async def _restore_mock(force: bool) -> None:
         return
     verb = "restored" if result.created else "already exists"
     Renderer.out(f"mock upstream {verb} (id={result.upstream.id})")
+
+
+@app.command("guide")
+def guide_cmd(
+    provider: Annotated[
+        str,
+        typer.Argument(help="配置说明: codex | claude | readme"),
+    ],
+) -> None:
+    """显示客户端配置说明文档路径。"""
+    filename = _PROVIDER_GUIDES.get(provider.lower())
+    if filename is None:
+        Renderer.die("--provider 必须是 codex/claude/readme")
+        return
+    Renderer.out(str(_repo_root() / "docs" / "providers" / filename))
 
 
 def register(app_root: typer.Typer) -> None:

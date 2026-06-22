@@ -230,21 +230,29 @@ async def delete_upstream(upstream_id: str, repo: UpstreamRepoDep) -> Response:
     await repo.delete(upstream)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+
+class ProviderGuideOut(BaseModel):
+    provider: str
+    content: str
+
+
 @router.get("/upstreams/guide/{provider}")
-async def get_provider_guide(provider: str) -> dict:
+async def get_provider_guide(provider: str) -> ProviderGuideOut:
     """Return provider guide doc content for codex/claude."""
     import os as _os
+
     valid = {"codex": "codex.md", "claude": "claude.md", "readme": "readme.md"}
     filename = valid.get(provider.lower())
     if filename is None:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"unknown provider: {provider}")
     doc_path = _os.path.join(
         _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.dirname(__file__)))),
-        "docs", "providers", filename,
+        "docs",
+        "providers",
+        filename,
     )
     if not _os.path.isfile(doc_path):
         raise HTTPException(status_code=404, detail="guide file not found")
     with open(doc_path, encoding="utf-8") as f:
         content = f.read()
-    return {"provider": provider.lower(), "content": content}
+    return ProviderGuideOut(provider=provider.lower(), content=content)

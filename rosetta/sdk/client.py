@@ -29,6 +29,7 @@ from rosetta.server.controller.logs import LogListResponse, LogsConfigOut
 from rosetta.server.controller.runtime import StatusResponse
 from rosetta.server.controller.stats import Period, StatsOut
 from rosetta.server.controller.upstreams import (
+    ProviderGuideOut,
     RestoreMockOut,
     UpstreamCreate,
     UpstreamOut,
@@ -353,13 +354,12 @@ class ProxyClient:
     def direct_model(self) -> str | None:
         return self._direct_model
 
-    async def get_provider_guide(self, provider: str) -> dict:
-        '''Fetch provider guide doc content from backend API.'''
-        self._require_server('get_provider_guide')
+    async def get_provider_guide(self, provider: str) -> ProviderGuideOut:
+        """Fetch provider guide doc content from backend API."""
+        self._require_server("get_provider_guide")
         resp = await self.http.get(
-            f'{self.base_url}/admin/upstreams/guide/{provider}',
+            f"{self.base_url}/admin/upstreams/guide/{provider}",
             timeout=_ADMIN_TIMEOUT,
         )
         resp.raise_for_status()
-        import json
-        return json.loads(resp.text)
+        return ProviderGuideOut.model_validate_json(resp.text)
