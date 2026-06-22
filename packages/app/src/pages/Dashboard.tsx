@@ -1,16 +1,30 @@
-﻿import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router";
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { api, type ApiError, type StatusResponse } from "@/lib/api";
+import {
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  api,
+  type ApiError,
+  type StatsOut,
+  type StatusResponse,
+  type UpstreamOut,
+} from "@/lib/api";
 import {
   checkForUpdate,
   installUpdate,
@@ -18,9 +32,15 @@ import {
   type UpdateCheckResult,
 } from "@/lib/updater";
 
+interface DashboardData {
+  status: StatusResponse;
+  stats: StatsOut;
+  upstreams: UpstreamOut[];
+}
+
 type FetchState =
   | { kind: "loading" }
-  | { kind: "ok"; status: StatusResponse }
+  | { kind: "ok"; data: DashboardData }
   | { kind: "err"; message: string };
 
 export default function Dashboard() {
@@ -40,14 +60,29 @@ export default function Dashboard() {
   const load = useCallback(async () => {
     setState({ kind: "loading" });
     try {
-      const status = await api.status();
-      setState({ kind: "ok", status });
+      const [status, stats, upstreams] = await Promise.all([
+        api.status(),
+        api.stats("today"),
+        api.listUpstreams(),
+      ]);
+      setState({
+        kind: "ok",
+        data: {
+          status,
+          stats,
+          upstreams: [...upstreams].reverse(),
+        },
+      });
     } catch (e) {
       const msg =
         e instanceof Error ? (e as ApiError).message || e.message : String(e);
       setState({ kind: "err", message: msg });
     }
   }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const runCheckUpdate = useCallback(async () => {
     setUpdateState({ kind: "checking" });
@@ -65,36 +100,31 @@ export default function Dashboard() {
     setUpdateState({ kind: "installing" });
     try {
       await installUpdate();
-      // 成功时 Tauri 会触发 restart,这条 setState 不一定会被执行
       setUpdateState({ kind: "idle" });
     } catch (e) {
       setUpdateState({ kind: "err", message: e instanceof Error ? e.message : String(e) });
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
   const inTauri = isTauri();
   const updateBtnDisabled =
     updateState.kind === "checking" || updateState.kind === "installing";
 
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      className="absolute right-2 top-2 rounded px-2 py-1 text-xs bg-background/80 hover:bg-muted text-foreground border border-border transition-colors"
-      onClick={() => {
-        navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      }}
-    >
-      {copied ? "Copied" : "Copy"}
-    </button>
-  );
-}
+  function CopyButton({ text }: { text: string }) {
+    const [copied, setCopied] = useState(false);
+    return (
+      <button
+        className="absolute right-2 top-2 rounded px-2 py-1 text-xs bg-background/80 hover:bg-muted text-foreground border border-border transition-colors"
+        onClick={() => {
+          navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }}
+      >
+        {copied ? "Copied" : "Copy"}
+      </button>
+    );
+  }
 
   async function loadGuide(provider: string) {
     setGuideProvider(provider);
@@ -103,7 +133,7 @@ function CopyButton({ text }: { text: string }) {
     try {
       const result = await api.getProviderGuide(provider);
       setGuideContent(result.content);
-    } catch (e) {
+    } catch {
       setGuideContent(null);
       setGuideProvider(null);
     } finally {
@@ -112,8 +142,8 @@ function CopyButton({ text }: { text: string }) {
   }
 
   return (
-    <section>
-      <div className="mb-6 flex items-center justify-between">
+    <section className="flex h-full min-h-0 flex-col">
+      <div className="mb-4 flex shrink-0 items-center justify-between">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
         <div className="flex items-center gap-2">
           {inTauri && (
@@ -163,65 +193,166 @@ function CopyButton({ text }: { text: string }) {
         </div>
       )}
 
-      {state.kind === "loading" && (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      )}
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {state.kind === "loading" && (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        )}
 
-      {state.kind === "err" && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6">
-          <div className="mb-2 flex items-center gap-2">
-            <Badge variant="destructive">server unreachable</Badge>
+        {state.kind === "err" && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6">
+            <div className="mb-2 flex items-center gap-2">
+              <Badge variant="destructive">server unreachable</Badge>
+            </div>
+            <p className="mb-3 text-sm text-muted-foreground">
+              先跑 <code className="rounded bg-muted px-1.5 py-0.5">rosetta start</code>
+              ，或设置{" "}
+              <code className="rounded bg-muted px-1.5 py-0.5">VITE_API_URL</code>{" "}
+              环境变量后重启 vite。
+            </p>
+            <p className="text-xs text-muted-foreground">{state.message}</p>
           </div>
-          <p className="mb-3 text-sm text-muted-foreground">
-            先跑 <code className="rounded bg-muted px-1.5 py-0.5">rosetta start</code>,或设置{" "}
-            <code className="rounded bg-muted px-1.5 py-0.5">VITE_API_URL</code> 环境变量后重启 vite。
-          </p>
-          <p className="text-xs text-muted-foreground">{state.message}</p>
-        </div>
-      )}
+        )}
 
-      {state.kind === "ok" && (
-        <div className="grid max-w-2xl grid-cols-2 gap-4">
-          <Stat label="status" value={<Badge>running</Badge>} />
-          <Stat label="version" value={state.status.version} />
-          <Stat label="uptime" value={formatUptime(state.status.uptime_ms)} />
-          <Stat label="upstreams" value={String(state.status.upstreams_count)} />
-          <Stat
-            label="server url"
-            value={
-              <code className="break-all font-mono text-sm">
-                {state.status.url || "(unknown)"}
-              </code>
-            }
-          />
-        </div>
-      )}
-      {/* --- Configuration Guide --- */}
-      <div className="mt-8">
-        <h2 className="mb-3 text-sm font-medium text-muted-foreground">配置说明</h2>
-        <div className="flex gap-6">
-          <button
-            className="text-sm underline hover:text-foreground text-muted-foreground"
-            onClick={() => void loadGuide("codex")}
-          >
-            Codex
-          </button>
-          <button
-            className="text-sm underline hover:text-foreground text-muted-foreground"
-            onClick={() => void loadGuide("claude")}
-          >
-            Claude
-          </button>
-          <span className="text-muted-foreground/40">·</span>
-          <button
-            className="text-sm underline hover:text-foreground text-muted-foreground"
-            onClick={() => void loadGuide("readme")}
-          >
-            README
-          </button>
-        </div>
+        {state.kind === "ok" && (
+          <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-4">
+            <div className="grid shrink-0 grid-cols-3 gap-4">
+              <Stat label="version" value={state.data.status.version} />
+              <Stat
+                label="server url"
+                value={
+                  <code className="break-all font-mono text-sm">
+                    {state.data.status.url || "(unknown)"}
+                  </code>
+                }
+              />
+              <Stat label="status" value={<Badge>running</Badge>} />
+              <Stat
+                label="upstreams"
+                value={String(state.data.status.upstreams_count)}
+              />
+              <Stat label="period" value={state.data.stats.period} />
+              <Stat
+                label="uptime"
+                value={formatUptime(state.data.status.uptime_ms)}
+              />
+              <Stat
+                label="today requests"
+                value={String(state.data.stats.total_requests)}
+              />
+              <Stat
+                label="success rate"
+                value={formatRate(state.data.stats.success_rate)}
+              />
+              <Stat
+                label="avg latency"
+                value={
+                  state.data.stats.avg_latency_ms > 0
+                    ? `${Math.round(state.data.stats.avg_latency_ms)} ms`
+                    : "-"
+                }
+              />
+            </div>
+
+            <div className="flex min-h-0 flex-col">
+              <div className="mb-3 flex shrink-0 items-center justify-between">
+                <h2 className="text-sm font-medium text-muted-foreground">
+                  Upstreams
+                </h2>
+                <Link
+                  to="/upstreams"
+                  className="text-xs text-muted-foreground underline hover:text-foreground"
+                >
+                  Manage →
+                </Link>
+              </div>
+              {state.data.upstreams.length === 0 ? (
+                <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                  暂无 upstream。
+                  <Link
+                    to="/upstreams"
+                    className="ml-1 underline hover:text-foreground"
+                  >
+                    添加第一个
+                  </Link>
+                </div>
+              ) : (
+                <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border">
+                  <table className="w-full table-fixed caption-bottom text-sm">
+                    <TableHeader>
+                      <TableRow className="bg-muted/45 hover:bg-muted/45">
+                        <TableHead className="sticky top-0 z-20 w-[22%] bg-muted">
+                          name
+                        </TableHead>
+                        <TableHead className="sticky top-0 z-20 w-[16%] bg-muted">
+                          native_api
+                        </TableHead>
+                        <TableHead className="sticky top-0 z-20 w-[14%] bg-muted">
+                          provider
+                        </TableHead>
+                        <TableHead className="sticky top-0 z-20 w-[12%] bg-muted">
+                          model
+                        </TableHead>
+                        <TableHead className="sticky top-0 z-20 w-[8%] bg-muted">
+                          status
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody className="[&_tr:last-child]:border-b">
+                      {state.data.upstreams.map((u) => (
+                        <TableRow key={u.id}>
+                          <TableCell className="truncate font-medium">
+                            {u.name}
+                          </TableCell>
+                          <TableCell className="truncate text-xs text-muted-foreground">
+                            {u.native_api}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{u.provider}</Badge>
+                          </TableCell>
+                          <TableCell className="truncate font-mono text-xs text-muted-foreground">
+                            {u.model ?? "-"}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={u.enabled ? "default" : "outline"}>
+                              {u.enabled ? "enabled" : "disabled"}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="shrink-0">
+              <h2 className="mb-3 text-sm font-medium text-muted-foreground">
+                Configurations
+              </h2>
+              <div className="flex items-center gap-6">
+                <button
+                  className="text-sm text-muted-foreground underline hover:text-foreground"
+                  onClick={() => void loadGuide("codex")}
+                >
+                  Codex
+                </button>
+                <button
+                  className="text-sm text-muted-foreground underline hover:text-foreground"
+                  onClick={() => void loadGuide("claude")}
+                >
+                  Claude
+                </button>
+                <button
+                  className="text-sm text-muted-foreground underline hover:text-foreground"
+                  onClick={() => void loadGuide("readme")}
+                >
+                  README
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-
       {/* --- Guide Dialog --- */}
       <Dialog
         open={guideProvider !== null}
@@ -295,4 +426,8 @@ function formatUptime(ms: number): string {
   if (min < 60) return `${min}m ${sec % 60}s`;
   const hr = Math.floor(min / 60);
   return `${hr}h ${min % 60}m`;
+}
+
+function formatRate(rate: number): string {
+  return `${(rate * 100).toFixed(1)}%`;
 }

@@ -11,7 +11,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -126,8 +125,8 @@ export default function Logs() {
   }
 
   return (
-    <section>
-      <div className="mb-6 flex items-center justify-between">
+    <section className="flex h-full min-h-0 flex-col">
+      <div className="mb-4 flex shrink-0 items-center justify-between">
         <h1 className="text-2xl font-semibold">Logs</h1>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2">
@@ -172,23 +171,27 @@ export default function Logs() {
       ) : items.length === 0 && !loadErr ? (
         <EmptyState />
       ) : (
-        <div className="rounded-lg border border-border">
-          <Table className="w-full table-fixed">
+        <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border">
+          <table className="w-full table-fixed caption-bottom text-sm">
             <TableHeader>
-              <TableRow className="bg-muted/45 hover:bg-muted/45">
-                <TableHead className="w-44">created_at</TableHead>
-                <TableHead className="w-[10%]">upstream</TableHead>
-                <TableHead className="w-[10%]">model</TableHead>
-                <TableHead className="w-[6%]">result</TableHead>
-                <TableHead className="w-[6%] text-right">latency</TableHead>
-                <TableHead className="w-[7%] text-right">tokens</TableHead>
-                <TableHead className="w-[16%]">request</TableHead>
-                <TableHead className="w-[16%]">response</TableHead>
-                <TableHead className="w-[7%]">client</TableHead>
-                <TableHead className="w-[8%]">error</TableHead>
+              <TableRow className="hover:bg-muted/45">
+                <TableHead className="sticky top-0 z-20 w-44 bg-muted">created_at</TableHead>
+                <TableHead className="sticky top-0 z-20 w-[10%] bg-muted">upstream</TableHead>
+                <TableHead className="sticky top-0 z-20 w-[10%] bg-muted">model</TableHead>
+                <TableHead className="sticky top-0 z-20 w-[6%] bg-muted">result</TableHead>
+                <TableHead className="sticky top-0 z-20 w-[6%] bg-muted text-right">
+                  latency
+                </TableHead>
+                <TableHead className="sticky top-0 z-20 w-[7%] bg-muted text-right">
+                  tokens
+                </TableHead>
+                <TableHead className="sticky top-0 z-20 w-[16%] bg-muted">request</TableHead>
+                <TableHead className="sticky top-0 z-20 w-[16%] bg-muted">response</TableHead>
+                <TableHead className="sticky top-0 z-20 w-[7%] bg-muted">client</TableHead>
+                <TableHead className="sticky top-0 z-20 w-[8%] bg-muted">error</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
+            <TableBody className="[&_tr:last-child]:border-b">
               {items.map((entry) => (
                 <TableRow key={entry.id}>
                   <TableCell className="font-mono text-xs text-muted-foreground">
@@ -234,11 +237,11 @@ export default function Logs() {
                 </TableRow>
               ))}
             </TableBody>
-          </Table>
+          </table>
         </div>
       )}
 
-      <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
+      <div className="mt-2 flex shrink-0 items-center justify-between text-sm text-muted-foreground">
         <div className="flex items-center gap-2">
           <span>
             {total === 0

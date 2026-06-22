@@ -31,7 +31,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -171,8 +170,8 @@ export default function Upstreams() {
   }
 
   return (
-    <section>
-      <div className="mb-6 flex items-center justify-between">
+    <section className="flex h-full min-h-0 flex-col">
+      <div className="mb-4 flex shrink-0 items-center justify-between">
         <h1 className="text-2xl font-semibold">Upstreams</h1>
         <div className="flex gap-2">
           <Button
@@ -196,127 +195,163 @@ export default function Upstreams() {
         />
       ) : (
         <>
-          {modelDefaults && (
-            <ModelDefaultsPanel
-              groups={modelGroups}
-              drafts={modelDefaultDrafts}
-              savingModel={savingModel}
-              onDraftChange={(model, name) =>
-                setModelDefaultDrafts((current) => ({ ...current, [model]: name }))
-              }
-              onSave={(model) => void handleSaveModelDefault(model)}
-            />
-          )}
+          <div className="flex min-h-0 flex-1 flex-col gap-4">
+            {/* 上: Model defaults (4/10) */}
+            <div className="flex min-h-0 flex-[4] flex-col">
+              {modelDefaults && (
+                <ModelDefaultsPanel
+                  groups={modelGroups}
+                  drafts={modelDefaultDrafts}
+                  savingModel={savingModel}
+                  onDraftChange={(model, name) =>
+                    setModelDefaultDrafts((current) => ({ ...current, [model]: name }))
+                  }
+                  onSave={(model) => void handleSaveModelDefault(model)}
+                />
+              )}
+            </div>
 
-          <div className="rounded-lg border border-border">
-            <Table className="w-full table-fixed">
-              <TableHeader>
-                <TableRow className="bg-muted/45 hover:bg-muted/45">
-                  <TableHead className="w-[9%]">name</TableHead>
-                  <TableHead className="w-[7%]">provider</TableHead>
-                  <TableHead className="w-[12%]">native_api</TableHead>
-                  <TableHead className="w-[8%]">model</TableHead>
-                  <TableHead>base_url</TableHead>
-                  <TableHead className="w-[11%]">api_key</TableHead>
-                  <TableHead className="w-[7%]">enabled</TableHead>
-                  <TableHead className="w-44">created_at</TableHead>
-                  <TableHead className="w-28 text-right">actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {items.map((u) => (
-                  <TableRow key={u.id}>
-                    <TableCell className="truncate font-medium" title={u.name}>
-                      {u.name}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{u.provider}</Badge>
-                    </TableCell>
-                    <TableCell
-                      className="truncate text-xs text-muted-foreground"
-                      title={serverApiLabel(u.native_api)}
-                    >
-                      {serverApiLabel(u.native_api)}
-                    </TableCell>
-                    <TableCell
-                      className="truncate font-mono text-xs text-muted-foreground"
-                      title={u.model ?? ""}
-                    >
-                      {u.model ?? "-"}
-                    </TableCell>
-                    <TableCell className="truncate text-xs text-muted-foreground" title={u.base_url}>
-                      {u.base_url}
-                    </TableCell>
-                    <TableCell
-                      className="truncate font-mono text-xs text-muted-foreground"
-                      title={u.api_key ?? ""}
-                    >
-                      {u.api_key ?? "-"}
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      <span className="inline-flex items-center gap-1.5">
-                        <span
-                          className={`size-2 rounded-full ${
-                            u.enabled ? "bg-emerald-500" : "bg-muted-foreground/40"
-                          }`}
-                          aria-hidden
-                        />
-                        <span className={u.enabled ? "font-medium" : "text-muted-foreground"}>
-                          {u.enabled ? "on" : "off"}
-                        </span>
-                      </span>
-                    </TableCell>
-                    <TableCell
-                      className="truncate font-mono text-xs text-muted-foreground"
-                      title={u.created_at}
-                    >
-                      {formatDate(u.created_at)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        {u.provider !== "mock" && (
-                          <>
+            {/* 下: Upstreams 表格 */}
+            <div className="flex min-h-0 flex-[6] flex-col">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-medium text-muted-foreground">
+                  Upstreams
+                </h2>
+              </div>
+              <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border">
+                <table className="w-full table-fixed caption-bottom text-sm">
+                  <TableHeader>
+                    <TableRow className="hover:bg-muted/45">
+                      <TableHead className="sticky top-0 z-20 w-[9%] bg-muted">
+                        name
+                      </TableHead>
+                      <TableHead className="sticky top-0 z-20 w-[7%] bg-muted">
+                        provider
+                      </TableHead>
+                      <TableHead className="sticky top-0 z-20 w-[12%] bg-muted">
+                        native_api
+                      </TableHead>
+                      <TableHead className="sticky top-0 z-20 w-[8%] bg-muted">
+                        model
+                      </TableHead>
+                      <TableHead className="sticky top-0 z-20 bg-muted">
+                        base_url
+                      </TableHead>
+                      <TableHead className="sticky top-0 z-20 w-[11%] bg-muted">
+                        api_key
+                      </TableHead>
+                      <TableHead className="sticky top-0 z-20 w-[7%] bg-muted">
+                        enabled
+                      </TableHead>
+                      <TableHead className="sticky top-0 z-20 w-44 bg-muted">
+                        created_at
+                      </TableHead>
+                      <TableHead className="sticky top-0 z-20 w-28 bg-muted text-right">
+                        actions
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody className="[&_tr:last-child]:border-b">
+                    {items.map((u) => (
+                      <TableRow key={u.id}>
+                        <TableCell className="truncate font-medium" title={u.name}>
+                          {u.name}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{u.provider}</Badge>
+                        </TableCell>
+                        <TableCell
+                          className="truncate text-xs text-muted-foreground"
+                          title={serverApiLabel(u.native_api)}
+                        >
+                          {serverApiLabel(u.native_api)}
+                        </TableCell>
+                        <TableCell
+                          className="truncate font-mono text-xs text-muted-foreground"
+                          title={u.model ?? ""}
+                        >
+                          {u.model ?? "-"}
+                        </TableCell>
+                        <TableCell
+                          className="truncate text-xs text-muted-foreground"
+                          title={u.base_url}
+                        >
+                          {u.base_url}
+                        </TableCell>
+                        <TableCell
+                          className="truncate font-mono text-xs text-muted-foreground"
+                          title={u.api_key ?? ""}
+                        >
+                          {u.api_key ?? "-"}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          <span className="inline-flex items-center gap-1.5">
+                            <span
+                              className={`size-2 rounded-full ${
+                                u.enabled ? "bg-emerald-500" : "bg-muted-foreground/40"
+                              }`}
+                              aria-hidden
+                            />
+                            <span
+                              className={u.enabled ? "font-medium" : "text-muted-foreground"}
+                            >
+                              {u.enabled ? "on" : "off"}
+                            </span>
+                          </span>
+                        </TableCell>
+                        <TableCell
+                          className="truncate font-mono text-xs text-muted-foreground"
+                          title={u.created_at}
+                        >
+                          {formatDate(u.created_at)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            {u.provider !== "mock" && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  title="Edit"
+                                  onClick={() => setToEdit(u)}
+                                >
+                                  <PencilIcon />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  title="Copy as new"
+                                  onClick={() => setToCopy(u)}
+                                >
+                                  <CopyIcon />
+                                </Button>
+                              </>
+                            )}
                             <Button
                               variant="ghost"
                               size="icon-sm"
-                              title="Edit"
-                              onClick={() => setToEdit(u)}
+                              title="Test upstream"
+                              disabled={testingUpstreamId === u.id}
+                              onClick={() => void handleTestUpstream(u)}
                             >
-                              <PencilIcon />
+                              <BugIcon />
                             </Button>
                             <Button
                               variant="ghost"
                               size="icon-sm"
-                              title="Copy as new"
-                              onClick={() => setToCopy(u)}
+                              title="Delete"
+                              onClick={() => setToDelete(u)}
                             >
-                              <CopyIcon />
+                              <Trash2Icon />
                             </Button>
-                          </>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          title="Test upstream"
-                          disabled={testingUpstreamId === u.id}
-                          onClick={() => void handleTestUpstream(u)}
-                        >
-                          <BugIcon />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          title="Delete"
-                          onClick={() => setToDelete(u)}
-                        >
-                          <Trash2Icon />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </table>
+              </div>
+            </div>
           </div>
         </>
       )}
@@ -389,8 +424,6 @@ export default function Upstreams() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    
-
 
     </section>
   );
@@ -413,29 +446,36 @@ function ModelDefaultsPanel({
   const singleGroups = groups.filter((group) => group.upstreams.length === 1);
 
   return (
-    <div className="mb-6 rounded-lg border border-border">
-      <div className="space-y-1 border-b border-border px-4 py-3">
-        <h2 className="text-sm font-semibold">Model defaults</h2>
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-medium text-muted-foreground">
+          Model defaults
+        </h2>
         <p className="text-xs text-muted-foreground">
           无 r-upstream 时按 body.model 匹配 upstream；同一个 model 对应多个 upstream 时，必须在这里指定默认 upstream。
         </p>
       </div>
+      <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border">
       {groups.length === 0 ? (
         <div className="px-4 py-4 text-sm text-muted-foreground">
           当前没有配置 model 的 upstream。客户端必须传 r-upstream，或先给 upstream 配置 model。
         </div>
       ) : (
-        <Table>
+        <table className="w-full caption-bottom text-sm">
           <TableHeader>
             <TableRow className="bg-muted/45 hover:bg-muted/45">
-              <TableHead className="w-[22%]">model</TableHead>
-              <TableHead className="w-[12%]">status</TableHead>
-              <TableHead className="w-[22%]">current default</TableHead>
-              <TableHead>upstream</TableHead>
-              <TableHead className="w-24 text-right">action</TableHead>
+              <TableHead className="sticky top-0 z-20 w-[22%] bg-muted">model</TableHead>
+              <TableHead className="sticky top-0 z-20 w-[12%] bg-muted">status</TableHead>
+              <TableHead className="sticky top-0 z-20 w-[22%] bg-muted">
+                current default
+              </TableHead>
+              <TableHead className="sticky top-0 z-20 bg-muted">upstream</TableHead>
+              <TableHead className="sticky top-0 z-20 w-24 bg-muted text-right">
+                action
+              </TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
+          <TableBody className="[&_tr:last-child]:border-b">
             {duplicateGroups.map((group) => {
               const draft = drafts[group.model] ?? "";
               const unchanged = draft === (group.defaultUpstreamName ?? "");
@@ -505,8 +545,9 @@ function ModelDefaultsPanel({
               );
             })}
           </TableBody>
-        </Table>
+        </table>
       )}
+      </div>
     </div>
   );
 }

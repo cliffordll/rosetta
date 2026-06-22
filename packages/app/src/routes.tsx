@@ -8,8 +8,8 @@ import Upstreams from "@/pages/Upstreams";
 export const NAV_ITEMS = [
   { path: "/dashboard", label: "Dashboard" },
   { path: "/upstreams", label: "Upstreams" },
-  { path: "/logs", label: "Logs" },
   { path: "/chat", label: "Chat" },
+  { path: "/logs", label: "Logs" },
 ] as const;
 
 export function AppRoutes() {

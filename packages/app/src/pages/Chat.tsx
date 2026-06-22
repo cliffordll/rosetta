@@ -403,12 +403,12 @@ export default function Chat() {
       </div>
 
       <div className="mb-4 grid shrink-0 grid-cols-3 gap-3">
-        <div>
-          <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
+        <div className="grid min-w-0 grid-cols-[68px_minmax(0,1fr)] items-start gap-2">
+          <Label className="pt-2.5 text-xs uppercase text-muted-foreground">
             server_api
           </Label>
           <Select value={serverApi} onValueChange={(v) => onServerApiChange(v as ServerApi)}>
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -425,51 +425,54 @@ export default function Chat() {
           </Select>
         </div>
 
-        <div>
-          <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
+        <div className="grid min-w-0 grid-cols-[68px_minmax(0,1fr)] items-start gap-2">
+          <Label className="pt-2.5 text-xs uppercase text-muted-foreground">
             Upstream
           </Label>
-          <Select value={upstreamChoice} onValueChange={setUpstreamChoice}>
-            <SelectTrigger>
-              <SelectValue placeholder="请选择 upstream" />
-            </SelectTrigger>
-            <SelectContent
-              position="popper"
-              side="bottom"
-              align="start"
-              sideOffset={4}
-              avoidCollisions={false}
-            >
-              {upstreams.map((u) => (
-                <SelectItem key={u.id} value={String(u.id)}>
-                  {formatUpstreamLabel(u)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {upstreamsErr && (
-            <p className="mt-1 text-xs text-destructive">加载 upstreams 失败:{upstreamsErr}</p>
-          )}
-          {!upstreamsErr && upstreams.length === 0 && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              还没有 upstream,先去 Upstreams 页面添加。
-            </p>
-          )}
-          {!upstreamsErr &&
-            upstreams.length > 0 &&
-            !resolvedUpstream &&
-            model.trim().length > 0 && (
+          <div className="min-w-0">
+            <Select value={upstreamChoice} onValueChange={setUpstreamChoice}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="请选择 upstream" />
+              </SelectTrigger>
+              <SelectContent
+                position="popper"
+                side="bottom"
+                align="start"
+                sideOffset={4}
+                avoidCollisions={false}
+              >
+                {upstreams.map((u) => (
+                  <SelectItem key={u.id} value={String(u.id)}>
+                    {formatUpstreamLabel(u)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {upstreamsErr && (
+              <p className="mt-1 text-xs text-destructive">加载 upstreams 失败:{upstreamsErr}</p>
+            )}
+            {!upstreamsErr && upstreams.length === 0 && (
               <p className="mt-1 text-xs text-muted-foreground">
-                未选 upstream → 不发 r-upstream,server 将按 model 匹配 upstream。
+                还没有 upstream,先去 Upstreams 页面添加。
               </p>
             )}
+            {!upstreamsErr &&
+              upstreams.length > 0 &&
+              !resolvedUpstream &&
+              model.trim().length > 0 && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  未选 upstream → 不发 r-upstream,server 将按 model 匹配 upstream。
+                </p>
+              )}
+          </div>
         </div>
 
-        <div>
-          <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
+        <div className="grid min-w-0 grid-cols-[68px_minmax(0,1fr)] items-start gap-2">
+          <Label className="pt-2.5 text-xs uppercase text-muted-foreground">
             Model
           </Label>
           <Input
+            className="min-w-0"
             value={model}
             placeholder={
               resolvedUpstream?.model
