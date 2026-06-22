@@ -24,7 +24,7 @@ from rosetta.shared.server_api import DEFAULT_SERVER_API_PATHS
 
 _ALLOWED_NATIVE_APIS = get_args(UpstreamNativeApiCreatable)
 _ALLOWED_PROVIDERS = get_args(UpstreamProvider)
-_PROVIDER_GUIDES = {"codex": "codex.md", "claude": "claude.md"}
+_PROVIDER_GUIDES = {"codex": "codex.md", "claude": "claude.md", "readme": "readme.md"}
 _NATIVE_API_ERR = "--native-api 必须是 messages/completions/responses"
 
 app = typer.Typer(
@@ -270,31 +270,6 @@ async def _model_defaults() -> None:
         return
     Renderer.table(["model", "upstream"], [[model, name] for model, name in defaults.items()])
 
-
-@app.command("guide")
-def guide_cmd(
-    provider: Annotated[str, typer.Argument(help="配置说明: codex | claude")],
-) -> None:
-    """通过后端 API 显示客户端配置说明文档。"""
-    asyncio.run(_guide(provider.lower()))
-
-
-async def _guide(provider: str) -> None:
-    valid = {"codex": "codex.md", "claude": "claude.md"}
-    if provider not in valid:
-        Renderer.die(f"provider 必须是 {'/'.join(sorted(valid))},收到 {provider !r}")
-        return
-    try:
-        async with ProxyClient.discover_session(spawn_if_missing=False) as client:
-            result = await client.get_provider_guide(provider)
-    except RuntimeError as e:
-        Renderer.die(f"server 未就绪: {e}")
-        return
-    except Exception as e:
-        Renderer.die(str(e))
-        return
-    print(f"\n=== Provider: {provider} ===\n")
-    Renderer.out(result["content"])
 
 
 

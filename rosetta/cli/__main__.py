@@ -38,6 +38,9 @@ from rosetta.cli.commands import (
 from rosetta.cli.commands import (
     upstream as upstream_mod,
 )
+from rosetta.cli.commands import (
+    guide as guide_mod,
+)
 
 # 所有子 Typer 共享的 context 配置:让 `-h` 也能触发 help(默认只认 `--help`)
 HELP_CONTEXT: dict[str, list[str]] = {"help_option_names": ["-h", "--help"]}
@@ -69,6 +72,7 @@ for mod in (
     start_mod,
     stop_mod,
     upstream_mod,
+    guide_mod,
     logs_mod,
     stats_mod,
     chat_mod,

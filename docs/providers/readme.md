@@ -18,21 +18,7 @@ rosetta stats
 rosetta start --host 0.0.0.0 -p 8090
 ```
 
-或者用 python 直接启动：
-
-```bash
-uv run python -m rosetta.server
-```
-
-## 2. 启动 Web 管理台
-
-```bash
-cd packages/app
-bun install
-bun run dev
-```
-
-## 3. 添加 Upstream
+## 2. 添加 Upstream
 
 将真实 LLM 服务配置为 upstream 供客户端使用。
 
@@ -50,7 +36,7 @@ rosetta upstream add \
 rosetta upstream list
 ```
 
-## 4. 配置默认模型
+## 3. 配置默认模型
 
 客户端不传 r-upstream header 时，Rosetta 按请求体中的 model 字段匹配 upstream。
 
@@ -59,14 +45,14 @@ rosetta upstream default gpt4o-upstream --model gpt-4o
 rosetta upstream defaults
 ```
 
-## 5. 客户端配置
+## 4. 客户端配置
 
 客户端只需修改 base_url 指向 Rosetta 地址（http://localhost:1687）。
 
-- Codex: 参见 `rosetta upstream guide codex`
-- Claude: 参见 `rosetta upstream guide claude`
+- Codex: 参见 `rosetta guide codex`
+- Claude: 参见 `rosetta guide claude`
 
-## 6. CLI 常用命令
+## 5. CLI 常用命令
 
 ```bash
 # 查看帮助
@@ -98,12 +84,12 @@ rosetta logs -f                                      # 实时追踪
 rosetta logs --upstream <name> --limit 20            # 筛选
 
 # 配置说明
-rosetta upstream guide codex                         # Codex 说明
-rosetta upstream guide claude                        # Claude 说明
-rosetta upstream guide readme                        # 本说明
+rosetta guide codex                         # Codex 说明
+rosetta guide claude                        # Claude 说明
+rosetta guide readme                        # 本说明
 ```
 
-## 7. 注意事项
+## 6. 注意事项
 
 - upstream 的 base_url 填真实 LLM 服务地址，不要填 Rosetta 地址。
 - 客户端连接 Rosetta 时，base_url 设为 http://localhost:1687。
