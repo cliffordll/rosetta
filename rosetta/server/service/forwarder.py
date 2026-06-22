@@ -49,6 +49,7 @@ _log = logging.getLogger("rosetta.server.forwarder")
 
 # 超时:连接 10s、读取 5min(LLM 长响应常态)
 _DEFAULT_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
+_DEFAULT_MAX_TOKENS = 32768
 
 
 @dataclass
@@ -179,6 +180,12 @@ class Forwarder:
                 message="请求体 JSON 顶层必须是对象",
             )
         return cast(dict[str, Any], data)
+
+    @staticmethod
+    def _max_tokens_field_for(server_api: ServerApi) -> str:
+        if server_api is ServerApi.RESPONSES:
+            return "max_output_tokens"
+        return "max_tokens"
 
     async def probe_upstream(self, upstream: Upstream) -> UpstreamProbeResult:
         """最小探测 upstream 连通性与配置正确性,不写业务 logs。"""
@@ -339,10 +346,16 @@ class Forwarder:
             needs_model_fallback = (
                 not isinstance(raw_model, str) or not raw_model.strip()
             ) and upstream.model
+            max_tokens_field = self._max_tokens_field_for(server_api)
+            needs_max_tokens_fallback = body_dict.get(max_tokens_field) is None
             if needs_model_fallback:
                 body_dict["model"] = upstream.model
-                body = json.dumps(body_dict, ensure_ascii=False).encode("utf-8")
                 raw_model = upstream.model
+            if needs_max_tokens_fallback:
+                body_dict[max_tokens_field] = _DEFAULT_MAX_TOKENS
+
+            if needs_model_fallback or needs_max_tokens_fallback:
+                body = json.dumps(body_dict, ensure_ascii=False).encode("utf-8")
 
             if isinstance(raw_model, str):
                 model = raw_model

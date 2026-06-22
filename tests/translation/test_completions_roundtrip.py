@@ -85,6 +85,74 @@ def test_request_without_max_tokens() -> None:
     assert "max_tokens" not in body_back
 
 
+def test_ir_to_completions_ignores_thinking() -> None:
+    """IR 中的 thinking 在转 completions 时应被忽略,不抛错。"""
+    from rosetta.server.translation.messages.request import messages_to_ir
+
+    body = {
+        "model": "claude-sonnet-4-5",
+        "max_tokens": 16,
+        "messages": [{"role": "user", "content": "hi"}],
+        "thinking": {"type": "enabled", "budget_tokens": 4096},
+    }
+    ir = messages_to_ir(body)
+    assert ir.thinking is not None
+
+    body_back = ir_to_completions(ir)
+    assert "thinking" not in body_back
+
+
+def test_ir_to_completions_ignores_metadata() -> None:
+    """IR 中的 metadata 在转 completions 时应被忽略,不抛错。"""
+    from rosetta.server.translation.messages.request import messages_to_ir
+
+    body = {
+        "model": "claude-sonnet-4-5",
+        "max_tokens": 16,
+        "messages": [{"role": "user", "content": "hi"}],
+        "metadata": {"user_id": "u123"},
+    }
+    ir = messages_to_ir(body)
+    assert ir.metadata is not None
+
+    body_back = ir_to_completions(ir)
+    assert "metadata" not in body_back
+
+
+def test_ir_to_completions_ignores_tool_result_is_error() -> None:
+    """IR 中 tool_result.is_error 转 completions 时应忽略,不抛错。"""
+    from rosetta.server.translation.dispatcher import translate_request
+    from rosetta.shared.server_api import ServerApi
+
+    body = {
+        "model": "claude-sonnet-4-5",
+        "max_tokens": 16,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "call_abc",
+                        "content": "something went wrong",
+                        "is_error": True,
+                    }
+                ],
+            }
+        ],
+    }
+    translated = translate_request(
+        body,
+        source=ServerApi.MESSAGES,
+        target=ServerApi.CHAT_COMPLETIONS,
+    )
+    assert translated["messages"][0] == {
+        "role": "tool",
+        "tool_call_id": "call_abc",
+        "content": "something went wrong",
+    }
+
+
 @pytest.mark.parametrize("fixture_name", NONSTREAM_FIXTURES)
 def test_response_nonstream_roundtrip(fixture_name: str) -> None:
     body = _load_fixture(fixture_name)["response_nonstream"]

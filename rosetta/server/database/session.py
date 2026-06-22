@@ -155,9 +155,7 @@ async def _dispose_engine_ignoring_errors(engine: AsyncEngine) -> None:
         _log.warning("engine.dispose() raised %s during shutdown: %s", type(e).__name__, e)
 
 
-async def _run_cleanup_safely(
-    cleanup: Coroutine[Any, Any, None], *, label: str
-) -> None:
+async def _run_cleanup_safely(cleanup: Coroutine[Any, Any, None], *, label: str) -> None:
     """运行清理协程;调用方被取消时让清理后台完成,并消费后台异常。"""
     task: asyncio.Task[None] = asyncio.create_task(
         cleanup,
