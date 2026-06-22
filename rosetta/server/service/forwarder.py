@@ -110,13 +110,17 @@ class Forwarder:
         fallback 到 `upstreams.api_key`。`r-api-key` 仅用于 Rosetta server-level 鉴权(暂不启用)。
         """
         key = override_key or upstream.api_key
+        if key is not None:
+            _log.debug(
+                "upstream '%s' using %s key",
+                upstream.name,
+                "client" if override_key else "db",
+            )
         if key is None:
             raise ServiceError(
                 status=500,
                 code="upstream_missing_key",
-                message=(
-                    f"upstream '{upstream.name}' 没配 api_key,且客户端请求也未带对应鉴权头"
-                ),
+                message=(f"upstream '{upstream.name}' 没配 api_key,且客户端请求也未带对应鉴权头"),
             )
         if upstream.native_api == "messages":
             return {

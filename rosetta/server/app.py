@@ -44,7 +44,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     # Tauri webview 的 origin 是 `https://tauri.localhost`(Win)/ `tauri://localhost`(mac),
-    # 与 server 的 `http://127.0.0.1:<port>` 跨 origin + 带 x-api-key / x-rosetta-upstream
+    # 与 server 的 `http://127.0.0.1:<port>` 跨 origin + 带 x-api-key/authorization / r-upstream
     # 等自定义 header 会触发 preflight。server 只绑 localhost,外网打不到,allow_origins=["*"]
     # 不引入攻击面。不用 credentials,所以允许 "*" 合法。
     app.add_middleware(
