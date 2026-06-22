@@ -389,6 +389,9 @@ export default function Upstreams() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    
+
+
     </section>
   );
 }
@@ -651,7 +654,7 @@ function UpstreamFormDialog({
     ? "修改字段后保存;api_key 会回显,留空保存会清空。"
     : isCopy
       ? `以 '${initial?.name}' 为模板新建一行;name 已加 -copy 后缀避免冲突,api_key 会带过来,可按需修改。`
-      : "新建上游 upstream;model 用于无 r-upstream 时自动匹配。base_url 填根地址,不要带 /v1 或具体 API 路径。";
+      : "新建上游 upstream。";
 
   const keyStatus =
     isEdit && initial
@@ -669,7 +672,12 @@ function UpstreamFormDialog({
         </DialogHeader>
         <form onSubmit={(e) => void submit(e)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="u-name">name</Label>
+            <Label htmlFor="u-name">
+              name{" "}
+              <span className="text-xs text-muted-foreground">
+                (唯一标识 · r-upstream header 的值)
+              </span>
+            </Label>
             <Input
               id="u-name"
               value={name}
@@ -679,9 +687,14 @@ function UpstreamFormDialog({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="u-native-api">upstream native API</Label>
+            <Label htmlFor="u-native-api">
+              native_api{" "}
+              <span className="text-xs text-muted-foreground">
+                (API 格式 · 决定 base_url 追加的路径)
+              </span>
+            </Label>
             <Select value={nativeApi} onValueChange={(v) => setNativeApi(v as UpstreamNativeApi)}>
-              <SelectTrigger id="u-native-api">
+              <SelectTrigger id="u-native-api" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -694,9 +707,14 @@ function UpstreamFormDialog({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="u-provider">provider</Label>
+            <Label htmlFor="u-provider">
+              provider{" "}
+              <span className="text-xs text-muted-foreground">
+                (暂时只用于区分 upstream 类别)
+              </span>
+            </Label>
             <Select value={provider} onValueChange={(v) => setProvider(v as UpstreamProvider)}>
-              <SelectTrigger id="u-provider">
+              <SelectTrigger id="u-provider" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -709,30 +727,24 @@ function UpstreamFormDialog({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="u-key">
-              api_key{" "}
+            <Label htmlFor="u-base">
+              base_url{" "}
               <span className="text-xs text-muted-foreground">
-                {isEdit
-                  ? "(已回显 · 清空保存 = 删除)"
-                  : isCopy
-                    ? "(从原 upstream 带过来 · 可修改)"
-                    : "(可选)"}
+                (填根地址 · rosetta 会按 native API 自动追加 /v1/…)
               </span>
             </Label>
             <Input
-              id="u-key"
-              type="text"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-..."
+              id="u-base"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder="https://api.example.com (不要带 /v1)"
             />
-            {keyStatus && <p className="text-xs text-muted-foreground">{keyStatus}</p>}
           </div>
           <div className="space-y-2">
             <Label htmlFor="u-model">
               model{" "}
               <span className="text-xs text-muted-foreground">
-                (可选 · 无 r-upstream 时用于自动匹配)
+                (可选 · 客户端不传 r-upstream 时，按 body.model 自动匹配到此上游)
               </span>
             </Label>
             <Input
@@ -743,17 +755,24 @@ function UpstreamFormDialog({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="u-base">base_url</Label>
+            <Label htmlFor="u-key">
+              api_key{" "}
+              <span className="text-xs text-muted-foreground">
+                {isEdit
+                  ? "(已回显 · 清空保存 = 删除)"
+                  : isCopy
+                    ? "(从原 upstream 带过来 · 可修改)"
+                    : "(可选 · 客户端不传时 server 用此 key 兜底)"}
+              </span>
+            </Label>
             <Input
-              id="u-base"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="https://api.example.com (不要带 /v1)"
+              id="u-key"
+              type="text"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="sk-..."
             />
-            <p className="text-xs text-muted-foreground">
-              rosetta 会按 upstream native API 自动追加 /v1/messages、/v1/chat/completions 或
-              /v1/responses。
-            </p>
+            {keyStatus && <p className="text-xs text-muted-foreground">{keyStatus}</p>}
           </div>
           {(isEdit || isCopy) && (
             <div className="flex items-center gap-2">

@@ -265,6 +265,10 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
+
+  getProviderGuide(provider: string): Promise<{provider: string; content: string}> {
+    return request(`/admin/upstreams/guide/${provider}`, { method: "GET" });
+  },
   restoreMockUpstream(force = false): Promise<RestoreMockResult> {
     return request(
       `/admin/upstreams/restore-mock?force=${force ? "true" : "false"}`,
