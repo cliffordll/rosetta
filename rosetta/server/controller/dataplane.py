@@ -15,7 +15,9 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from typing import Any, cast
 
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
@@ -62,6 +64,7 @@ class RequestCtx:
     content_type: str
     client_api_key: str | None
     client_addr: str | None
+    model: str | None
 
 
 @dataclass(frozen=True)
@@ -80,13 +83,28 @@ def _extract_client_addr(request: Request) -> str | None:
 
 async def parse_request(request: Request, server_api: ServerApi) -> RequestCtx:
     """一次性读取 body + 需要的 headers,打包成 `RequestCtx`。"""
+    body = await request.body()
     return RequestCtx(
-        body=await request.body(),
+        body=body,
         rosetta_upstream=request.headers.get("r-upstream"),
         content_type=request.headers.get("content-type", "application/json"),
         client_api_key=_extract_client_api_key(request, server_api),
         client_addr=_extract_client_addr(request),
+        model=_model_from_body(body),
     )
+
+
+def _model_from_body(body: bytes) -> str | None:
+    try:
+        data = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    model = cast(dict[str, Any], data).get("model")
+    if not isinstance(model, str) or not model.strip():
+        return None
+    return model
 
 
 async def load_dataplane_config(ctx: RequestCtx, server_api: ServerApi) -> DataplaneConfig:
@@ -99,7 +117,7 @@ async def load_dataplane_config(ctx: RequestCtx, server_api: ServerApi) -> Datap
         upstream = await pick_upstream(
             session,
             header_upstream=ctx.rosetta_upstream,
-            server_api=server_api,
+            model=ctx.model,
         )
         api_type_paths = await UpstreamRepo(session).api_type_paths()
         await session.commit()
