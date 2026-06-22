@@ -1,21 +1,32 @@
-import type { UpstreamDefaultsOut, UpstreamOut } from "./api";
+import type { ModelDefaultsOut, UpstreamOut } from "./api";
 
-export const DEFAULT_SCOPE_ORDER = [
-  "global",
-  "messages",
-  "completions",
-  "responses",
-] as const;
+export interface ModelUpstreamGroup {
+  model: string;
+  upstreams: UpstreamOut[];
+  defaultUpstreamName: string | null;
+}
 
-export type UpstreamDefaultScope = (typeof DEFAULT_SCOPE_ORDER)[number];
+export function modelUpstreamGroups(
+  upstreams: UpstreamOut[],
+  defaults: ModelDefaultsOut,
+): ModelUpstreamGroup[] {
+  const byModel = new Map<string, UpstreamOut[]>();
+  for (const upstream of upstreams) {
+    const model = upstream.model?.trim();
+    if (!model) continue;
+    byModel.set(model, [...(byModel.get(model) ?? []), upstream]);
+  }
 
-export function defaultBindingRows(
-  defaults: UpstreamDefaultsOut,
-): Array<{ scope: UpstreamDefaultScope; upstreamName: string | null }> {
-  return DEFAULT_SCOPE_ORDER.map((scope) => ({
-    scope,
-    upstreamName: defaults[scope],
-  }));
+  return Array.from(byModel.entries())
+    .map(([model, groupedUpstreams]) => ({
+      model,
+      upstreams: groupedUpstreams.sort((a, b) => a.name.localeCompare(b.name)),
+      defaultUpstreamName: defaults[model] ?? null,
+    }))
+    .sort((a, b) => {
+      const duplicateDelta = Number(b.upstreams.length > 1) - Number(a.upstreams.length > 1);
+      return duplicateDelta || a.model.localeCompare(b.model);
+    });
 }
 
 export function formatUpstreamOptionLabel(upstream: UpstreamOut): string {
