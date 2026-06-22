@@ -28,6 +28,7 @@ _HIDDEN = [
 # 静态资源:schema migrations 必须跟着可执行走
 _DATAS = [
     ("../rosetta/server/database/migrations", "rosetta/server/database/migrations"),
+    ("../docs/providers", "docs/providers"),
 ]
 # certifi 的 CA bundle(httpx → TLS 握手);copy_metadata 一并拉,避免 SDK 侧版本探测失败
 _DATAS += collect_data_files("certifi")

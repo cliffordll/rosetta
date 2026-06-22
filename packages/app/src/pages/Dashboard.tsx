@@ -47,6 +47,7 @@ export default function Dashboard() {
   const [state, setState] = useState<FetchState>({ kind: "loading" });
   const [guideProvider, setGuideProvider] = useState<string | null>(null);
   const [guideContent, setGuideContent] = useState<string | null>(null);
+  const [guideErr, setGuideErr] = useState<string | null>(null);
   const [guideLoading, setGuideLoading] = useState(false);
   const [updateState, setUpdateState] = useState<
     | { kind: "idle" }
@@ -129,13 +130,14 @@ export default function Dashboard() {
   async function loadGuide(provider: string) {
     setGuideProvider(provider);
     setGuideContent(null);
+    setGuideErr(null);
     setGuideLoading(true);
     try {
       const result = await api.getProviderGuide(provider);
       setGuideContent(result.content);
-    } catch {
+    } catch (e) {
       setGuideContent(null);
-      setGuideProvider(null);
+      setGuideErr(e instanceof Error ? e.message : String(e));
     } finally {
       setGuideLoading(false);
     }
@@ -358,6 +360,7 @@ export default function Dashboard() {
         open={guideProvider !== null}
         onOpenChange={(open) => {
           if (!open) setGuideProvider(null);
+          if (!open) setGuideErr(null);
         }}
       >
         <DialogContent className="!max-w-[70vw] max-h-[90vh] flex flex-col p-0">
@@ -370,6 +373,8 @@ export default function Dashboard() {
             <div className="prose prose-sm dark:prose-invert max-w-none">
               {guideLoading ? (
                 <p className="text-muted-foreground">Loading...</p>
+              ) : guideErr ? (
+                <p className="text-destructive">Failed to load guide content: {guideErr}</p>
               ) : guideContent ? (
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
