@@ -1,124 +1,89 @@
 # Codex 使用说明
 
-> 通过 Rosetta 让 Codex 客户端使用任意 LLM 上游。
+> 请根据实际 Codex 客户端、模型和密钥管理方式替换内容。
 
-## 1. 启动 Rosetta
+## 1. 适用场景
 
-```bash
-# 启动 Rosetta 服务（默认 127.0.0.1:1687）
-rosetta start
-```
+当 Codex 客户端支持配置 OpenAI-compatible endpoint 时，可以把 Rosetta 作为本地代理入口。
 
-或者用 python 直接启动：
+## 2. 服务端使用说明
 
-```bash
-uv run python -m rosetta.server
-```
-
-## 2. 添加 Upstream
-
-将真实 LLM 服务配置为 upstream 供客户端使用。
+### 2.1. 添加 Upstream 示例
 
 ```bash
-# 添加一个 OpenAI upstream
 rosetta upstream add \
-  --name gpt4o-upstream \
-  --provider openai \
-  --native-api responses \
-  --base-url https://api.openai.com \
-  --api-key sk-your-key \
-  --model gpt-4o
-
-# 添加一个 Ollama 本地模型
-rosetta upstream add \
-  --name ollama-deepseek \
+  --name ds-upstream \
   --provider ollama \
   --native-api completions \
-  --base-url http://localhost:11434 \
-  --model deepseek-r1
-
-# 查看所有 upstream
-rosetta upstream list
+  --base-url http://localhost:11434/ \
+  --api-key sk-default-key \
+  --model deepseek-v4-flash
 ```
 
-## 3. 配置默认模型
+### 2.2. 配置默认模型
 
-客户端不传 `r-upstream` header 时，Rosetta 按请求体中的 `model` 字段匹配 upstream。
+如果客户端无法传递 `r-upstream`，Rosetta 会按请求体里的 `model` 匹配 upstream。
+同一个 model 对应多个 upstream 时，需要设置默认 upstream：
 
 ```bash
-# 将某个 upstream 设为 model 的默认路由
-rosetta upstream default gpt4o-upstream --model gpt-4o
-
-# 查看默认映射
-rosetta upstream defaults
+rosetta upstream default ds-upstream --model deepseek-v4-flash
 ```
 
-## 4. Codex 客户端配置
+## 3. 客户端使用说明
 
-Codex 支持 OpenAI API 兼容的 endpoint。
+### 3.1. 环境配置说明
 
-### 4.1 修改配置
-
-编辑 `~/.codex/config.toml`：
+修改 Codex 配置文件：打开 ~/.codex/config.toml，按照下面的示例调整，关键是把 wire_api 改成 "responses"。
 
 ```toml
-model = "gpt-4o"
-model_provider = "rosetta"
+# 给模型指定真实上下文，上下文窗口应该远大于压缩阈值，才能保证长对话的稳定运行。
+# 上下文窗口设为1,047,576，压缩阈值设为105,197；也有设为1,000,000和900,000的组合。
+# 解决报错：stream disconnected before completion: stream closed before response.completed。
+model_context_window = 1047576
+model_auto_compact_token_limit = 105197
 
-[model_providers.rosetta]
-name = "Rosetta"
+model = "deepseek-v4-flash"
+model_provider = "ds_provider" 
+
+[model_providers.ds_provider]
+name = "DS API"
+# 配置 Rosetta API地址
 base_url = "http://localhost:1687"
+# 指定从哪个环境变量读取 API Key
 env_key = "OPENAI_API_KEY"
+# 根据模型选择 'chat' 或 'responses'，一些新模型需要 'responses'。Codex 需要使用 Rosetta /v1/responses 接口
 wire_api = "responses"
+
+model = "deepseek-v4-flash"
+# 是 Codex 配置中用来临时绕过 HTTPS 安全验证的开关
 allow_insecure = true
+
+[model_providers.my_provider]
+......
 ```
 
-### 4.2 环境变量
+powershell
+
+```powershell
+# $env:OPENAI_BASE_URL="https://your-custom-endpoint.com/"
+$env:OPENAI_API_KEY="sk-your-key"
+```
+
+bash
 
 ```bash
+# export OPENAI_BASE_URL="https://your-custom-endpoint.com/"
 export OPENAI_API_KEY="sk-your-key"
 ```
 
-### 4.3 启动
+### 3.2. 客户端使用说明
 
 ```bash
-codex --oss --local-provider rosetta
+codex --oss --local-provider ds_provider
 ```
 
-## 5. CLI 常用命令
+## 4. 注意事项
 
-```bash
-# 查看帮助
-rosetta --help
-
-# upstream 管理
-rosetta upstream list                               # 列出所有 upstream
-rosetta upstream add --help                         # 查看添加参数
-rosetta upstream update <id> --name new-name        # 更新
-rosetta upstream remove <id>                        # 删除
-rosetta upstream default <name> --model <model>     # 设为默认
-rosetta upstream defaults                           # 查看默认映射
-rosetta upstream test <id>                          # 测试连通性
-rosetta upstream restore-mock                       # 恢复内置 mock
-
-# 聊天
-rosetta chat "你好"                                  # 用默认 upstream 对话
-rosetta chat --upstream <name> "你好"                # 指定 upstream
-rosetta chat --raw "你好"                            # 查看原始 request/response
-
-# 日志
-rosetta logs                                         # 最近日志
-rosetta logs -f                                      # 实时追踪
-rosetta logs --upstream <name> --limit 20            # 筛选
-
-# 查看配置说明
-rosetta upstream guide codex                         # 本说明
-rosetta upstream guide claude                        # Claude 说明
-rosetta upstream guide readme                        # 快速入门
-```
-
-## 6. 注意事项
-
-- upstream 的 `base_url` 填真实 LLM 服务地址，不要填 Rosetta 地址。
-- 客户端连接 Rosetta 时，base_url 设为 `http://localhost:1687`。
-- 客户端传入 api-key 时会覆盖 upstream 中保存的 key。
+- 不要把 upstream 的 `base_url` 填成 Rosetta 地址；upstream 指真实上游根地址。
+- 客户端连接 Rosetta 时，base URL 使用本地 Rosetta server 地址。
+- 如果客户端传入 API key，Rosetta 会优先使用客户端 key 覆盖 upstream 中保存的 key。
