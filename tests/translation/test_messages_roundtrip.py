@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from rosetta.server.translation.dispatcher import translate_request
 from rosetta.server.translation.messages.request import (
     ir_to_messages,
     messages_to_ir,
@@ -28,6 +29,7 @@ from rosetta.server.translation.messages.response import (
     messages_response_to_ir,
     messages_stream_to_ir,
 )
+from rosetta.shared.server_api import ServerApi
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "messages"
 
@@ -99,6 +101,121 @@ def test_request_str_content_shorthand() -> None:
     assert ir.messages[0].content[0].text == "你好"  # type: ignore[union-attr]
     assert ir.messages[1].content[0].text == "hi"  # type: ignore[union-attr]
     assert ir.messages[2].content[0].text == "再说一遍"  # type: ignore[union-attr]
+
+
+def test_request_ignores_anthropic_cache_control() -> None:
+    """Anthropic prompt caching 的 cache_control 是传输层扩展,IR 不建模但应兼容。"""
+    body = {
+        "model": "claude-sonnet-4-5",
+        "max_tokens": 16,
+        "system": [
+            {"type": "text", "text": "你是助手。", "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": "回答要简洁。"},
+        ],
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "你好"},
+                    {
+                        "type": "text",
+                        "text": "这段可缓存",
+                        "cache_control": {"type": "ephemeral"},
+                    },
+                ],
+            }
+        ],
+    }
+
+    ir = messages_to_ir(body)
+
+    assert [block.text for block in ir.system or []] == ["你是助手。", "回答要简洁。"]  # type: ignore[union-attr]
+    assert ir.messages[0].content[1].text == "这段可缓存"  # type: ignore[union-attr]
+    assert "cache_control" not in ir_to_messages(ir)["system"][0]  # type: ignore[index]
+
+
+def test_request_thinking_adaptive_maps_to_enabled() -> None:
+    """Anthropic adaptive thinking 映射为 enabled 并补默认 budget_tokens。"""
+    body = {
+        "model": "claude-sonnet-4-5",
+        "max_tokens": 16,
+        "messages": [{"role": "user", "content": "hi"}],
+        "thinking": {"type": "adaptive"},
+    }
+
+    ir = messages_to_ir(body)
+
+    assert ir.thinking is not None
+    assert ir.thinking.type == "enabled"  # type: ignore[union-attr]
+    assert ir.thinking.budget_tokens > 0  # type: ignore[union-attr]
+
+
+def test_request_thinking_adaptive_preserves_budget_tokens() -> None:
+    """adaptive thinking 若自带 budget_tokens,应保留。"""
+    body = {
+        "model": "claude-sonnet-4-5",
+        "max_tokens": 16,
+        "messages": [{"role": "user", "content": "hi"}],
+        "thinking": {"type": "adaptive", "budget_tokens": 8192},
+    }
+
+    ir = messages_to_ir(body)
+
+    assert ir.thinking is not None
+    assert ir.thinking.type == "enabled"  # type: ignore[union-attr]
+    assert ir.thinking.budget_tokens == 8192  # type: ignore[union-attr]
+
+
+def test_request_strips_messages_only_fields_for_translation() -> None:
+    """context_management / output_config 是 Messages 专有扩展,翻译前应剥离。"""
+    body = {
+        "model": "claude-sonnet-4-5",
+        "max_tokens": 16,
+        "messages": [{"role": "user", "content": "hi"}],
+        "context_management": {"edits": [], "keep": "all"},
+        "output_config": {"effort": "high"},
+    }
+
+    ir = messages_to_ir(body)
+    body_back = ir_to_messages(ir)
+
+    assert "context_management" not in body_back
+    assert "output_config" not in body_back
+
+
+def test_request_moves_system_role_messages_to_system_prompt() -> None:
+    """部分客户端会把 system 放进 messages,Messages 入口应归一化到顶层 system。"""
+    body = {
+        "model": "claude-sonnet-4-5",
+        "max_tokens": 16,
+        "system": [{"type": "text", "text": "顶层规则。"}],
+        "messages": [
+            {
+                "role": "system",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "消息规则。",
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+            },
+            {"role": "user", "content": "你好"},
+        ],
+    }
+
+    translated = translate_request(
+        body,
+        source=ServerApi.MESSAGES,
+        target=ServerApi.CHAT_COMPLETIONS,
+    )
+
+    assert translated["messages"][0] == {
+        "role": "system",
+        "content": "顶层规则。消息规则。",
+    }
+    assert translated["messages"][1] == {"role": "user", "content": "你好"}
+    assert "cache_control" not in str(translated)
 
 
 @pytest.mark.parametrize("fixture_name", NONSTREAM_FIXTURES)

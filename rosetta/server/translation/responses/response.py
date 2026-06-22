@@ -542,8 +542,7 @@ def ir_to_responses_stream(
             }
             if incomplete_details is not None:
                 resp["incomplete_details"] = incomplete_details
-            final_type = "response.completed" if status == "completed" else "response.incomplete"
-            yield {"type": final_type, "response": resp}
+            yield {"type": "response.completed", "response": resp}
         elif isinstance(ev, PingEvent):
             continue
         elif isinstance(ev, ErrorEvent):

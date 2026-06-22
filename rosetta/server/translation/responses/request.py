@@ -152,17 +152,17 @@ def _input_to_ir_messages(input_val: Any) -> tuple[list[Message], list[str]]:
                     raise ValueError("assistant message content 不能为空")
                 result.append(Message(role="assistant", content=blocks))
 
-        elif itype == "function_call":
+        elif itype in ("function_call", "custom_tool_call"):
             flush_pending()
             call_id = item.get("call_id")
             name = item.get("name")
             args_str = item.get("arguments", "")
             if not isinstance(call_id, str):
-                raise ValueError("function_call.call_id 必须是 str")
+                raise ValueError(f"{itype}.call_id 必须是 str")
             if not isinstance(name, str):
-                raise ValueError("function_call.name 必须是 str")
+                raise ValueError(f"{itype}.name 必须是 str")
             if not isinstance(args_str, str):
-                raise ValueError("function_call.arguments 必须是 str(JSON 字符串)")
+                raise ValueError(f"{itype}.arguments 必须是 str(JSON 字符串)")
             parsed: dict[str, Any] = (
                 cast(dict[str, Any], json.loads(args_str)) if args_str.strip() else {}
             )
@@ -173,7 +173,7 @@ def _input_to_ir_messages(input_val: Any) -> tuple[list[Message], list[str]]:
             else:
                 result.append(Message(role="assistant", content=[tool_use]))
 
-        elif itype == "function_call_output":
+        elif itype in ("function_call_output", "custom_tool_call_output"):
             call_id = item.get("call_id")
             output = item.get("output")
             if not isinstance(call_id, str):
@@ -199,6 +199,14 @@ def _input_to_ir_messages(input_val: Any) -> tuple[list[Message], list[str]]:
                     f"function_call_output.output 必须是 str / list,收到 {type(output).__name__}"
                 )
             pending_tool_results.append(ToolResultBlock(tool_use_id=call_id, content=tr_content))
+
+        elif itype == "compaction":
+            # Responses 上下文压缩 item:跨格式翻译时无对应物,跳过
+            continue
+
+        elif itype == "reasoning":
+            # Responses reasoning item:模型思考内容,跨格式翻译时无对应物,跳过
+            continue
 
         else:
             raise ValueError(f"不支持的 input item.type: {itype!r}")

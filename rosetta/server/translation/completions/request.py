@@ -312,10 +312,7 @@ def ir_to_completions(ir: RequestIR) -> dict[str, Any]:
     """RequestIR → OpenAI /v1/chat/completions 请求体。"""
     if ir.top_k is not None:
         raise ValueError("OpenAI Chat Completions 不支持 top_k")
-    if ir.thinking is not None:
-        raise ValueError("OpenAI Chat Completions 不支持 thinking")
-    if ir.metadata is not None:
-        raise ValueError("OpenAI Chat Completions 不支持 metadata")
+    # thinking / metadata 是 Anthropic 扩展,OpenAI Chat Completions 没有等价字段;忽略
 
     body: dict[str, Any] = {
         "model": ir.model,
@@ -372,11 +369,7 @@ def _user_msg_ir_to_openai(msg: Message) -> list[dict[str, Any]]:
 
     out: list[dict[str, Any]] = []
     for tr in tool_results:
-        if tr.is_error:
-            # Chat Completions 无原生 tool error 语义;v0.1 明确 raise,避免静默丢失
-            raise ValueError(
-                "Chat Completions 不支持 tool_result.is_error;v0.1 不做 error-text 兜底翻译"
-            )
+        # Chat Completions 无原生 tool error 语义;v0.1 直接忽略 is_error,原样透传 content
         if isinstance(tr.content, str):
             tr_content: str | list[dict[str, Any]] = tr.content
         else:

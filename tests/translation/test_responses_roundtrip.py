@@ -73,6 +73,87 @@ def test_request_without_max_output_tokens() -> None:
     assert "max_output_tokens" not in body_back
 
 
+def test_request_skips_compaction_input_items() -> None:
+    """Responses input 中的 compaction item 跨格式翻译时无对应物,应跳过。"""
+    body = {
+        "model": "gpt-4.1-mini",
+        "input": [
+            {"type": "message", "role": "user", "content": "hi"},
+            {"type": "compaction", "data": {"summary": "some context"}},
+            {"type": "message", "role": "assistant", "content": "hello"},
+        ],
+    }
+    ir = responses_to_ir(body)
+    assert len(ir.messages) == 2
+    assert ir.messages[0].role == "user"
+    assert ir.messages[1].role == "assistant"
+
+
+def test_request_skips_reasoning_input_items() -> None:
+    """Responses input 中的 reasoning item 跨格式翻译时无对应物,应跳过。"""
+    body = {
+        "model": "gpt-4.1-mini",
+        "input": [
+            {"type": "message", "role": "user", "content": "hi"},
+            {
+                "type": "reasoning",
+                "content": [{"type": "output_text", "text": "let me think..."}],
+            },
+            {"type": "message", "role": "assistant", "content": "hello"},
+        ],
+    }
+    ir = responses_to_ir(body)
+    assert len(ir.messages) == 2
+    assert ir.messages[0].role == "user"
+    assert ir.messages[1].role == "assistant"
+
+
+def test_request_custom_tool_call_maps_to_tool_use() -> None:
+    """Responses input 中的 custom_tool_call 应映射为 IR ToolUseBlock。"""
+    body = {
+        "model": "gpt-4.1-mini",
+        "input": [
+            {"type": "message", "role": "user", "content": "search"},
+            {
+                "type": "custom_tool_call",
+                "call_id": "call_abc",
+                "name": "my_custom_tool",
+                "arguments": '{"query":"python"}',
+            },
+        ],
+    }
+    ir = responses_to_ir(body)
+    assert len(ir.messages) == 2
+    assert ir.messages[1].role == "assistant"
+    tool_use = ir.messages[1].content[0]
+    assert tool_use.type == "tool_use"
+    assert tool_use.id == "call_abc"  # type: ignore[union-attr]
+    assert tool_use.name == "my_custom_tool"  # type: ignore[union-attr]
+    assert tool_use.input == {"query": "python"}  # type: ignore[union-attr]
+
+
+def test_request_custom_tool_call_output_maps_to_tool_result() -> None:
+    """Responses input 中的 custom_tool_call_output 应映射为 IR ToolResultBlock。"""
+    body = {
+        "model": "gpt-4.1-mini",
+        "input": [
+            {"type": "message", "role": "user", "content": "search"},
+            {
+                "type": "custom_tool_call_output",
+                "call_id": "call_abc",
+                "output": "search results",
+            },
+        ],
+    }
+    ir = responses_to_ir(body)
+    assert len(ir.messages) == 2
+    assert ir.messages[0].role == "user"
+    tool_result = ir.messages[1].content[0]
+    assert tool_result.type == "tool_result"
+    assert tool_result.tool_use_id == "call_abc"  # type: ignore[union-attr]
+    assert tool_result.content == "search results"  # type: ignore[union-attr]
+
+
 @pytest.mark.parametrize("fixture_name", NONSTREAM_FIXTURES)
 def test_response_nonstream_roundtrip(fixture_name: str) -> None:
     body = _load_fixture(fixture_name)["response_nonstream"]

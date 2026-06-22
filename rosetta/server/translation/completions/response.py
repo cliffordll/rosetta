@@ -241,10 +241,34 @@ def completions_stream_to_ir(
     started = False
     text_ir_idx: int | None = None
     tool_idx_map: dict[int, int] = {}
+    pending_tool_calls: dict[int, dict[str, Any]] = {}
     next_ir_idx = 0
     finalized = False
     last_id = ""
     last_model = ""
+
+    def _open_pending_tool_call(oai_idx: int) -> Iterator[StreamEvent]:
+        nonlocal next_ir_idx, text_ir_idx
+        pending = pending_tool_calls.pop(oai_idx, {})
+        if text_ir_idx is not None:
+            yield BlockStopEvent(index=text_ir_idx)
+            text_ir_idx = None
+        ir_idx = next_ir_idx
+        next_ir_idx += 1
+        tool_idx_map[oai_idx] = ir_idx
+        call_id = pending.get("id")
+        name = pending.get("name")
+        yield BlockStartEvent(
+            index=ir_idx,
+            block=ToolUseBlock(
+                id=call_id if isinstance(call_id, str) else f"tool_call_{oai_idx}",
+                name=name if isinstance(name, str) else "unknown_tool",
+                input={},
+            ),
+        )
+        for args_part in pending.get("arguments", []):
+            if isinstance(args_part, str) and args_part:
+                yield InputJsonDeltaEvent(index=ir_idx, partial_json=args_part)
 
     for chunk in chunks:
         if not started:
@@ -295,26 +319,24 @@ def completions_stream_to_ir(
                     fn = cast(dict[str, Any], fn_val)
 
                     if oai_idx_val not in tool_idx_map:
-                        # 切换到 tool block → 若 text block 还开着,先关
-                        if text_ir_idx is not None:
-                            yield BlockStopEvent(index=text_ir_idx)
-                            text_ir_idx = None
-                        ir_idx = next_ir_idx
-                        next_ir_idx += 1
-                        tool_idx_map[oai_idx_val] = ir_idx
                         tc_id_val = tc.get("id")
                         tc_name_val = fn.get("name")
-                        if not isinstance(tc_id_val, str):
-                            raise ValueError("首个 tool_call delta 必须带 id (str)")
-                        if not isinstance(tc_name_val, str):
-                            raise ValueError("首个 tool_call delta 必须带 function.name (str)")
-                        yield BlockStartEvent(
-                            index=ir_idx,
-                            block=ToolUseBlock(id=tc_id_val, name=tc_name_val, input={}),
-                        )
                         args = fn.get("arguments")
+                        pending = pending_tool_calls.setdefault(
+                            oai_idx_val,
+                            {"arguments": []},
+                        )
+                        if isinstance(tc_id_val, str):
+                            pending["id"] = tc_id_val
+                        if isinstance(tc_name_val, str):
+                            pending["name"] = tc_name_val
                         if isinstance(args, str) and args:
-                            yield InputJsonDeltaEvent(index=ir_idx, partial_json=args)
+                            cast(list[str], pending["arguments"]).append(args)
+                        if isinstance(pending.get("id"), str) and isinstance(
+                            pending.get("name"),
+                            str,
+                        ):
+                            yield from _open_pending_tool_call(oai_idx_val)
                     else:
                         ir_idx = tool_idx_map[oai_idx_val]
                         args = fn.get("arguments")
@@ -324,15 +346,18 @@ def completions_stream_to_ir(
             # finish_reason —— 关闭所有未关 block,emit MessageDelta
             finish_val = choice.get("finish_reason")
             if finish_val is not None:
+                for pending_idx in list(pending_tool_calls):
+                    yield from _open_pending_tool_call(pending_idx)
                 if text_ir_idx is not None:
                     yield BlockStopEvent(index=text_ir_idx)
                     text_ir_idx = None
                 for ir_idx in tool_idx_map.values():
                     yield BlockStopEvent(index=ir_idx)
                 tool_idx_map.clear()
-                if not isinstance(finish_val, str) or finish_val not in _FINISH_TO_STOP:
-                    raise ValueError(f"未知 finish_reason: {finish_val!r}")
-                yield MessageDeltaEvent(stop_reason=_FINISH_TO_STOP[finish_val])
+                stop_reason = (
+                    _FINISH_TO_STOP.get(finish_val) if isinstance(finish_val, str) else None
+                )
+                yield MessageDeltaEvent(stop_reason=stop_reason or "end_turn")
                 finalized = True
 
         # usage chunk(可能与 finish_reason 同 chunk,也可能单独)
@@ -347,6 +372,18 @@ def completions_stream_to_ir(
                     output_tokens=u.get("completion_tokens"),
                 )
             )
+
+    if not finalized and started:
+        for pending_idx in list(pending_tool_calls):
+            yield from _open_pending_tool_call(pending_idx)
+        if text_ir_idx is not None:
+            yield BlockStopEvent(index=text_ir_idx)
+            text_ir_idx = None
+        for ir_idx in tool_idx_map.values():
+            yield BlockStopEvent(index=ir_idx)
+        tool_idx_map.clear()
+        yield MessageDeltaEvent(stop_reason="end_turn")
+        finalized = True
 
     if finalized:
         yield MessageStopEvent()
