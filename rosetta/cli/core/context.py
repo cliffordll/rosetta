@@ -93,6 +93,12 @@ class ChatContext:
     def set_model(self, model: str | None) -> None:
         self.model = model
 
+    def set_upstream(self, upstream: str | None) -> None:
+        self.upstream = upstream
+
+    def set_api_key(self, api_key: str | None) -> None:
+        self.api_key = api_key
+
     # ---------- 核心:一轮请求 ----------
 
     async def run_turn(

@@ -14,10 +14,12 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Iterable, Mapping
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from rich.console import Console
 from rich.table import Table
+
+OverflowMethod = Literal["fold", "crop", "ellipsis", "ignore"]
 
 
 class Renderer:
@@ -45,13 +47,21 @@ class Renderer:
         rows: Iterable[Iterable[Any]],
         *,
         title: str | None = None,
+        no_wrap_columns: set[str] | None = None,
+        overflow_columns: Mapping[str, OverflowMethod] | None = None,
+        max_widths: Mapping[str, int] | None = None,
     ) -> None:
         """打印 rich 表格;rows 传任意可迭代,元素会转 str。"""
         if cls.QUIET:
             return
         t = Table(title=title, show_header=True, header_style="bold")
         for col in columns:
-            t.add_column(col)
+            t.add_column(
+                col,
+                no_wrap=col in (no_wrap_columns or set()),
+                overflow=(overflow_columns or {}).get(col, "fold"),
+                max_width=(max_widths or {}).get(col),
+            )
         for row in rows:
             t.add_row(*(cls._fmt_cell(v) for v in row))
         cls._stdout.print(t)

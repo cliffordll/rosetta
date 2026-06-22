@@ -19,7 +19,7 @@ from rosetta.server.controller.upstreams import (
     UpstreamUpdate,
 )
 from rosetta.server.database.models import UpstreamProvider
-from rosetta.shared.server_api import DEFAULT_SERVER_API_PATHS, ServerApi
+from rosetta.shared.server_api import DEFAULT_SERVER_API_PATHS
 
 _ALLOWED_NATIVE_APIS = get_args(UpstreamNativeApiCreatable)
 _ALLOWED_PROVIDERS = get_args(UpstreamProvider)
@@ -63,6 +63,8 @@ async def _list() -> None:
             ]
             for u in items
         ],
+        no_wrap_columns={"id", "name", "provider", "enabled"},
+        max_widths={"base_url": 48, "model": 32},
     )
 
 
@@ -224,76 +226,7 @@ async def _remove(upstream_id: str) -> None:
 
 
 @app.command("default")
-def set_default_cmd(
-    name: Annotated[str, typer.Argument(help="要设为默认的 upstream name")],
-    server_api_value: Annotated[
-        str | None,
-        typer.Option(
-            "--server-api",
-            "-s",
-            help=(
-                "入口 server_api: messages/completions/responses;"
-                "不传则设为 global default,作为所有 server_api 的兜底"
-            ),
-        ),
-    ] = None,
-) -> None:
-    """把 upstream 设为默认上游(`r-upstream` header 缺失时回退用)。"""
-    server_api: ServerApi | None = None
-    if server_api_value is not None:
-        try:
-            server_api = ServerApi(server_api_value)
-        except ValueError:
-            Renderer.die(
-                f"--server-api 必须是 messages/completions/responses,收到 {server_api_value!r}"
-            )
-            return
-    asyncio.run(_set_default(name, server_api=server_api))
-
-
-async def _set_default(name: str, *, server_api: ServerApi | None) -> None:
-    try:
-        async with ProxyClient.discover_session(spawn_if_missing=False) as client:
-            updated = await client.set_default_upstream(name, server_api=server_api)
-    except httpx.HTTPStatusError as e:
-        Renderer.die(f"设默认失败: {e.response.status_code} {e.response.text}")
-        return
-    except RuntimeError as e:
-        Renderer.die(f"server 未就绪: {e}")
-        return
-    scope = f"server_api={server_api.value}" if server_api is not None else "global"
-    Renderer.out(f"upstream '{updated.name}' is now default ({scope})")
-
-
-@app.command("defaults")
-def defaults_cmd() -> None:
-    """查看 global + 各 server_api 默认绑定到哪个 upstream。"""
-    asyncio.run(_defaults())
-
-
-async def _defaults() -> None:
-    try:
-        async with ProxyClient.discover_session(spawn_if_missing=False) as client:
-            defaults = await client.list_upstream_defaults()
-    except httpx.HTTPStatusError as e:
-        Renderer.die(f"读取默认绑定失败: {e.response.status_code} {e.response.text}")
-        return
-    except RuntimeError as e:
-        Renderer.die(f"server 未就绪: {e}")
-        return
-    Renderer.table(
-        ["server_api", "upstream"],
-        [
-            ["global", defaults.global_ or "-"],
-            [_api_label("messages"), defaults.messages or "-"],
-            [_api_label("completions"), defaults.completions or "-"],
-            [_api_label("responses"), defaults.responses or "-"],
-        ],
-    )
-
-
-@app.command("model-default")
-def model_default_cmd(
+def default_cmd(
     name: Annotated[str, typer.Argument(help="要设为 model 默认的 upstream name")],
     model: Annotated[str, typer.Option("--model", help="模型名称")],
 ) -> None:
@@ -314,8 +247,8 @@ async def _model_default(name: str, model: str) -> None:
     Renderer.out(f"upstream '{updated.name}' is now default for model '{model}'")
 
 
-@app.command("model-defaults")
-def model_defaults_cmd() -> None:
+@app.command("defaults")
+def defaults_cmd() -> None:
     """查看 model 默认路由映射。"""
     asyncio.run(_model_defaults())
 

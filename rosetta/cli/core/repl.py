@@ -5,7 +5,8 @@
 - `/` 开头分派 slash 命令,否则作为新一轮 user message
 - 每轮调 `ctx.run_turn()` 流式打印 assistant + meta 行
 - slash 命令:`/exit`(`/quit` 别名) / `/reset` / `/model <name>` /
-  `/server_api <api_type>` / `/raw on|off` / `/raw_edge <n>` / `/raw_step <n>` / `/help`
+  `/upstream <name>` / `/api_key <key>` / `/server_api <api_type>` /
+  `/raw on|off` / `/raw_edge <n>` / `/raw_step <n>` / `/help`
 
 状态持有
 --------
@@ -14,8 +15,8 @@
 
 格式切换安全性
 --------------
-v0.1 REPL 只存纯文本(`content: str`),切 server_api 时结构无损;未来引入 tool_use /
-thinking 等结构化块后,`/server_api` 切换需要丢弃这些块并警告(`DESIGN.md` §5.4)。
+v0.1 REPL 只存纯文本(`content: str`),切 server_api / upstream / api_key 时结构无损;
+未来引入 tool_use / thinking 等结构化块后,`/server_api` 切换需要丢弃这些块并警告。
 """
 
 from __future__ import annotations
@@ -49,6 +50,8 @@ class ChatRepl:
         "  /exit, /quit              退出 REPL\n"
         "  /reset                    清空对话历史\n"
         "  /model <name|clear>       显示/切换模型;clear = auto\n"
+        "  /upstream <name|clear>    显示/切换 upstream;clear = 按 model 匹配\n"
+        "  /api_key <key|clear>      显示/切换临时 api-key override;clear = 用 DB key\n"
         "  /server_api <api_type>    切换 API 格式(messages|completions|responses)\n"
         "  /raw on|off               切换 raw request/response 输出\n"
         "  /raw_edge <n>             raw 模式显示前/后 n 条 SSE frame\n"
@@ -159,6 +162,30 @@ class ChatRepl:
                 return False
             self.ctx.set_model(arg)
             Renderer.out(f"model → {self.ctx.model}")
+            return False
+
+        if cmd == "/upstream":
+            if not arg:
+                Renderer.out(f"upstream = {self.ctx.upstream or 'auto(model)'}")
+                return False
+            if arg == "clear":
+                self.ctx.set_upstream(None)
+                Renderer.out("upstream → auto(按 model 匹配)")
+                return False
+            self.ctx.set_upstream(arg)
+            Renderer.out(f"upstream → {self.ctx.upstream}")
+            return False
+
+        if cmd == "/api_key":
+            if not arg:
+                Renderer.out(f"api_key = {'set' if self.ctx.api_key else 'db'}")
+                return False
+            if arg == "clear":
+                self.ctx.set_api_key(None)
+                Renderer.out("api_key → db(用 upstream.api_key)")
+                return False
+            self.ctx.set_api_key(arg)
+            Renderer.out("api_key → set")
             return False
 
         if cmd == "/server_api":

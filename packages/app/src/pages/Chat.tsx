@@ -150,12 +150,6 @@ export default function Chat() {
     [model, serverApi, upstreamChoice],
   );
 
-  // 当前 server_api 是否在 server 端配了 default(用于"未选 upstream 仍可发送"的判断)
-  const hasDefaultForServerApi = useMemo(
-    () => upstreams.some((u) => u.native_api === serverApi && u.is_default && u.enabled),
-    [upstreams, serverApi],
-  );
-
   // 默认跟随最新消息;用户手动上翻后暂停,回到底部或发送新消息后恢复。
   useEffect(() => {
     const el = scrollRef.current;
@@ -176,18 +170,18 @@ export default function Chat() {
     return upstreamById.get(upstreamChoice) ?? null;
   }, [upstreamChoice, upstreamById]);
 
-  // 显式选了一行 → 发送 OK
-  // 没选(NO_UPSTREAM_SELECTED)→ 仅当当前 server_api 有 default 时允许,走 server fallback
-  // model 不再要求非空:留空时 server 用 upstream.model 兜底
+  const hasModelRouting = model.trim().length > 0;
+  // 显式选了一行 → 发送 OK;未选 upstream → 必须填写 model,server 按 model 匹配。
+  // 只有选中 upstream 时,model 才允许留空并由 upstream.model 兜底。
   const canSend =
     !inFlight &&
     input.trim().length > 0 &&
-    (resolvedUpstream !== null || hasDefaultForServerApi);
+    (resolvedUpstream !== null || hasModelRouting);
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text || inFlight) return;
-    if (!resolvedUpstream && !hasDefaultForServerApi) return;
+    if (!resolvedUpstream && !hasModelRouting) return;
     setInput("");
     stickToBottomRef.current = true;
 
@@ -215,9 +209,9 @@ export default function Chat() {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
-    // 没选 upstream → 不传 header,server 按 server_api default fallback
+    // 没选 upstream → 不传 r-upstream,server 按 body.model 匹配 upstream。
     const upstreamName = resolvedUpstream ? resolvedUpstream.name : null;
-    const upstreamLabel = resolvedUpstream ? formatUpstreamLabel(resolvedUpstream) : "default";
+    const upstreamLabel = resolvedUpstream ? formatUpstreamLabel(resolvedUpstream) : "model-route";
     const pathLabel = resolvedUpstream
       ? computePathLabel(serverApi, resolvedUpstream)
       : serverApi;
@@ -301,7 +295,7 @@ export default function Chat() {
     serverApi,
     model,
     resolvedUpstream,
-    hasDefaultForServerApi,
+    hasModelRouting,
     overrideKey,
   ]);
 
@@ -464,9 +458,9 @@ export default function Chat() {
           {!upstreamsErr &&
             upstreams.length > 0 &&
             !resolvedUpstream &&
-            hasDefaultForServerApi && (
+            model.trim().length > 0 && (
               <p className="mt-1 text-xs text-muted-foreground">
-                未选 upstream → 走 server_api={serverApi} 的 default(server 端 fallback)。
+                未选 upstream → 不发 r-upstream,server 将按 model 匹配 upstream。
               </p>
             )}
         </div>
@@ -480,7 +474,7 @@ export default function Chat() {
             placeholder={
               resolvedUpstream?.model
                 ? `留空 = 用 ${resolvedUpstream.model}(upstream 默认)`
-                : "留空 = 走 upstream.model;请在 Upstreams 设默认或填具体 model"
+                : "未选 upstream 时必须填写 model,用于自动匹配 upstream"
             }
             onChange={(e) => setModel(e.target.value)}
           />
@@ -498,9 +492,9 @@ export default function Chat() {
       >
         {messages.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            {resolvedUpstream || hasDefaultForServerApi
+            {resolvedUpstream || hasModelRouting
               ? "输入消息开始对话;流式逐 token 渲染。"
-              : "先在上方选一个 upstream(或去 Upstreams 设 default),再开始对话。"}
+              : "先在上方选一个 upstream,或填写 model 让 server 自动匹配。"}
           </p>
         ) : (
           <ul className="space-y-4">
@@ -530,9 +524,9 @@ export default function Chat() {
         <Textarea
           value={input}
           placeholder={
-            resolvedUpstream || hasDefaultForServerApi
+            resolvedUpstream || hasModelRouting
               ? "发消息…(Enter 发送,Shift+Enter 换行)"
-              : "请先选择 upstream(或去 Upstreams 设 default)"
+              : "请选择 upstream,或填写 model"
           }
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
@@ -541,7 +535,7 @@ export default function Chat() {
               if (canSend) void handleSend();
             }
           }}
-          disabled={inFlight || (!resolvedUpstream && !hasDefaultForServerApi)}
+          disabled={inFlight || (!resolvedUpstream && !hasModelRouting)}
           className="min-h-20 flex-1"
         />
         {inFlight ? (
