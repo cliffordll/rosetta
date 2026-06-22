@@ -8,11 +8,12 @@ migrations 用 SA 跑,aiosqlite 只作 `sqlite+aiosqlite://` 驱动依赖。
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Coroutine
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends
 from sqlalchemy import text
@@ -23,6 +24,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 DEFAULT_DB_PATH = Path.home() / ".rosetta" / "rosetta.db"
 CURRENT_SCHEMA_VERSION = 9
@@ -100,7 +102,7 @@ async def _maybe_run_migrations(engine: AsyncEngine) -> None:
 async def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
     """建目录 + engine + 跑 migrations + 绑 session_maker。"""
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    engine = create_async_engine(_db_url(db_path))
+    engine = create_async_engine(_db_url(db_path), poolclass=NullPool)
     await _maybe_run_migrations(engine)
     _state.engine = engine
     # expire_on_commit=False:commit 后对象属性不失效,避免响应序列化时 lazy reload
@@ -110,13 +112,10 @@ async def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
 async def dispose_db() -> None:
     """释放连接池;SQLite WAL checkpoint 在最后一个连接关闭时触发。"""
     if _state.engine is not None:
-        try:
-            await asyncio.shield(_state.engine.dispose())
-        except asyncio.CancelledError:
-            # shutdown 阶段事件循环被取消属于正常生命周期,不冒泡
-            _log.debug("engine.dispose() cancelled during shutdown, ignored")
-        except Exception as e:
-            _log.warning("engine.dispose() raised %s during shutdown: %s", type(e).__name__, e)
+        await _run_cleanup_safely(
+            _dispose_engine_ignoring_errors(_state.engine),
+            label="engine.dispose()",
+        )
     _state.engine = None
     _state.session_maker = None
 
@@ -134,14 +133,58 @@ async def get_session() -> AsyncIterator[AsyncSession]:
 
 async def close_session_safely(session: AsyncSession) -> None:
     """关闭 session;服务关闭/客户端中断导致 sqlite 连接已失效时只记录不冒泡。"""
+    await _run_cleanup_safely(
+        _close_session_ignoring_inactive_connection(session),
+        label="session.close()",
+    )
+
+
+async def _close_session_ignoring_inactive_connection(session: AsyncSession) -> None:
     try:
-        await asyncio.shield(session.close())
-    except asyncio.CancelledError:
-        _log.debug("session.close() cancelled during client disconnect, ignored")
+        await session.close()
     except OperationalError as e:
         if "no active connection" not in str(e).lower():
             raise
         _log.debug("sqlite session close ignored: no active connection")
+
+
+async def _dispose_engine_ignoring_errors(engine: AsyncEngine) -> None:
+    try:
+        await engine.dispose()
+    except Exception as e:
+        _log.warning("engine.dispose() raised %s during shutdown: %s", type(e).__name__, e)
+
+
+async def _run_cleanup_safely(
+    cleanup: Coroutine[Any, Any, None], *, label: str
+) -> None:
+    """运行清理协程;调用方被取消时让清理后台完成,并消费后台异常。"""
+    task: asyncio.Task[None] = asyncio.create_task(
+        cleanup,
+        name=f"rosetta cleanup: {label}",
+        context=contextvars.Context(),
+    )
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        task.add_done_callback(_cleanup_done_callback(label))
+        _log.debug("%s cancelled by caller, cleanup continues in background", label)
+
+
+def _cleanup_done_callback(label: str) -> Callable[[asyncio.Task[None]], None]:
+    def _callback(task: asyncio.Task[None]) -> None:
+        _consume_cleanup_result(task, label=label)
+
+    return _callback
+
+
+def _consume_cleanup_result(task: asyncio.Task[None], *, label: str) -> None:
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        _log.debug("%s background cleanup cancelled, ignored", label)
+    except Exception as e:
+        _log.warning("%s background cleanup raised %s: %s", label, type(e).__name__, e)
 
 
 def get_session_maker() -> async_sessionmaker[AsyncSession] | None:
