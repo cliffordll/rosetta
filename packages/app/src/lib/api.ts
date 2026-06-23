@@ -77,6 +77,7 @@ export interface UpstreamOut {
   model: string | null;
   enabled: boolean;
   created_at: string;
+  test_result: string | null;
 }
 
 export type ModelDefaultsOut = Record<string, string>;

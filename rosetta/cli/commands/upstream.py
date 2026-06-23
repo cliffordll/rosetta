@@ -52,7 +52,7 @@ async def _list() -> None:
         Renderer.out("no upstreams yet")
         return
     Renderer.table(
-        ["id", "name", "native_api", "provider", "model", "base_url", "enabled"],
+        ["id", "name", "native_api", "provider", "model", "base_url", "enabled", "test"],
         [
             [
                 u.id,
@@ -62,11 +62,12 @@ async def _list() -> None:
                 u.model or "-",
                 u.base_url,
                 u.enabled,
+                u.test_result or "-",
             ]
             for u in items
         ],
-        no_wrap_columns={"id", "name", "provider", "enabled"},
-        max_widths={"base_url": 48, "model": 32},
+        no_wrap_columns={"id", "name", "provider", "enabled", "test"},
+        max_widths={"base_url": 52, "model": 32},
     )
 
 

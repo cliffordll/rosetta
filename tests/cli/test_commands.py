@@ -136,6 +136,7 @@ def test_upstream_list_table_omits_default_column(monkeypatch: pytest.MonkeyPatc
                     model=None,
                     base_url="https://api.example.com",
                     enabled=True,
+                    test_result=None,
                 )
             ]
 
@@ -161,6 +162,7 @@ def test_upstream_list_table_omits_default_column(monkeypatch: pytest.MonkeyPatc
         "model",
         "base_url",
         "enabled",
+        "test",
     ]
     assert captured["rows"] == [
         [
@@ -171,11 +173,12 @@ def test_upstream_list_table_omits_default_column(monkeypatch: pytest.MonkeyPatc
             "-",
             "https://api.example.com",
             True,
+            "-",
         ]
     ]
     assert captured["kwargs"] == {
-        "no_wrap_columns": {"id", "name", "provider", "enabled"},
-        "max_widths": {"base_url": 48, "model": 32},
+        "no_wrap_columns": {"id", "name", "provider", "enabled", "test"},
+        "max_widths": {"base_url": 52, "model": 32},
     }
 
 

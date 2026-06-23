@@ -396,7 +396,7 @@ export default function Logs() {
                 <TableHead className="bg-muted">error</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody className="[&_tr:last-child]:border-b">
+            <TableBody className="[&_tr:last-child]:border-b [&_tr]:h-10">
               {items.map((entry) => (
                 <TableRow key={entry.id}>
                   <TableCell className="font-mono text-xs text-muted-foreground">

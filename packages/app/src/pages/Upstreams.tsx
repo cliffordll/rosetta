@@ -1,3 +1,4 @@
+import { isTauri } from "@/lib/updater";
 import { BugIcon, CopyIcon, PencilIcon, SaveIcon, Trash2Icon } from "lucide-react";
 import {
   useCallback,
@@ -80,15 +81,15 @@ type UpstreamTableColumn = (typeof UPSTREAM_TABLE_COLUMNS)[number];
 type UpstreamColumnWidths = Record<UpstreamTableColumn, number>;
 
 const DEFAULT_UPSTREAM_COLUMN_WIDTHS: UpstreamColumnWidths = {
-  name: 10,
-  provider: 8,
-  native_api: 12,
-  model: 10,
-  base_url: 12,
-  api_key: 8,
-  enabled: 8,
-  created_at: 12,
-  actions: 10,
+  name: 9,
+  provider: 7,
+  native_api: 11,
+  model: 9,
+  base_url: 11,
+  api_key: 7,
+  enabled: 7,
+  created_at: 11,
+  actions: 13,
 };
 
 const MIN_UPSTREAM_COLUMN_WIDTHS: UpstreamColumnWidths = {
@@ -100,7 +101,7 @@ const MIN_UPSTREAM_COLUMN_WIDTHS: UpstreamColumnWidths = {
   api_key: 8,
   enabled: 6,
   created_at: 8,
-  actions: 10,
+  actions: 13,
 };
 
 const MODEL_DEFAULT_COLUMNS = ["model", "status", "current_default", "upstream", "action"] as const;
@@ -111,8 +112,8 @@ const DEFAULT_MODEL_DEFAULT_WIDTHS: ModelDefaultWidths = {
   model: 22,
   status: 12,
   current_default: 22,
-  upstream: 28,
-  action: 10,
+  upstream: 30,
+  action: 8,
 };
 
 const MIN_MODEL_DEFAULT_WIDTHS: ModelDefaultWidths = {
@@ -120,7 +121,7 @@ const MIN_MODEL_DEFAULT_WIDTHS: ModelDefaultWidths = {
   status: 8,
   current_default: 10,
   upstream: 15,
-  action: 10,
+  action: 8,
 };
 
 export default function Upstreams() {
@@ -137,7 +138,10 @@ export default function Upstreams() {
   const [testingUpstreamId, setTestingUpstreamId] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [upstreamColumnWidths, setUpstreamColumnWidths] = useState<UpstreamColumnWidths>(
-    DEFAULT_UPSTREAM_COLUMN_WIDTHS,
+    () => ({
+      ...DEFAULT_UPSTREAM_COLUMN_WIDTHS,
+      ...(isTauri() ? { actions: 12 } : { actions: 10 }),
+    }),
   );
   const upstreamResizeRef = useRef<{
     startX: number;
@@ -289,6 +293,7 @@ export default function Upstreams() {
           }`,
         );
       }
+      await load();
     } catch (e) {
       setLoadErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -351,7 +356,12 @@ export default function Upstreams() {
                     {UPSTREAM_TABLE_COLUMNS.map((column) => (
                       <col
                         key={column}
-                        style={{ width: `${upstreamColumnWidths[column]}%` }}
+                        style={{
+                          width: `${upstreamColumnWidths[column]}%`,
+                          ...(column === "actions" && isTauri()
+                            ? { minWidth: 110 }
+                            : {}),
+                        }}
                       />
                     ))}
                   </colgroup>
@@ -411,40 +421,39 @@ export default function Upstreams() {
                       </TableHead>
                     </TableRow>
                   </TableHeader>
-                  <TableBody className="[&_tr:last-child]:border-b">
+                  <TableBody className="[&_tr:last-child]:border-b [&_tr]:h-10">
                     {items.map((u) => (
                       <TableRow key={u.id}>
-                        <TableCell className="truncate font-medium" title={u.name}>
+                        <TableCell className="p-1 truncate font-medium" title={u.name}>
                           {u.name}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="p-1">
                           <Badge variant="outline">{u.provider}</Badge>
                         </TableCell>
-                        <TableCell
-                          className="truncate text-xs text-muted-foreground"
+                        <TableCell className="p-1 truncate text-xs text-muted-foreground"
                           title={serverApiLabel(u.native_api)}
                         >
                           {serverApiLabel(u.native_api)}
                         </TableCell>
-                        <TableCell
+                        <TableCell className="p-1"
                           className="truncate font-mono text-xs text-muted-foreground"
                           title={u.model ?? ""}
                         >
                           {u.model ?? "-"}
                         </TableCell>
-                        <TableCell
+                        <TableCell className="p-1"
                           className="truncate text-xs text-muted-foreground"
                           title={u.base_url}
                         >
                           {u.base_url}
                         </TableCell>
-                        <TableCell
+                        <TableCell className="p-1"
                           className="truncate font-mono text-xs text-muted-foreground"
                           title={u.api_key ?? ""}
                         >
                           {u.api_key ?? "-"}
                         </TableCell>
-                        <TableCell className="text-center text-xs">
+                        <TableCell className="p-1 text-center text-xs">
                           <span className="inline-flex items-center justify-center gap-1.5">
                             <span
                               className={`size-2 rounded-full ${
@@ -459,19 +468,19 @@ export default function Upstreams() {
                             </span>
                           </span>
                         </TableCell>
-                        <TableCell
-                          className="truncate font-mono text-xs text-muted-foreground"
+                        <TableCell className="p-1 truncate font-mono text-xs text-muted-foreground"
                           title={formatDate(u.created_at)}
                         >
                           {formatDate(u.created_at)}
                         </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
+                        <TableCell className="p-1 text-right overflow-hidden">
+                          <div className="flex justify-end gap-1 overflow-hidden">
                             {u.provider !== "mock" && (
                               <>
                                 <Button
                                   variant="ghost"
                                   size="icon-sm"
+                                  className="hover:bg-muted-foreground/15"
                                   title="Edit"
                                   onClick={() => setToEdit(u)}
                                 >
@@ -480,6 +489,7 @@ export default function Upstreams() {
                                 <Button
                                   variant="ghost"
                                   size="icon-sm"
+                                  className="hover:bg-muted-foreground/15"
                                   title="Copy as new"
                                   onClick={() => setToCopy(u)}
                                 >
@@ -490,15 +500,17 @@ export default function Upstreams() {
                             <Button
                               variant="ghost"
                               size="icon-sm"
-                              title="Test upstream"
+                              className="hover:bg-muted-foreground/15"
+                              title={u.test_result === "ok" ? "Test passed" : u.test_result === "fail" ? "Test failed" : "Test upstream"}
                               disabled={testingUpstreamId === u.id}
                               onClick={() => void handleTestUpstream(u)}
                             >
-                              <BugIcon />
+                              <BugIcon className={u.test_result === "ok" ? "text-emerald-500" : u.test_result === "fail" ? "text-destructive" : "text-muted-foreground/50"} />
                             </Button>
                             <Button
                               variant="ghost"
                               size="icon-sm"
+                              className="hover:bg-muted-foreground/15"
                               title="Delete"
                               onClick={() => setToDelete(u)}
                             >
@@ -751,30 +763,30 @@ function ModelDefaultsPanel({
               </TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody className="[&_tr:last-child]:border-b">
+          <TableBody className="[&_tr:last-child]:border-b [&_tr]:h-10">
             {duplicateGroups.map((group) => {
               const draft = drafts[group.model] ?? "";
               const unchanged = draft === (group.defaultUpstreamName ?? "");
               const saving = savingModel === group.model;
               return (
                 <TableRow key={group.model}>
-                  <TableCell className="truncate font-mono text-xs" title={group.model}>
+                  <TableCell className="truncate font-mono text-xs p-1" title={group.model}>
                     {group.model}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="p-1">
                     <Badge variant={group.defaultUpstreamName ? "outline" : "destructive"}>
                       {group.defaultUpstreamName ? "configured" : "required"}
                     </Badge>
                   </TableCell>
-                  <TableCell className="truncate text-xs text-muted-foreground">
+                  <TableCell className="truncate text-xs text-muted-foreground p-1">
                     {group.defaultUpstreamName ?? "-"}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="p-1">
                     <Select
                       value={draft || undefined}
                       onValueChange={(value) => onDraftChange(group.model, value)}
                     >
-                      <SelectTrigger className="h-8 text-xs">
+                      <SelectTrigger size="sm" className="h-7 text-xs w-full">
                         <SelectValue placeholder="Select upstream" />
                       </SelectTrigger>
                       <SelectContent>
@@ -786,10 +798,11 @@ function ModelDefaultsPanel({
                       </SelectContent>
                     </Select>
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right p-1">
                     <Button
                       variant="outline"
                       size="icon-sm"
+                      className="hover:bg-muted-foreground/15"
                       title={saving ? "Saving…" : `Save ${group.model} default`}
                       disabled={!draft || unchanged || saving}
                       onClick={() => onSave(group.model)}
@@ -804,19 +817,19 @@ function ModelDefaultsPanel({
               const upstream = group.upstreams[0];
               return (
                 <TableRow key={group.model}>
-                  <TableCell className="truncate font-mono text-xs" title={group.model}>
+                  <TableCell className="truncate font-mono text-xs p-1" title={group.model}>
                     {group.model}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="p-1">
                     <Badge variant="outline">unique</Badge>
                   </TableCell>
-                  <TableCell className="truncate text-xs text-muted-foreground">
+                  <TableCell className="truncate text-xs text-muted-foreground p-1">
                     {upstream.name}
                   </TableCell>
-                  <TableCell className="truncate text-xs text-muted-foreground">
+                  <TableCell className="truncate text-xs text-muted-foreground p-1">
                     {formatUpstreamOptionLabel(upstream)}
                   </TableCell>
-                  <TableCell className="text-right text-xs text-muted-foreground">auto</TableCell>
+                  <TableCell className="text-right text-xs text-muted-foreground p-1">auto</TableCell>
                 </TableRow>
               );
             })}

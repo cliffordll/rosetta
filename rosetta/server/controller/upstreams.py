@@ -18,6 +18,9 @@ from rosetta.server.service.forwarder import forwarder
 
 router = APIRouter()
 
+# 测试结果缓存: upstream_id → "ok" | "fail"
+_test_results: dict[str, str] = {}
+
 # 用户可创建的 native_api 值域:不含 `any`(any 专供 mock 占位,DB seed / restore-mock 才写)
 UpstreamNativeApiCreatable = Literal["messages", "completions", "responses"]
 
@@ -67,6 +70,7 @@ class UpstreamOut(BaseModel):
     enabled: bool
     created_at: datetime
     api_key: str | None = None
+    test_result: str | None = None
 
 
 class RestoreMockOut(BaseModel):
@@ -100,7 +104,13 @@ async def list_upstreams(
     repo: UpstreamRepoDep,
 ) -> Sequence[UpstreamOut]:
     upstreams = await repo.list_all()
-    return [UpstreamOut.model_validate(u) for u in upstreams]
+    return [
+        UpstreamOut(
+            **UpstreamOut.model_validate(u).model_dump(exclude={"test_result"}),
+            test_result=_test_results.get(u.id),
+        )
+        for u in upstreams
+    ]
 
 
 @router.get("/upstreams/model-defaults", response_model=dict[str, str])
@@ -214,7 +224,9 @@ async def test_upstream(upstream_id: str, repo: UpstreamRepoDep) -> UpstreamProb
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"upstream id={upstream_id} 不存在",
         )
-    return UpstreamProbeOut.model_validate((await forwarder.probe_upstream(upstream)).__dict__)
+    result = UpstreamProbeOut.model_validate((await forwarder.probe_upstream(upstream)).__dict__)
+    _test_results[upstream_id] = "ok" if result.ok else "fail"
+    return result
 
 
 @router.delete("/upstreams/{upstream_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -230,6 +242,7 @@ async def delete_upstream(upstream_id: str, repo: UpstreamRepoDep) -> Response:
             detail=f"upstream id={upstream_id} 不存在",
         )
     await repo.delete(upstream)
+    _test_results.pop(upstream_id, None)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

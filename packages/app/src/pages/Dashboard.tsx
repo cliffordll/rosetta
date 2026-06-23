@@ -1,3 +1,4 @@
+import { BugIcon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -50,16 +51,17 @@ type FetchState =
   | { kind: "ok"; data: DashboardData }
   | { kind: "err"; message: string };
 
-const DASHBOARD_COLUMNS = ["name", "provider", "native_api", "model", "enabled"] as const;
+const DASHBOARD_COLUMNS = ["name", "provider", "native_api", "model", "enabled", "test"] as const;
 type DashColumn = (typeof DASHBOARD_COLUMNS)[number];
 type DashWidths = Record<DashColumn, number>;
 
 const DEFAULT_DASH_WIDTHS: DashWidths = {
-  name: 20,
-  provider: 12,
-  native_api: 26,
-  model: 22,
+  name: 16,
+  provider: 10,
+  native_api: 24,
+  model: 20,
   enabled: 8,
+  test: 10,
 };
 
 const MIN_DASH_WIDTHS: DashWidths = {
@@ -68,6 +70,7 @@ const MIN_DASH_WIDTHS: DashWidths = {
   native_api: 10,
   model: 8,
   enabled: 6,
+  test: 6,
 };
 
 export default function Dashboard() {
@@ -395,12 +398,13 @@ export default function Dashboard() {
                         <DashResizableHead label="provider" left="provider" right="native_api" />
                         <DashResizableHead label="native_api" left="native_api" right="model" />
                         <DashResizableHead label="model" left="model" right="enabled" />
-                        <TableHead className="bg-muted select-none" style={{ width: `${dashWidths["enabled"]}%` }}>
-                          enabled
+                        <DashResizableHead label="enabled" left="enabled" right="test" />
+                        <TableHead className="bg-muted select-none text-center" style={{ width: `${dashWidths["test"]}%` }}>
+                          test
                         </TableHead>
                       </TableRow>
                     </TableHeader>
-                    <TableBody className="[&_tr:last-child]:border-b">
+                    <TableBody className="[&_tr:last-child]:border-b [&_tr]:h-10">
                       {state.data.upstreams.map((u) => (
                         <TableRow key={u.id}>
                           <TableCell className="truncate font-medium">
@@ -429,6 +433,15 @@ export default function Dashboard() {
                                 {u.enabled ? "on" : "off"}
                               </span>
                             </span>
+                          </TableCell>
+                          <TableCell className="text-center align-middle" title={u.test_result === "ok" ? "Test passed" : u.test_result === "fail" ? "Test failed" : "Not tested"}>
+                            {u.test_result === "ok" ? (
+                              <BugIcon className="inline size-4 text-emerald-500" />
+                            ) : u.test_result === "fail" ? (
+                              <BugIcon className="inline size-4 text-destructive" />
+                            ) : (
+                              <BugIcon className="inline size-4 text-muted-foreground/50" />
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}
