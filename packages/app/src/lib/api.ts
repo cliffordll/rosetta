@@ -273,6 +273,9 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
+  clearLogs(): Promise<{ deleted: number }> {
+    return request("/admin/logs", { method: "DELETE" });
+  },
 
   getProviderGuide(provider: string): Promise<{provider: string; content: string}> {
     return request(`/admin/upstreams/guide/${provider}`, { method: "GET" });

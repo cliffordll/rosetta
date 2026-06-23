@@ -1,5 +1,12 @@
 import { BugIcon, CopyIcon, PencilIcon, SaveIcon, Trash2Icon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 
 import {
   AlertDialog,
@@ -57,6 +64,65 @@ import {
 
 const NATIVE_APIS: UpstreamNativeApi[] = ["messages", "completions", "responses"];
 
+const UPSTREAM_TABLE_COLUMNS = [
+  "name",
+  "provider",
+  "native_api",
+  "model",
+  "base_url",
+  "api_key",
+  "enabled",
+  "created_at",
+  "actions",
+] as const;
+type UpstreamTableColumn = (typeof UPSTREAM_TABLE_COLUMNS)[number];
+
+type UpstreamColumnWidths = Record<UpstreamTableColumn, number>;
+
+const DEFAULT_UPSTREAM_COLUMN_WIDTHS: UpstreamColumnWidths = {
+  name: 10,
+  provider: 8,
+  native_api: 12,
+  model: 10,
+  base_url: 12,
+  api_key: 8,
+  enabled: 8,
+  created_at: 12,
+  actions: 10,
+};
+
+const MIN_UPSTREAM_COLUMN_WIDTHS: UpstreamColumnWidths = {
+  name: 8,
+  provider: 6,
+  native_api: 10,
+  model: 8,
+  base_url: 7,
+  api_key: 8,
+  enabled: 6,
+  created_at: 8,
+  actions: 10,
+};
+
+const MODEL_DEFAULT_COLUMNS = ["model", "status", "current_default", "upstream", "action"] as const;
+type ModelDefaultColumn = (typeof MODEL_DEFAULT_COLUMNS)[number];
+type ModelDefaultWidths = Record<ModelDefaultColumn, number>;
+
+const DEFAULT_MODEL_DEFAULT_WIDTHS: ModelDefaultWidths = {
+  model: 22,
+  status: 12,
+  current_default: 22,
+  upstream: 28,
+  action: 10,
+};
+
+const MIN_MODEL_DEFAULT_WIDTHS: ModelDefaultWidths = {
+  model: 10,
+  status: 8,
+  current_default: 10,
+  upstream: 15,
+  action: 10,
+};
+
 export default function Upstreams() {
   const [items, setItems] = useState<UpstreamOut[] | null>(null);
   const [modelDefaults, setModelDefaults] = useState<ModelDefaultsOut | null>(null);
@@ -70,6 +136,17 @@ export default function Upstreams() {
   const [restoringMock, setRestoringMock] = useState(false);
   const [testingUpstreamId, setTestingUpstreamId] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [upstreamColumnWidths, setUpstreamColumnWidths] = useState<UpstreamColumnWidths>(
+    DEFAULT_UPSTREAM_COLUMN_WIDTHS,
+  );
+  const upstreamResizeRef = useRef<{
+    startX: number;
+    tableWidth: number;
+    left: UpstreamTableColumn;
+    right: UpstreamTableColumn;
+    leftWidth: number;
+    rightWidth: number;
+  } | null>(null);
 
   const load = useCallback(async () => {
     setLoadErr(null);
@@ -94,6 +171,56 @@ export default function Upstreams() {
     void load();
   }, [load]);
 
+  function startUpstreamColumnResize(
+    left: UpstreamTableColumn,
+    right: UpstreamTableColumn,
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) {
+    event.preventDefault();
+    const table = event.currentTarget.closest("table");
+    const tableWidth = table?.getBoundingClientRect().width ?? 1;
+    upstreamResizeRef.current = {
+      startX: event.clientX,
+      tableWidth,
+      left,
+      right,
+      leftWidth: upstreamColumnWidths[left],
+      rightWidth: upstreamColumnWidths[right],
+    };
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      const state = upstreamResizeRef.current;
+      if (!state) return;
+      const delta = ((moveEvent.clientX - state.startX) / state.tableWidth) * 100;
+      const minLeft = MIN_UPSTREAM_COLUMN_WIDTHS[state.left];
+      const minRight = MIN_UPSTREAM_COLUMN_WIDTHS[state.right];
+      const pairTotal = state.leftWidth + state.rightWidth;
+      const nextLeft = Math.min(
+        // actions 列已到最小宽度时,改为单边拉伸,不压缩 actions
+        state.right === "actions" && state.rightWidth <= minRight + 0.5
+          ? 100
+          : pairTotal - minRight,
+        Math.max(minLeft, state.leftWidth + delta),
+      );
+      const nextRight = state.right === "actions" && state.rightWidth <= minRight + 0.5
+        ? state.rightWidth // 不压缩 actions
+        : pairTotal - nextLeft;
+      setUpstreamColumnWidths((current) => ({
+        ...current,
+        [state.left]: nextLeft,
+        [state.right]: nextRight,
+      }));
+    };
+
+    const onPointerUp = () => {
+      upstreamResizeRef.current = null;
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+  }
   async function handleDelete(id: string) {
     try {
       await api.deleteUpstream(id);
@@ -218,35 +345,68 @@ export default function Upstreams() {
                   Upstreams
                 </h2>
               </div>
-              <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border">
+              <div className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden rounded-lg border border-border">
                 <table className="w-full table-fixed caption-bottom text-sm">
-                  <TableHeader>
+                  <colgroup>
+                    {UPSTREAM_TABLE_COLUMNS.map((column) => (
+                      <col
+                        key={column}
+                        style={{ width: `${upstreamColumnWidths[column]}%` }}
+                      />
+                    ))}
+                  </colgroup>
+                  <TableHeader className="sticky top-0 z-20">
                     <TableRow className="hover:bg-muted/45">
-                      <TableHead className="sticky top-0 z-20 w-[9%] bg-muted">
-                        name
-                      </TableHead>
-                      <TableHead className="sticky top-0 z-20 w-[7%] bg-muted">
-                        provider
-                      </TableHead>
-                      <TableHead className="sticky top-0 z-20 w-[12%] bg-muted">
-                        native_api
-                      </TableHead>
-                      <TableHead className="sticky top-0 z-20 w-[8%] bg-muted">
-                        model
-                      </TableHead>
-                      <TableHead className="sticky top-0 z-20 bg-muted">
-                        base_url
-                      </TableHead>
-                      <TableHead className="sticky top-0 z-20 w-[11%] bg-muted">
-                        api_key
-                      </TableHead>
-                      <TableHead className="sticky top-0 z-20 w-[7%] bg-muted">
-                        enabled
-                      </TableHead>
-                      <TableHead className="sticky top-0 z-20 w-44 bg-muted">
-                        created_at
-                      </TableHead>
-                      <TableHead className="sticky top-0 z-20 w-28 bg-muted text-right">
+                      <ResizableUpstreamHead
+                        label="name"
+                        left="name"
+                        right="provider"
+                        onResize={startUpstreamColumnResize}
+                      />
+                      <ResizableUpstreamHead
+                        label="provider"
+                        left="provider"
+                        right="native_api"
+                        onResize={startUpstreamColumnResize}
+                      />
+                      <ResizableUpstreamHead
+                        label="native_api"
+                        left="native_api"
+                        right="model"
+                        onResize={startUpstreamColumnResize}
+                      />
+                      <ResizableUpstreamHead
+                        label="model"
+                        left="model"
+                        right="base_url"
+                        onResize={startUpstreamColumnResize}
+                      />
+                      <ResizableUpstreamHead
+                        label="base_url"
+                        left="base_url"
+                        right="api_key"
+                        onResize={startUpstreamColumnResize}
+                      />
+                      <ResizableUpstreamHead
+                        label="api_key"
+                        left="api_key"
+                        right="enabled"
+                        onResize={startUpstreamColumnResize}
+                      />
+                      <ResizableUpstreamHead
+                        label="enabled"
+                        left="enabled"
+                        right="created_at"
+                        align="center"
+                        onResize={startUpstreamColumnResize}
+                      />
+                      <ResizableUpstreamHead
+                        label="created_at"
+                        left="created_at"
+                        right="actions"
+                        onResize={startUpstreamColumnResize}
+                      />
+                      <TableHead className="bg-muted text-right select-none">
                         actions
                       </TableHead>
                     </TableRow>
@@ -284,8 +444,8 @@ export default function Upstreams() {
                         >
                           {u.api_key ?? "-"}
                         </TableCell>
-                        <TableCell className="text-xs">
-                          <span className="inline-flex items-center gap-1.5">
+                        <TableCell className="text-center text-xs">
+                          <span className="inline-flex items-center justify-center gap-1.5">
                             <span
                               className={`size-2 rounded-full ${
                                 u.enabled ? "bg-emerald-500" : "bg-muted-foreground/40"
@@ -301,7 +461,7 @@ export default function Upstreams() {
                         </TableCell>
                         <TableCell
                           className="truncate font-mono text-xs text-muted-foreground"
-                          title={u.created_at}
+                          title={formatDate(u.created_at)}
                         >
                           {formatDate(u.created_at)}
                         </TableCell>
@@ -429,6 +589,38 @@ export default function Upstreams() {
   );
 }
 
+function ResizableUpstreamHead({
+  label,
+  left,
+  right,
+  align = "left",
+  onResize,
+}: {
+  label: string;
+  left: UpstreamTableColumn;
+  right: UpstreamTableColumn;
+  align?: "left" | "center";
+  onResize: (
+    left: UpstreamTableColumn,
+    right: UpstreamTableColumn,
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => void;
+}) {
+  return (
+    <TableHead className="bg-muted relative select-none">
+      <div className={`truncate pr-3 ${align === "center" ? "text-center" : ""}`}>
+        {label}
+      </div>
+      <button
+        type="button"
+        aria-label={`Resize ${label} column`}
+        className="absolute right-0 top-0 z-30 h-full w-3 cursor-col-resize touch-none border-r border-transparent hover:border-ring focus:border-ring focus:outline-none"
+        onPointerDown={(event) => onResize(left, right, event)}
+      />
+    </TableHead>
+  );
+}
+
 function ModelDefaultsPanel({
   groups,
   drafts,
@@ -442,6 +634,87 @@ function ModelDefaultsPanel({
   onDraftChange: (model: string, name: string) => void;
   onSave: (model: string) => void;
 }) {
+  const [mdColWidths, setMdColWidths] = useState<ModelDefaultWidths>(DEFAULT_MODEL_DEFAULT_WIDTHS);
+  const mdResizeRef = useRef<{
+    startX: number;
+    tableWidth: number;
+    left: ModelDefaultColumn;
+    right: ModelDefaultColumn;
+    leftWidth: number;
+    rightWidth: number;
+  } | null>(null);
+
+  function startMdResize(
+    left: ModelDefaultColumn,
+    right: ModelDefaultColumn,
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) {
+    event.preventDefault();
+    const table = event.currentTarget.closest("table");
+    const tableWidth = table?.getBoundingClientRect().width ?? 1;
+    mdResizeRef.current = {
+      startX: event.clientX,
+      tableWidth,
+      left,
+      right,
+      leftWidth: mdColWidths[left],
+      rightWidth: mdColWidths[right],
+    };
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      const state = mdResizeRef.current;
+      if (!state) return;
+      const delta = ((moveEvent.clientX - state.startX) / state.tableWidth) * 100;
+      const minLeft = MIN_MODEL_DEFAULT_WIDTHS[state.left];
+      const minRight = MIN_MODEL_DEFAULT_WIDTHS[state.right];
+      const pairTotal = state.leftWidth + state.rightWidth;
+      const nextLeft = Math.min(
+        state.right === "action" && state.rightWidth <= minRight + 0.5
+          ? 100
+          : pairTotal - minRight,
+        Math.max(minLeft, state.leftWidth + delta),
+      );
+      const nextRight = state.right === "action" && state.rightWidth <= minRight + 0.5
+        ? state.rightWidth
+        : pairTotal - nextLeft;
+      setMdColWidths((current) => ({
+        ...current,
+        [state.left]: nextLeft,
+        [state.right]: nextRight,
+      }));
+    };
+
+    const onPointerUp = () => {
+      mdResizeRef.current = null;
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+  }
+
+  function MdResizableHead({ label, left, right, align = "left" }: {
+    label: string;
+    left: ModelDefaultColumn;
+    right: ModelDefaultColumn;
+    align?: "left" | "center";
+  }) {
+    return (
+      <TableHead className="bg-muted relative select-none" style={{ width: `${mdColWidths[left]}%` }}>
+        <div className={`truncate pr-3 ${align === "center" ? "text-center" : ""}`}>
+          {label}
+        </div>
+        <button
+          type="button"
+          aria-label={`Resize ${label} column`}
+          className="absolute right-0 top-0 z-30 h-full w-3 cursor-col-resize touch-none border-r border-transparent hover:border-ring focus:border-ring focus:outline-none"
+          onPointerDown={(event) => startMdResize(left, right, event)}
+        />
+      </TableHead>
+    );
+  }
+
   const duplicateGroups = groups.filter((group) => group.upstreams.length > 1);
   const singleGroups = groups.filter((group) => group.upstreams.length === 1);
 
@@ -455,22 +728,25 @@ function ModelDefaultsPanel({
           无 r-upstream 时按 body.model 匹配 upstream；同一个 model 对应多个 upstream 时，必须在这里指定默认 upstream。
         </p>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border">
+      <div className="relative min-h-0 flex-1 overflow-auto rounded-lg border border-border">
       {groups.length === 0 ? (
         <div className="px-4 py-4 text-sm text-muted-foreground">
           当前没有配置 model 的 upstream。客户端必须传 r-upstream，或先给 upstream 配置 model。
         </div>
       ) : (
-        <table className="w-full caption-bottom text-sm">
-          <TableHeader>
+        <table className="w-full table-fixed caption-bottom text-sm">
+          <colgroup>
+            {MODEL_DEFAULT_COLUMNS.map((column) => (
+              <col key={column} style={{ width: `${mdColWidths[column]}%` }} />
+            ))}
+          </colgroup>
+          <TableHeader className="sticky top-0 z-20">
             <TableRow className="bg-muted/45 hover:bg-muted/45">
-              <TableHead className="sticky top-0 z-20 w-[22%] bg-muted">model</TableHead>
-              <TableHead className="sticky top-0 z-20 w-[12%] bg-muted">status</TableHead>
-              <TableHead className="sticky top-0 z-20 w-[22%] bg-muted">
-                current default
-              </TableHead>
-              <TableHead className="sticky top-0 z-20 bg-muted">upstream</TableHead>
-              <TableHead className="sticky top-0 z-20 w-24 bg-muted text-right">
+              <MdResizableHead label="model" left="model" right="status" />
+              <MdResizableHead label="status" left="status" right="current_default" />
+              <MdResizableHead label="current default" left="current_default" right="upstream" />
+              <MdResizableHead label="upstream" left="upstream" right="action" />
+              <TableHead className="bg-muted text-right select-none" style={{ width: `${mdColWidths["action"]}%` }}>
                 action
               </TableHead>
             </TableRow>

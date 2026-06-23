@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { Link } from "react-router";
 
 import ReactMarkdown from "react-markdown";
@@ -20,6 +26,7 @@ import {
 } from "@/components/ui/table";
 import {
   api,
+  serverApiLabel,
   type ApiError,
   type StatsOut,
   type StatusResponse,
@@ -43,7 +50,36 @@ type FetchState =
   | { kind: "ok"; data: DashboardData }
   | { kind: "err"; message: string };
 
+const DASHBOARD_COLUMNS = ["name", "provider", "native_api", "model", "enabled"] as const;
+type DashColumn = (typeof DASHBOARD_COLUMNS)[number];
+type DashWidths = Record<DashColumn, number>;
+
+const DEFAULT_DASH_WIDTHS: DashWidths = {
+  name: 20,
+  provider: 12,
+  native_api: 26,
+  model: 22,
+  enabled: 8,
+};
+
+const MIN_DASH_WIDTHS: DashWidths = {
+  name: 8,
+  provider: 6,
+  native_api: 10,
+  model: 8,
+  enabled: 6,
+};
+
 export default function Dashboard() {
+  const [dashWidths, setDashWidths] = useState<DashWidths>(DEFAULT_DASH_WIDTHS);
+  const dashResizeRef = useRef<{
+    startX: number;
+    tableWidth: number;
+    left: DashColumn;
+    right: DashColumn;
+    leftWidth: number;
+    rightWidth: number;
+  } | null>(null);
   const [state, setState] = useState<FetchState>({ kind: "loading" });
   const [guideProvider, setGuideProvider] = useState<string | null>(null);
   const [guideContent, setGuideContent] = useState<string | null>(null);
@@ -57,6 +93,74 @@ export default function Dashboard() {
     | { kind: "installing" }
     | { kind: "err"; message: string }
   >({ kind: "idle" });
+
+  function startDashResize(
+    left: DashColumn,
+    right: DashColumn,
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) {
+    event.preventDefault();
+    const table = event.currentTarget.closest("table");
+    const tableWidth = table?.getBoundingClientRect().width ?? 1;
+    dashResizeRef.current = {
+      startX: event.clientX,
+      tableWidth,
+      left,
+      right,
+      leftWidth: dashWidths[left],
+      rightWidth: dashWidths[right],
+    };
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      const state = dashResizeRef.current;
+      if (!state) return;
+      const delta = ((moveEvent.clientX - state.startX) / state.tableWidth) * 100;
+      const minLeft = MIN_DASH_WIDTHS[state.left];
+      const minRight = MIN_DASH_WIDTHS[state.right];
+      const pairTotal = state.leftWidth + state.rightWidth;
+      const nextLeft = Math.min(
+        state.right === "enabled" && state.rightWidth <= minRight + 0.5
+          ? 100
+          : pairTotal - minRight,
+        Math.max(minLeft, state.leftWidth + delta),
+      );
+      const nextRight = state.right === "enabled" && state.rightWidth <= minRight + 0.5
+        ? state.rightWidth
+        : pairTotal - nextLeft;
+      setDashWidths((current) => ({
+        ...current,
+        [state.left]: nextLeft,
+        [state.right]: nextRight,
+      }));
+    };
+
+    const onPointerUp = () => {
+      dashResizeRef.current = null;
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+  }
+
+  function DashResizableHead({ label, left, right }: {
+    label: string;
+    left: DashColumn;
+    right: DashColumn;
+  }) {
+    return (
+      <TableHead className="bg-muted relative select-none">
+        <div className="truncate pr-3">{label}</div>
+        <button
+          type="button"
+          aria-label={`Resize ${label} column`}
+          className="absolute right-0 top-0 z-30 h-full w-3 cursor-col-resize touch-none border-r border-transparent hover:border-ring focus:border-ring focus:outline-none"
+          onPointerDown={(event) => startDashResize(left, right, event)}
+        />
+      </TableHead>
+    );
+  }
 
   const load = useCallback(async () => {
     setState({ kind: "loading" });
@@ -227,7 +331,7 @@ export default function Dashboard() {
                   </code>
                 }
               />
-              <Stat label="status" value={<Badge>running</Badge>} />
+              <Stat label="status" value={<Badge className="bg-emerald-500 text-white">running</Badge>} />
               <Stat
                 label="upstreams"
                 value={String(state.data.status.upstreams_count)}
@@ -278,24 +382,21 @@ export default function Dashboard() {
                   </Link>
                 </div>
               ) : (
-                <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border">
+                <div className="relative min-h-0 flex-1 overflow-auto rounded-lg border border-border">
                   <table className="w-full table-fixed caption-bottom text-sm">
-                    <TableHeader>
+                    <colgroup>
+                      {DASHBOARD_COLUMNS.map((column) => (
+                        <col key={column} style={{ width: `${dashWidths[column]}%` }} />
+                      ))}
+                    </colgroup>
+                    <TableHeader className="sticky top-0 z-20">
                       <TableRow className="bg-muted/45 hover:bg-muted/45">
-                        <TableHead className="sticky top-0 z-20 w-[22%] bg-muted">
-                          name
-                        </TableHead>
-                        <TableHead className="sticky top-0 z-20 w-[16%] bg-muted">
-                          native_api
-                        </TableHead>
-                        <TableHead className="sticky top-0 z-20 w-[14%] bg-muted">
-                          provider
-                        </TableHead>
-                        <TableHead className="sticky top-0 z-20 w-[12%] bg-muted">
-                          model
-                        </TableHead>
-                        <TableHead className="sticky top-0 z-20 w-[8%] bg-muted">
-                          status
+                        <DashResizableHead label="name" left="name" right="provider" />
+                        <DashResizableHead label="provider" left="provider" right="native_api" />
+                        <DashResizableHead label="native_api" left="native_api" right="model" />
+                        <DashResizableHead label="model" left="model" right="enabled" />
+                        <TableHead className="bg-muted select-none" style={{ width: `${dashWidths["enabled"]}%` }}>
+                          enabled
                         </TableHead>
                       </TableRow>
                     </TableHeader>
@@ -305,19 +406,29 @@ export default function Dashboard() {
                           <TableCell className="truncate font-medium">
                             {u.name}
                           </TableCell>
-                          <TableCell className="truncate text-xs text-muted-foreground">
-                            {u.native_api}
-                          </TableCell>
                           <TableCell>
                             <Badge variant="outline">{u.provider}</Badge>
+                          </TableCell>
+                          <TableCell className="truncate text-xs text-muted-foreground">
+                            {serverApiLabel(u.native_api)}
                           </TableCell>
                           <TableCell className="truncate font-mono text-xs text-muted-foreground">
                             {u.model ?? "-"}
                           </TableCell>
                           <TableCell>
-                            <Badge variant={u.enabled ? "default" : "outline"}>
-                              {u.enabled ? "enabled" : "disabled"}
-                            </Badge>
+                            <span className="inline-flex items-center justify-center gap-1.5">
+                              <span
+                                className={`size-2 rounded-full ${
+                                  u.enabled ? "bg-emerald-500" : "bg-muted-foreground/40"
+                                }`}
+                                aria-hidden
+                              />
+                              <span
+                                className={u.enabled ? "font-medium" : "text-muted-foreground"}
+                              >
+                                {u.enabled ? "on" : "off"}
+                              </span>
+                            </span>
                           </TableCell>
                         </TableRow>
                       ))}
