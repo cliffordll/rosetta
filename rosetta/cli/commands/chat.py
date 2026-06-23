@@ -69,6 +69,10 @@ def chat_cmd(
     max_tokens: Annotated[
         int, typer.Option("--max-tokens", help="messages 格式的 max_tokens")
     ] = 1024,
+    stream: Annotated[
+        bool,
+        typer.Option("--stream/--no-stream", help="流式逐 token 输出;非流式等待完整响应后一次性输出"),
+    ] = True,
     raw: Annotated[
         bool,
         typer.Option("--raw", help="输出原始 request 和 SSE response,不做 nice 文本渲染"),
@@ -93,6 +97,13 @@ def chat_cmd(
             f"--server-api 必须是 messages/completions/responses,收到 {server_api_value!r}"
         )
         return
+
+    # 规范 sentinel 值: --api-key="none"/"" / --model="none"/"" 统一转 None,
+    # 让 server 用 upstream.api_key / upstream.model 兜底,与 Web UI 的空 = 用默认行为对齐。
+    if api_key and api_key.strip().lower() in ('none', ''):
+        api_key = None
+    if model and model.strip().lower() in ('none', ''):
+        model = None
 
     if base_url is not None:
         # direct 模式:--upstream 无条件忽略;api_key / model 必填,不回退默认
@@ -122,6 +133,7 @@ def chat_cmd(
             api_key=api_key,
             base_url=base_url,
             max_tokens=max_tokens,
+            stream=stream,
             raw=raw,
             raw_edge=raw_edge,
             raw_step=raw_step,
@@ -164,6 +176,7 @@ async def _run(
     api_key: str | None,
     base_url: str | None,
     max_tokens: int,
+    stream: bool = True,
     raw: bool,
     raw_edge: int,
     raw_step: int,
@@ -173,13 +186,26 @@ async def _run(
         async with _session(
             server_api=server_api, model=model, api_key=api_key, base_url=base_url
         ) as client:
+            # server 模式:从 settings 表加载 chat 配置,CLI 参数优先
+            if base_url is None and client.mode == "server":
+                try:
+                    cfg = await client.chat_config()
+                    _max_tokens = max_tokens if max_tokens != 1024 else cfg.max_tokens
+                    _stream = stream if stream else cfg.stream
+                except Exception:
+                    _max_tokens = max_tokens
+                    _stream = stream
+            else:
+                _max_tokens = max_tokens
+                _stream = stream
             ctx = ChatContext(
                 client=client,
                 server_api=server_api,
                 model=model,
                 upstream=upstream,
                 api_key=api_key,
-                max_tokens=max_tokens,
+                max_tokens=_max_tokens,
+                stream=_stream,
             )
             if text is None or not text.strip():
                 # 惰性 import 避开模块加载时的环路风险

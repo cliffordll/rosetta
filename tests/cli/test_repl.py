@@ -8,6 +8,8 @@ class FakeCtx:
         self.model = "claude-test"
         self.upstream = "ant-main"
         self.api_key = None
+        self.max_tokens = 1024
+        self.stream = True
         self.server_api = SimpleNamespace(value="messages")
 
     def set_model(self, model: str | None) -> None:
@@ -18,6 +20,12 @@ class FakeCtx:
 
     def set_api_key(self, api_key: str | None) -> None:
         self.api_key = api_key
+
+    def set_max_tokens(self, max_tokens: int) -> None:
+        self.max_tokens = max_tokens
+
+    def set_stream(self, stream: bool) -> None:
+        self.stream = stream
 
 
 class FakeInput:
@@ -134,7 +142,7 @@ def test_slash_commands_without_args_show_current_config(monkeypatch) -> None:
     assert messages == [
         "model = claude-test",
         "upstream = ant-main",
-        "api_key = db",
+        "api_key = 不覆盖(走 upstream.api_key)",
         "server_api = messages",
     ]
 
@@ -182,4 +190,99 @@ def test_api_key_slash_command_sets_and_clears_override(monkeypatch) -> None:
     assert repl._handle_slash("/api_key clear") is False
     assert ctx.api_key is None
 
-    assert messages == ["api_key → set", "api_key → db(用 upstream.api_key)"]
+    assert messages == ["api_key → 覆盖中", "api_key → 不覆盖(走 upstream.api_key)"]
+
+def test_max_tokens_slash_command_without_arg_shows_current(monkeypatch) -> None:
+    messages: list[str] = []
+    ctx = FakeCtx()
+    ctx.max_tokens = 4096
+
+    monkeypatch.setattr("rosetta.cli.core.repl.Renderer.out", messages.append)
+
+    repl = ChatRepl(ctx=ctx)  # type: ignore[arg-type]
+
+    assert repl._handle_slash("/max_tokens") is False
+    assert messages == ["max_tokens = 4096"]
+
+
+def test_max_tokens_slash_command_sets_value(monkeypatch) -> None:
+    messages: list[str] = []
+    ctx = FakeCtx()
+    ctx.max_tokens = 1024
+
+    monkeypatch.setattr("rosetta.cli.core.repl.Renderer.out", messages.append)
+
+    repl = ChatRepl(ctx=ctx)  # type: ignore[arg-type]
+
+    assert repl._handle_slash("/max_tokens 8192") is False
+    assert ctx.max_tokens == 8192
+    assert messages == ["max_tokens → 8192"]
+
+
+def test_max_tokens_slash_command_rejects_non_positive(monkeypatch) -> None:
+    errors: list[str] = []
+    ctx = FakeCtx()
+
+    monkeypatch.setattr("rosetta.cli.core.repl.Renderer.error_bubble", errors.append)
+
+    repl = ChatRepl(ctx=ctx)  # type: ignore[arg-type]
+
+    assert repl._handle_slash("/max_tokens 0") is False
+    assert repl._handle_slash("/max_tokens nope") is False
+    assert ctx.max_tokens == 1024  # unchanged
+    assert len(errors) == 2
+    assert all("必须是正整数" in msg for msg in errors)
+
+
+def test_stream_slash_command_without_arg_shows_current(monkeypatch) -> None:
+    messages: list[str] = []
+    ctx = FakeCtx()
+    ctx.stream = False
+
+    monkeypatch.setattr("rosetta.cli.core.repl.Renderer.out", messages.append)
+
+    repl = ChatRepl(ctx=ctx)  # type: ignore[arg-type]
+
+    assert repl._handle_slash("/stream") is False
+    assert messages == ["stream = off"]
+
+
+def test_stream_slash_command_turns_on(monkeypatch) -> None:
+    messages: list[str] = []
+    ctx = FakeCtx()
+    ctx.stream = False
+
+    monkeypatch.setattr("rosetta.cli.core.repl.Renderer.out", messages.append)
+
+    repl = ChatRepl(ctx=ctx)  # type: ignore[arg-type]
+
+    assert repl._handle_slash("/stream on") is False
+    assert ctx.stream is True
+    assert messages == ["stream → on"]
+
+
+def test_stream_slash_command_turns_off(monkeypatch) -> None:
+    messages: list[str] = []
+    ctx = FakeCtx()
+    ctx.stream = True
+
+    monkeypatch.setattr("rosetta.cli.core.repl.Renderer.out", messages.append)
+
+    repl = ChatRepl(ctx=ctx)  # type: ignore[arg-type]
+
+    assert repl._handle_slash("/stream off") is False
+    assert ctx.stream is False
+    assert messages == ["stream → off"]
+
+
+def test_stream_slash_command_rejects_unknown_value(monkeypatch) -> None:
+    errors: list[str] = []
+    ctx = FakeCtx()
+
+    monkeypatch.setattr("rosetta.cli.core.repl.Renderer.error_bubble", errors.append)
+
+    repl = ChatRepl(ctx=ctx)  # type: ignore[arg-type]
+
+    assert repl._handle_slash("/stream maybe") is False
+    assert ctx.stream is True  # unchanged
+    assert errors == ["/stream 参数必须是 on 或 off"]

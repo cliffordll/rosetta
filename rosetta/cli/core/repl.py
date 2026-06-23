@@ -46,13 +46,14 @@ class ChatRepl:
     _PROMPT: ClassVar[str] = "› "  # noqa: RUF001
 
     _HELP: ClassVar[str] = (
-        "slash 命令:\n"
         "  /exit, /quit              退出 REPL\n"
         "  /reset                    清空对话历史\n"
-        "  /model <name|clear>       显示/切换模型;clear = auto\n"
         "  /upstream <name|clear>    显示/切换 upstream;clear = 按 model 匹配\n"
-        "  /api_key <key|clear>      显示/切换临时 api-key override;clear = 用 DB key\n"
         "  /server_api <api_type>    切换 API 格式(messages|completions|responses)\n"
+        "  /model <name|clear>       显示/切换模型;clear = auto\n"
+        "  /api_key <sk-xxx|clear>   显示/设置 api-key 覆盖;clear = 走 upstream.api_key\n"
+        "  /max_tokens <n>           显示或切换 max_tokens\n"
+        "  /stream on|off            显示或切换 stream 模式\n"
         "  /raw on|off               切换 raw request/response 输出\n"
         "  /raw_edge <n>             raw 模式显示前/后 n 条 SSE frame\n"
         "  /raw_step <n>             raw 模式每次展开 n 条 SSE frame\n"
@@ -178,14 +179,41 @@ class ChatRepl:
 
         if cmd == "/api_key":
             if not arg:
-                Renderer.out(f"api_key = {'set' if self.ctx.api_key else 'db'}")
+                Renderer.out(f"api_key = {'覆盖中' if self.ctx.api_key else '不覆盖(走 upstream.api_key)'}")
                 return False
             if arg == "clear":
                 self.ctx.set_api_key(None)
-                Renderer.out("api_key → db(用 upstream.api_key)")
+                Renderer.out("api_key → 不覆盖(走 upstream.api_key)")
                 return False
             self.ctx.set_api_key(arg)
-            Renderer.out("api_key → set")
+            Renderer.out("api_key → 覆盖中")
+            return False
+
+        if cmd == "/max_tokens":
+            if not arg:
+                Renderer.out(f"max_tokens = {self.ctx.max_tokens}")
+                return False
+            value = _parse_positive_int(arg)
+            if value is None:
+                Renderer.error_bubble("/max_tokens 参数必须是正整数")
+                return False
+            self.ctx.set_max_tokens(value)
+            Renderer.out(f"max_tokens → {value}")
+            return False
+
+        if cmd == "/stream":
+            if not arg:
+                Renderer.out(f"stream = {'on' if self.ctx.stream else 'off'}")
+                return False
+            if arg == "on":
+                self.ctx.set_stream(True)
+                Renderer.out("stream → on")
+                return False
+            if arg == "off":
+                self.ctx.set_stream(False)
+                Renderer.out("stream → off")
+                return False
+            Renderer.error_bubble("/stream 参数必须是 on 或 off")
             return False
 
         if cmd == "/server_api":

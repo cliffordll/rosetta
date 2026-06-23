@@ -25,3 +25,15 @@ def test_repl_prompt_completes_model_clear() -> None:
     labels = [item.text for item in complete_repl_input("/model ")]
 
     assert labels == ["clear"]
+
+
+def test_repl_prompt_completes_api_key_clear() -> None:
+    labels = [item.text for item in complete_repl_input("/api_key ")]
+
+    assert labels == ["clear"]
+
+
+def test_repl_prompt_completes_upstream_clear() -> None:
+    labels = [item.text for item in complete_repl_input("/upstream ")]
+
+    assert labels == ["clear"]

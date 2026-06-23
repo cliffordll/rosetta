@@ -68,6 +68,7 @@ class ChatContext:
     upstream: str | None = None
     api_key: str | None = None
     max_tokens: int = 1024
+    stream: bool = True
     messages: list[dict[str, str]] = field(default_factory=_empty_messages)
 
     # ---------- 状态操作 ----------
@@ -99,6 +100,12 @@ class ChatContext:
     def set_api_key(self, api_key: str | None) -> None:
         self.api_key = api_key
 
+    def set_stream(self, stream: bool) -> None:
+        self.stream = stream
+
+    def set_max_tokens(self, max_tokens: int) -> None:
+        self.max_tokens = max_tokens
+
     # ---------- 核心:一轮请求 ----------
 
     async def run_turn(
@@ -107,17 +114,25 @@ class ChatContext:
         *,
         raw_turn: RawChatTurn | None = None,
     ) -> TurnResult:
-        """用当前 `self.messages` 发一轮流式请求,`on_token` 实时收每个文本增量。
+        """用当前 `self.messages` 发一轮请求。`self.stream=True` 时流式逐 token 输出,
+        `self.stream=False` 时等待完整响应后一次性调用 `on_token` 输出全文。
 
         上游 4xx / 5xx 时抛 `ChatError`(body = 响应正文)。
         `direct` 模式下 api_key / upstream header 不走 server 透传路径。
         """
         body = self._build_body()
-        stream = ChatStream(server_api=self.server_api)
-        buf: list[str] = []
         t0 = time.monotonic()
         override_api_key = self.api_key if self.client.mode == "server" else None
         upstream_header = self.upstream if self.client.mode == "server" else None
+
+        if not self.stream:
+            return await self._run_non_stream(
+                body, on_token, raw_turn=raw_turn,
+                override_api_key=override_api_key, upstream_header=upstream_header, t0=t0,
+            )
+
+        stream = ChatStream(server_api=self.server_api)
+        buf: list[str] = []
         raw_response: RawChatResponse | None = None
 
         if raw_turn is not None:
@@ -164,6 +179,50 @@ class ChatContext:
             latency_ms=int((time.monotonic() - t0) * 1000),
         )
 
+    async def _run_non_stream(
+        self,
+        body: dict[str, Any],
+        on_token: Callable[[str], None],
+        *,
+        raw_turn: RawChatTurn | None = None,
+        override_api_key: str | None,
+        upstream_header: str | None,
+        t0: float,
+    ) -> TurnResult:
+        resp = await self.client.post_chat(
+            self.server_api,
+            body,
+            override_api_key=override_api_key,
+            upstream_header=upstream_header,
+        )
+        if resp.status_code >= 400:
+            raise ChatError(
+                status=resp.status_code,
+                body=resp.text,
+            )
+        data = resp.json()
+        full_text = _extract_non_stream_text(data, self.server_api)
+        on_token(full_text)
+
+        if raw_turn is not None:
+            url, headers = self.client.data_url_and_headers(
+                self.server_api,
+                override_api_key=override_api_key,
+                upstream_header=upstream_header,
+            )
+            raw_turn.request = RawChatRequest(url=url, headers=headers, body=body)
+            raw_turn.response = RawChatResponse(
+                frames=[],
+                error=None,
+            )
+
+        return TurnResult(
+            text=full_text,
+            input_tokens=_extract_input_tokens(data, self.server_api),
+            output_tokens=_extract_output_tokens(data, self.server_api),
+            latency_ms=int((time.monotonic() - t0) * 1000),
+        )
+
     # ---------- 私有:按 server_api 组装请求体 ----------
 
     def _build_body(self) -> dict[str, Any]:
@@ -180,7 +239,7 @@ class ChatContext:
             return {
                 **model_field,
                 "max_tokens": self.max_tokens,
-                "stream": True,
+                "stream": self.stream,
                 "messages": self.messages,
             }
 
@@ -190,8 +249,8 @@ class ChatContext:
             # 的翻译层 adapter 要求必填,一次性给齐简化下游路径
             return {
                 **model_field,
-                "stream": True,
-                "stream_options": {"include_usage": True},
+                "stream": self.stream,
+                "stream_options": {"include_usage": True} if self.stream else {},
                 "max_tokens": self.max_tokens,
                 "messages": self.messages,
             }
@@ -200,10 +259,69 @@ class ChatContext:
         # input item 按 Responses 规范带 type="message"(否则 adapter 拒)
         return {
             **model_field,
-            "stream": True,
+            "stream": self.stream,
             "max_output_tokens": self.max_tokens,
             "input": [
                 {"type": "message", "role": m["role"], "content": m["content"]}
                 for m in self.messages
             ],
         }
+
+
+
+def _extract_non_stream_text(data: dict[str, Any], server_api: ServerApi) -> str:
+    if server_api is ServerApi.MESSAGES:
+        blocks = data.get("content", [])
+        if isinstance(blocks, list):
+            parts: list[str] = []
+            for b in blocks:
+                if isinstance(b, dict) and b.get("type") == "text":
+                    t = b.get("text", "")
+                    if isinstance(t, str):
+                        parts.append(t)
+            return "".join(parts)
+        return ""
+    if server_api is ServerApi.CHAT_COMPLETIONS:
+        choices = data.get("choices")
+        if isinstance(choices, list) and choices:
+            msg = choices[0].get("message") if isinstance(choices[0], dict) else None
+            if isinstance(msg, dict):
+                content = msg.get("content")
+                return content if isinstance(content, str) else ""
+        return ""
+    output = data.get("output")
+    if isinstance(output, list):
+        parts: list[str] = []
+        for item in output:
+            if isinstance(item, dict) and item.get("type") == "message":
+                content = item.get("content")
+                if isinstance(content, list):
+                    for c in content:
+                        if isinstance(c, dict) and c.get("type") == "output_text":
+                            t = c.get("text", "")
+                            if isinstance(t, str):
+                                parts.append(t)
+        return "".join(parts)
+    return ""
+
+
+def _extract_input_tokens(data: dict[str, Any], server_api: ServerApi) -> int:
+    usage = data.get("usage")
+    if not isinstance(usage, dict):
+        return 0
+    if server_api is ServerApi.MESSAGES:
+        return usage.get("input_tokens", 0) or 0
+    if server_api is ServerApi.CHAT_COMPLETIONS:
+        return usage.get("prompt_tokens", 0) or 0
+    return 0
+
+
+def _extract_output_tokens(data: dict[str, Any], server_api: ServerApi) -> int:
+    usage = data.get("usage")
+    if not isinstance(usage, dict):
+        return 0
+    if server_api is ServerApi.MESSAGES:
+        return usage.get("output_tokens", 0) or 0
+    if server_api is ServerApi.CHAT_COMPLETIONS:
+        return usage.get("completion_tokens", 0) or 0
+    return 0

@@ -24,6 +24,8 @@ export interface ChatTurnOpts {
   upstreamName: string | null;
   overrideApiKey: string | null;
   maxTokens: number;
+  /** 默认 true(流式);false 则等待完整响应后一次返回 */
+  stream?: boolean;
   signal: AbortSignal;
   onToken: (t: string) => void;
   onRawRequest?: (request: RawChatRequest) => void;
@@ -61,7 +63,8 @@ export async function runTurn(
   messages: ChatTurnMsg[],
   opts: ChatTurnOpts,
 ): Promise<ChatTurnResult> {
-  const body = buildBody(opts.serverApi, messages, opts.model, opts.maxTokens);
+  const doStream = opts.stream ?? true;
+  const body = buildBody(opts.serverApi, messages, opts.model, opts.maxTokens, doStream);
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (opts.upstreamName) headers["r-upstream"] = opts.upstreamName;
   if (opts.overrideApiKey) {
@@ -96,6 +99,27 @@ export async function runTurn(
     throw new ChatError(resp.status, text);
   }
 
+  if (!doStream) {
+    const json: Record<string, unknown> = await resp.json();
+    const fullText = extractText(json, opts.serverApi);
+    opts.onToken(fullText);
+    const inputTokens = extractInputTokens(json, opts.serverApi);
+    const outputTokens = extractOutputTokens(json, opts.serverApi);
+    opts.onRawFrame?.({
+      event: "done",
+      data: json,
+      raw: JSON.stringify(json, null, 2),
+      receivedAt: new Date().toISOString(),
+    } satisfies SseFrame);
+    return {
+      text: fullText,
+      inputTokens,
+      outputTokens,
+      latencyMs: Math.round(performance.now() - t0),
+      aborted: false,
+    };
+  }
+
   const stream = new ChatStream(opts.serverApi);
   const buf: string[] = [];
   let aborted = false;
@@ -126,26 +150,24 @@ function buildBody(
   messages: ChatTurnMsg[],
   model: string | null,
   maxTokens: number,
+  stream: boolean,
 ): Record<string, unknown> {
-  // model 留空 → 不发字段,让 forwarder 兜底到 upstream.model
   const modelField: Record<string, unknown> = model ? { model } : {};
   if (serverApi === ServerApi.MESSAGES) {
-    return { ...modelField, max_tokens: maxTokens, stream: true, messages };
+    return { ...modelField, max_tokens: maxTokens, stream, messages };
   }
   if (serverApi === ServerApi.CHAT_COMPLETIONS) {
-    // rosetta 翻译层 adapter 要求 max_tokens 必填;沿用 messages 的 maxTokens 一次给齐
     return {
       ...modelField,
-      stream: true,
-      stream_options: { include_usage: true },
+      stream,
+      ...(stream ? { stream_options: { include_usage: true } } : {}),
       max_tokens: maxTokens,
       messages,
     };
   }
-  // RESPONSES:字段名是 max_output_tokens,input item 需带 type="message"
   return {
     ...modelField,
-    stream: true,
+    stream,
     max_output_tokens: maxTokens,
     input: messages.map((m) => ({
       type: "message",
@@ -153,4 +175,39 @@ function buildBody(
       content: m.content,
     })),
   };
+}
+
+function extractText(json: Record<string, unknown>, serverApi: ServerApi): string {
+  if (serverApi === ServerApi.MESSAGES) {
+    const content = json.content as Array<Record<string, unknown>> | undefined;
+    if (!content) return "";
+    return content
+      .filter((b) => b.type === "text")
+      .map((b) => String(b.text ?? ""))
+      .join("");
+  }
+  if (serverApi === ServerApi.CHAT_COMPLETIONS) {
+    const choices = json.choices as Array<Record<string, unknown>> | undefined;
+    return (choices?.[0]?.message as Record<string, unknown>)?.content as string ?? "";
+  }
+  const output = json.output as Array<Record<string, unknown>> | undefined;
+  if (!output) return "";
+  return output
+    .filter((b) => b.type === "message")
+    .flatMap((m) => (m.content as Array<Record<string, unknown>>) ?? [])
+    .filter((b) => b.type === "output_text")
+    .map((b) => String(b.text ?? ""))
+    .join("");
+}
+
+function extractInputTokens(json: Record<string, unknown>, serverApi: ServerApi): number {
+  if (serverApi === ServerApi.MESSAGES) return (json.usage as Record<string, number>)?.input_tokens ?? 0;
+  if (serverApi === ServerApi.CHAT_COMPLETIONS) return (json.usage as Record<string, number>)?.prompt_tokens ?? 0;
+  return 0;
+}
+
+function extractOutputTokens(json: Record<string, unknown>, serverApi: ServerApi): number {
+  if (serverApi === ServerApi.MESSAGES) return (json.usage as Record<string, number>)?.output_tokens ?? 0;
+  if (serverApi === ServerApi.CHAT_COMPLETIONS) return (json.usage as Record<string, number>)?.completion_tokens ?? 0;
+  return 0;
 }

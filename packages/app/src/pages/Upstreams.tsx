@@ -1,4 +1,4 @@
-import { isTauri } from "@/lib/updater";
+﻿import { isTauri } from "@/lib/updater";
 import { BugIcon, CopyIcon, PencilIcon, SaveIcon, Trash2Icon } from "lucide-react";
 import {
   useCallback,
@@ -82,25 +82,25 @@ type UpstreamColumnWidths = Record<UpstreamTableColumn, number>;
 
 const DEFAULT_UPSTREAM_COLUMN_WIDTHS: UpstreamColumnWidths = {
   name: 9,
-  provider: 7,
+  provider: 6,
   native_api: 11,
   model: 9,
   base_url: 11,
-  api_key: 7,
-  enabled: 7,
-  created_at: 11,
+  api_key: 8,
+  enabled: 6,
+  created_at: 9,
   actions: 13,
 };
 
 const MIN_UPSTREAM_COLUMN_WIDTHS: UpstreamColumnWidths = {
-  name: 8,
-  provider: 6,
-  native_api: 10,
+  name: 6,
+  provider: 4,
+  native_api: 6,
   model: 8,
-  base_url: 7,
+  base_url: 8,
   api_key: 8,
-  enabled: 6,
-  created_at: 8,
+  enabled: 4,
+  created_at: 6,
   actions: 13,
 };
 
@@ -140,7 +140,7 @@ export default function Upstreams() {
   const [upstreamColumnWidths, setUpstreamColumnWidths] = useState<UpstreamColumnWidths>(
     () => ({
       ...DEFAULT_UPSTREAM_COLUMN_WIDTHS,
-      ...(isTauri() ? { actions: 12 } : { actions: 10 }),
+      ...(isTauri() ? { actions: 11 } : { actions: 9 }),
     }),
   );
   const upstreamResizeRef = useRef<{
@@ -435,20 +435,17 @@ export default function Upstreams() {
                         >
                           {serverApiLabel(u.native_api)}
                         </TableCell>
-                        <TableCell className="p-1"
-                          className="truncate font-mono text-xs text-muted-foreground"
+                        <TableCell className="p-1 truncate font-mono text-xs text-muted-foreground"
                           title={u.model ?? ""}
                         >
                           {u.model ?? "-"}
                         </TableCell>
-                        <TableCell className="p-1"
-                          className="truncate text-xs text-muted-foreground"
+                        <TableCell className="p-1 truncate text-xs text-muted-foreground"
                           title={u.base_url}
                         >
                           {u.base_url}
                         </TableCell>
-                        <TableCell className="p-1"
-                          className="truncate font-mono text-xs text-muted-foreground"
+                        <TableCell className="p-1 truncate font-mono text-xs text-muted-foreground"
                           title={u.api_key ?? ""}
                         >
                           {u.api_key ?? "-"}
@@ -505,7 +502,7 @@ export default function Upstreams() {
                               disabled={testingUpstreamId === u.id}
                               onClick={() => void handleTestUpstream(u)}
                             >
-                              <BugIcon className={u.test_result === "ok" ? "text-emerald-500" : u.test_result === "fail" ? "text-destructive" : "text-muted-foreground/50"} />
+                              <BugIcon className={u.test_result === "ok" ? "text-emerald-500" : u.test_result === "fail" ? "text-destructive" : ""} />
                             </Button>
                             <Button
                               variant="ghost"
@@ -984,7 +981,7 @@ function UpstreamFormDialog({
     ? "修改字段后保存;api_key 会回显,留空保存会清空。"
     : isCopy
       ? `以 '${initial?.name}' 为模板新建一行;name 已加 -copy 后缀避免冲突,api_key 会带过来,可按需修改。`
-      : "新建上游 upstream。";
+      : "";
 
   const keyStatus =
     isEdit && initial

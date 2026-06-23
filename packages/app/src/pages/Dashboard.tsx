@@ -56,9 +56,9 @@ type DashColumn = (typeof DASHBOARD_COLUMNS)[number];
 type DashWidths = Record<DashColumn, number>;
 
 const DEFAULT_DASH_WIDTHS: DashWidths = {
-  name: 16,
+  name: 20,
   provider: 10,
-  native_api: 24,
+  native_api: 20,
   model: 20,
   enabled: 8,
   test: 10,
@@ -67,7 +67,7 @@ const DEFAULT_DASH_WIDTHS: DashWidths = {
 const MIN_DASH_WIDTHS: DashWidths = {
   name: 8,
   provider: 6,
-  native_api: 10,
+  native_api: 8,
   model: 8,
   enabled: 6,
   test: 6,

@@ -25,6 +25,10 @@ SLASH_COMPLETIONS: tuple[CompletionItem, ...] = (
     CompletionItem("/raw", "显示或切换 raw 输出"),
     CompletionItem("/raw_edge", "显示或设置 raw 前/后 frame 数"),
     CompletionItem("/raw_step", "显示或设置 raw 每次展开 frame 数"),
+    CompletionItem("/api_key", "显示或切换 api_key"),
+    CompletionItem("/upstream", "显示或切换 upstream"),
+    CompletionItem("/max_tokens", "显示或切换 max_tokens"),
+    CompletionItem("/stream", "显示或切换 stream 模式"),
     CompletionItem("/help", "显示帮助"),
 )
 
@@ -41,6 +45,10 @@ RAW_MODE_COMPLETIONS: tuple[CompletionItem, ...] = (
 
 MODEL_COMPLETIONS: tuple[CompletionItem, ...] = (
     CompletionItem("clear", "切回 auto(走 upstream.model 兜底)"),
+)
+
+CLEAR_COMPLETIONS: tuple[CompletionItem, ...] = (
+    CompletionItem("clear", "清除覆盖,走默认值"),
 )
 
 
@@ -66,6 +74,12 @@ def complete_repl_input(text: str) -> list[CompletionItem]:
 
     if command == "/model":
         return [item for item in MODEL_COMPLETIONS if item.text.startswith(arg_prefix)]
+
+    if command == "/stream":
+        return [item for item in RAW_MODE_COMPLETIONS if item.text.startswith(arg_prefix)]
+
+    if command in ("/api_key", "/upstream"):
+        return [item for item in CLEAR_COMPLETIONS if item.text.startswith(arg_prefix)]
 
     return []
 

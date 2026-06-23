@@ -53,6 +53,8 @@ interface MetaInfo {
   latencyMs: number;
   pathLabel: string;
   overrideKey: boolean;
+  overrideStream: boolean;
+  overrideModel: boolean;
 }
 
 type DisplayMsg =
@@ -85,6 +87,9 @@ export default function Chat() {
   const [overrideKey, setOverrideKey] = useState<string | null>(null);
   const [overrideDialogOpen, setOverrideDialogOpen] = useState(false);
   const [overrideDraft, setOverrideDraft] = useState("");
+  const [overrideMaxTokens, setOverrideMaxTokens] = useState(8192);
+  const [overrideStream, setOverrideStream] = useState(true);
+  const [overrideModel, setOverrideModel] = useState<string | null>(null);
 
   const [messages, setMessages] = useState<DisplayMsg[]>([]);
   const [input, setInput] = useState("");
@@ -102,6 +107,18 @@ export default function Chat() {
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const cfg = await api.chatConfig();
+        setOverrideMaxTokens(cfg.max_tokens);
+        setOverrideStream(cfg.stream);
+      } catch {
+        // ignore, use defaults
+      }
+    })();
+  }, []);
 
   // mount-only 拉取 upstreams 列表,避免重新 fetch 覆盖用户已经手选的 upstreamChoice
   useEffect(() => {
@@ -217,16 +234,17 @@ export default function Chat() {
       : serverApi;
     // model 留空 → runTurn 不发 body.model;meta 行显示估算的 effective model
     // (client 输入 → upstream.model → "auto";server 实际 resolve 可能不同)
-    const trimmedModel = model.trim();
+    const trimmedModel = (overrideModel ?? model).trim();
     const effectiveModel = trimmedModel || resolvedUpstream?.model || "auto";
 
     try {
       const result = await runTurn(history, {
         serverApi: serverApi,
-        model: trimmedModel || null,
+        model: (overrideModel ?? model).trim() || null,
         upstreamName,
         overrideApiKey: overrideKey,
-        maxTokens: 1024,
+        maxTokens: overrideMaxTokens,
+        stream: overrideStream,
         signal: ctrl.signal,
         onRawRequest: (request) => {
           setMessages((cur) => updateLatestUserRawRequest(cur, request));
@@ -261,6 +279,8 @@ export default function Chat() {
               latencyMs: result.latencyMs,
               pathLabel,
               overrideKey: overrideKey !== null,
+              overrideStream: !overrideStream,
+              overrideModel: overrideModel !== null,
             },
           };
         }
@@ -332,20 +352,46 @@ export default function Chat() {
     setInput(userMsg.content);
   }, [messages, inFlight]);
 
+  const [overrideDialogMaxTokensDraft, setOverrideDialogMaxTokensDraft] = useState("8192");
+  const [overrideDialogStreamDraft, setOverrideDialogStreamDraft] = useState(true);
+  const [overrideDialogModelDraft, setOverrideDialogModelDraft] = useState("");
   const openOverrideDialog = useCallback(() => {
     setOverrideDraft(overrideKey ?? "");
     setOverrideDialogOpen(true);
-  }, [overrideKey]);
+    setOverrideDialogMaxTokensDraft(String(overrideMaxTokens));
+    setOverrideDialogStreamDraft(overrideStream);
+    setOverrideDialogModelDraft(overrideModel ?? model);
+  }, [overrideKey, overrideMaxTokens, overrideStream, overrideModel, model]);
 
   const saveOverride = useCallback(() => {
     const v = overrideDraft.trim();
     setOverrideKey(v ? v : null);
+    const mt = parseInt(overrideDialogMaxTokensDraft, 10);
+    if (!Number.isNaN(mt) && mt > 0) setOverrideMaxTokens(mt);
+    setOverrideStream(overrideDialogStreamDraft);
+    const modelVal = overrideDialogModelDraft.trim();
+    if (modelVal) {
+      setOverrideModel(modelVal);
+      setModel(modelVal);
+    } else {
+      setOverrideModel(null);
+      setModel("");
+    }
     setOverrideDialogOpen(false);
-  }, [overrideDraft]);
+    void api.updateChatConfig({
+      max_tokens: !Number.isNaN(mt) && mt > 0 ? mt : undefined,
+      stream: overrideDialogStreamDraft,
+    });
+  }, [overrideDraft, overrideDialogMaxTokensDraft, overrideDialogStreamDraft, overrideDialogModelDraft]);
 
   const clearOverride = useCallback(() => {
     setOverrideKey(null);
+    setOverrideMaxTokens(8192);
+    setOverrideStream(true);
+    setOverrideModel(null);
+    setModel("");
     setOverrideDialogOpen(false);
+    void api.updateChatConfig({ max_tokens: 8192, stream: true });
   }, []);
 
   return (
@@ -393,18 +439,16 @@ export default function Chat() {
               Raw
             </Button>
           </div>
-          <Button variant="outline" size="sm" onClick={openOverrideDialog}>
-            {overrideKey ? "Override api-key · set" : "Override api-key"}
-          </Button>
+
           <Button variant="outline" size="sm" onClick={handleNewChat}>
             New chat
           </Button>
         </div>
       </div>
 
-      <div className="mb-4 grid shrink-0 grid-cols-3 gap-3">
-        <div className="grid min-w-0 grid-cols-[68px_minmax(0,1fr)] items-start gap-2">
-          <Label className="pt-2.5 text-xs uppercase text-muted-foreground">
+      <div className="mb-4 flex flex-nowrap items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <Label className="shrink-0 text-xs text-muted-foreground">
             server_api
           </Label>
           <Select value={serverApi} onValueChange={(v) => onServerApiChange(v as ServerApi)}>
@@ -425,9 +469,9 @@ export default function Chat() {
           </Select>
         </div>
 
-        <div className="grid min-w-0 grid-cols-[68px_minmax(0,1fr)] items-start gap-2">
-          <Label className="pt-2.5 text-xs uppercase text-muted-foreground">
-            Upstream
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <Label className="shrink-0 text-xs text-muted-foreground">
+            upstream
           </Label>
           <div className="min-w-0">
             <Select value={upstreamChoice} onValueChange={setUpstreamChoice}>
@@ -448,39 +492,22 @@ export default function Chat() {
                 ))}
               </SelectContent>
             </Select>
-            {upstreamsErr && (
-              <p className="mt-1 text-xs text-destructive">加载 upstreams 失败:{upstreamsErr}</p>
-            )}
-            {!upstreamsErr && upstreams.length === 0 && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                还没有 upstream,先去 Upstreams 页面添加。
-              </p>
-            )}
-            {!upstreamsErr &&
-              upstreams.length > 0 &&
-              !resolvedUpstream &&
-              model.trim().length > 0 && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  未选 upstream → 不发 r-upstream,server 将按 model 匹配 upstream。
-                </p>
-              )}
+
           </div>
         </div>
-
-        <div className="grid min-w-0 grid-cols-[68px_minmax(0,1fr)] items-start gap-2">
-          <Label className="pt-2.5 text-xs uppercase text-muted-foreground">
-            Model
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Label className="shrink-0 text-xs text-muted-foreground">
+            {upstreamsErr
+              ? upstreamsErr
+              : !upstreamsErr && upstreams.length === 0
+                ? "还没有 upstream,先去 Upstreams 页面添加"
+                : !upstreamsErr && upstreams.length > 0 && !resolvedUpstream && model.trim().length > 0
+                  ? "未选 upstream,将按 model 匹配"
+                  : "会话级覆盖：model · api_key · max_tokens · stream"}
           </Label>
-          <Input
-            className="min-w-0"
-            value={model}
-            placeholder={
-              resolvedUpstream?.model
-                ? `留空 = 用 ${resolvedUpstream.model}(upstream 默认)`
-                : "未选 upstream 时必须填写 model,用于自动匹配 upstream"
-            }
-            onChange={(e) => setModel(e.target.value)}
-          />
+          <Button variant="outline" size="sm" onClick={openOverrideDialog}>
+            {overrideKey ? "Override settings · set" : "Override settings"}
+          </Button>
         </div>
       </div>
 
@@ -496,7 +523,7 @@ export default function Chat() {
         {messages.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             {resolvedUpstream || hasModelRouting
-              ? "输入消息开始对话;流式逐 token 渲染。"
+              ? "输入消息开始对话。"
               : "先在上方选一个 upstream,或填写 model 让 server 自动匹配。"}
           </p>
         ) : (
@@ -555,29 +582,78 @@ export default function Chat() {
       <Dialog open={overrideDialogOpen} onOpenChange={setOverrideDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Override api-key</DialogTitle>
-            <DialogDescription>
-              仅本次会话内生效(不落地)。留空等于清除;下一次请求将走 upstream 的 DB key。
-            </DialogDescription>
+            <DialogTitle>Override settings</DialogTitle>
+            <DialogDescription />
           </DialogHeader>
-          <div className="py-2">
-            <Input
-              value={overrideDraft}
-              onChange={(e) => setOverrideDraft(e.target.value)}
-              placeholder="sk-..."
-              autoFocus
-            />
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="ov-model">
+                model{" "}
+                <span className="text-xs text-muted-foreground">
+                  (仅本次会话生效 · 留空则走 upstream 默认 model)
+                </span>
+              </Label>
+              <Input
+                id="ov-model"
+                value={overrideDialogModelDraft}
+                onChange={(e) => setOverrideDialogModelDraft(e.target.value)}
+                placeholder={resolvedUpstream?.model ?? "留空 = 上游默认"}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ov-api-key">
+              api_key{" "}
+              <span className="text-xs text-muted-foreground">
+                (仅本次会话生效 · 留空则走 upstream 的 api_key)
+              </span>
+            </Label>
+              <Input
+                id="ov-api-key"
+                value={overrideDraft}
+                onChange={(e) => setOverrideDraft(e.target.value)}
+                placeholder="sk-..."
+                autoFocus
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ov-max-tokens">
+              max_tokens{" "}
+              <span className="text-xs text-muted-foreground">
+                (默认 8192)
+              </span>
+            </Label>
+              <Input
+                id="ov-max-tokens"
+                type="number"
+                min={1}
+                value={overrideDialogMaxTokensDraft}
+                onChange={(e) => setOverrideDialogMaxTokensDraft(e.target.value)}
+                placeholder="8192"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                id="stream-chk"
+                type="checkbox"
+                checked={overrideDialogStreamDraft}
+                onChange={(e) => setOverrideDialogStreamDraft(e.target.checked)}
+                className="h-4 w-4"
+              />
+              <Label htmlFor="stream-chk" className="cursor-pointer">
+                stream
+              </Label>
+            </div>
           </div>
           <DialogFooter>
             {overrideKey && (
               <Button variant="outline" onClick={clearOverride}>
-                清除
+                Clear
               </Button>
             )}
             <Button variant="outline" onClick={() => setOverrideDialogOpen(false)}>
-              取消
+              Cancel
             </Button>
-            <Button onClick={saveOverride}>保存</Button>
+            <Button onClick={saveOverride}>Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -788,7 +864,8 @@ function MetaLine({ meta }: { meta: MetaInfo }) {
     `${meta.latencyMs} ms`,
     meta.pathLabel,
   ];
-  if (meta.overrideKey) parts.push("override");
+  if (meta.overrideKey || meta.overrideModel) parts.push("override");
+  if (!meta.overrideStream) parts.push("non-stream");
   return (
     <div className="text-xs text-muted-foreground font-mono">[{parts.join(" · ")}]</div>
   );

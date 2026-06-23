@@ -57,7 +57,7 @@ type LogTableColumn = (typeof LOG_TABLE_COLUMNS)[number];
 type LogColumnWidths = Record<LogTableColumn, number>;
 
 const DEFAULT_LOG_COLUMN_WIDTHS: LogColumnWidths = {
-  created_at: 14,
+  created_at: 11,
   upstream: 9,
   model: 10,
   result: 6,
@@ -70,7 +70,7 @@ const DEFAULT_LOG_COLUMN_WIDTHS: LogColumnWidths = {
 };
 
 const MIN_LOG_COLUMN_WIDTHS: LogColumnWidths = {
-  created_at: 10,
+  created_at: 6,
   upstream: 6,
   model: 6,
   result: 5,
@@ -399,7 +399,7 @@ export default function Logs() {
             <TableBody className="[&_tr:last-child]:border-b [&_tr]:h-10">
               {items.map((entry) => (
                 <TableRow key={entry.id}>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
+                  <TableCell className="truncate font-mono text-xs text-muted-foreground" title={formatDate(entry.created_at)}>
                     {formatDate(entry.created_at)}
                   </TableCell>
                   <TableCell
