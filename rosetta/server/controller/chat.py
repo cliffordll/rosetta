@@ -1,4 +1,4 @@
-""" /admin/chat/config: chat page override settings persistence.
+"""/admin/chat/config: chat page override settings persistence.
 GET  /admin/chat/config  -> ChatConfigOut
 PUT  /admin/chat/config  <- ChatConfigUpdate -> ChatConfigOut
 """

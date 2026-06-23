@@ -192,6 +192,7 @@ def test_api_key_slash_command_sets_and_clears_override(monkeypatch) -> None:
 
     assert messages == ["api_key → 覆盖中", "api_key → 不覆盖(走 upstream.api_key)"]
 
+
 def test_max_tokens_slash_command_without_arg_shows_current(monkeypatch) -> None:
     messages: list[str] = []
     ctx = FakeCtx()

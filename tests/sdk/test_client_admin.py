@@ -398,6 +398,7 @@ async def test_direct_mode_blocks_admin_methods() -> None:
     finally:
         await http.aclose()
 
+
 # ---------- chat config ----------
 
 
@@ -443,6 +444,7 @@ async def test_chat_config_update_max_tokens(
     assert req.method == "PUT"
     assert req.url.path == "/admin/chat/config"
     import json as _json
+
     sent = _json.loads(req.content)
     assert sent == {"max_tokens": 2048}
 
@@ -462,6 +464,7 @@ async def test_chat_config_update_stream(
     assert req.method == "PUT"
     assert req.url.path == "/admin/chat/config"
     import json as _json
+
     sent = _json.loads(req.content)
     assert sent == {"stream": False}
 
@@ -481,6 +484,7 @@ async def test_chat_config_update_both(
     assert req.method == "PUT"
     assert req.url.path == "/admin/chat/config"
     import json as _json
+
     sent = _json.loads(req.content)
     assert sent == {"max_tokens": 4096, "stream": False}
 

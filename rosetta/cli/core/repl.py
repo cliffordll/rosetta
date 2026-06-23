@@ -179,7 +179,9 @@ class ChatRepl:
 
         if cmd == "/api_key":
             if not arg:
-                Renderer.out(f"api_key = {'覆盖中' if self.ctx.api_key else '不覆盖(走 upstream.api_key)'}")
+                Renderer.out(
+                    f"api_key = {'覆盖中' if self.ctx.api_key else '不覆盖(走 upstream.api_key)'}"
+                )
                 return False
             if arg == "clear":
                 self.ctx.set_api_key(None)

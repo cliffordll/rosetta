@@ -4,17 +4,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from rosetta.server.database.models import Setting
 from rosetta.server.logs_config import (
-    LOG_CONTENT_KEY,
-    LOGS_PAGE_SIZE_KEY,
-    LogsConfig,
-    LogsPageSize,
-    normalize_log_content,
-    normalize_logs_page_size,
     CHAT_MAX_TOKENS_KEY,
     CHAT_STREAM_KEY,
+    LOG_CONTENT_KEY,
+    LOGS_PAGE_SIZE_KEY,
     ChatConfig,
+    LogsConfig,
+    LogsPageSize,
     normalize_chat_max_tokens,
     normalize_chat_stream,
+    normalize_log_content,
+    normalize_logs_page_size,
 )
 
 

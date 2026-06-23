@@ -68,10 +68,12 @@ def chat_cmd(
     ] = None,
     max_tokens: Annotated[
         int, typer.Option("--max-tokens", help="messages 格式的 max_tokens")
-    ] = 1024,
+    ] = 8192,
     stream: Annotated[
         bool,
-        typer.Option("--stream/--no-stream", help="流式逐 token 输出;非流式等待完整响应后一次性输出"),
+        typer.Option(
+            "--stream/--no-stream", help="流式逐 token 输出;非流式等待完整响应后一次性输出"
+        ),
     ] = True,
     raw: Annotated[
         bool,
@@ -100,9 +102,9 @@ def chat_cmd(
 
     # 规范 sentinel 值: --api-key="none"/"" / --model="none"/"" 统一转 None,
     # 让 server 用 upstream.api_key / upstream.model 兜底,与 Web UI 的空 = 用默认行为对齐。
-    if api_key and api_key.strip().lower() in ('none', ''):
+    if api_key and api_key.strip().lower() in ("none", ""):
         api_key = None
-    if model and model.strip().lower() in ('none', ''):
+    if model and model.strip().lower() in ("none", ""):
         model = None
 
     if base_url is not None:
@@ -190,7 +192,7 @@ async def _run(
             if base_url is None and client.mode == "server":
                 try:
                     cfg = await client.chat_config()
-                    _max_tokens = max_tokens if max_tokens != 1024 else cfg.max_tokens
+                    _max_tokens = max_tokens if max_tokens != 8192 else cfg.max_tokens
                     _stream = stream if stream else cfg.stream
                 except Exception:
                     _max_tokens = max_tokens

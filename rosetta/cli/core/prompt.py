@@ -47,9 +47,7 @@ MODEL_COMPLETIONS: tuple[CompletionItem, ...] = (
     CompletionItem("clear", "切回 auto(走 upstream.model 兜底)"),
 )
 
-CLEAR_COMPLETIONS: tuple[CompletionItem, ...] = (
-    CompletionItem("clear", "清除覆盖,走默认值"),
-)
+CLEAR_COMPLETIONS: tuple[CompletionItem, ...] = (CompletionItem("clear", "清除覆盖,走默认值"),)
 
 
 def complete_repl_input(text: str) -> list[CompletionItem]:

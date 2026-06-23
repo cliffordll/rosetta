@@ -1,4 +1,4 @@
-﻿"""CLI 子命令结构测试(阶段 4.2 · 不调 server,只验 typer 接线)。
+"""CLI 子命令结构测试(阶段 4.2 · 不调 server,只验 typer 接线)。
 
 用 typer.testing.CliRunner 执行 `rosetta` / `rosetta <cmd> --help`,断言:
 - 根命令和所有子命令可用(`rosetta --help` 退出 0)
@@ -358,7 +358,9 @@ def test_short_quiet_flag() -> None:
     assert Renderer.QUIET is True
     Renderer.QUIET = False
 
+
 # ---------- --api-key / --model sentinel normalization ----------
+
 
 def test_chat_api_key_sentinel_none_becomes_none(monkeypatch: pytest.MonkeyPatch) -> None:
     """--api-key=none 应被规范化为 None,不会作为真实 key 透传。"""
@@ -469,10 +471,19 @@ def test_chat_model_real_value_preserved(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_chat_direct_mode_rejects_sentinel_api_key() -> None:
     """--base-url 模式下 --api-key=none 应因为规范化为 None 而触达必填校验。"""
-    result = runner.invoke(app, [
-        "chat", "--base-url", "https://api.example.com", "--api-key", "none",
-        "--model", "claude-4", "hi",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "chat",
+            "--base-url",
+            "https://api.example.com",
+            "--api-key",
+            "none",
+            "--model",
+            "claude-4",
+            "hi",
+        ],
+    )
     # sentinel 规范化为 None → if not api_key → Renderer.die → typer 视为用户错误
     assert result.exit_code != 0
 
@@ -486,10 +497,19 @@ def test_chat_direct_mode_real_api_key_works(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr(chat_mod, "_run", _capture_run)
 
-    result = runner.invoke(app, [
-        "chat", "--base-url", "https://api.example.com", "--api-key", "sk-real",
-        "--model", "claude-4", "hi",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "chat",
+            "--base-url",
+            "https://api.example.com",
+            "--api-key",
+            "sk-real",
+            "--model",
+            "claude-4",
+            "hi",
+        ],
+    )
 
     assert result.exit_code == 0
     assert captured.get("api_key") == "sk-real"

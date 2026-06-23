@@ -16,6 +16,7 @@ ctx.append_assistant(result.text)
 
 from __future__ import annotations
 
+# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -127,8 +128,12 @@ class ChatContext:
 
         if not self.stream:
             return await self._run_non_stream(
-                body, on_token, raw_turn=raw_turn,
-                override_api_key=override_api_key, upstream_header=upstream_header, t0=t0,
+                body,
+                on_token,
+                raw_turn=raw_turn,
+                override_api_key=override_api_key,
+                upstream_header=upstream_header,
+                t0=t0,
             )
 
         stream = ChatStream(server_api=self.server_api)
@@ -268,36 +273,40 @@ class ChatContext:
         }
 
 
-
-def _extract_non_stream_text(data: dict[str, Any], server_api: ServerApi) -> str:
+def _extract_non_stream_text(data: object, server_api: ServerApi) -> str:
+    if not isinstance(data, dict):
+        return ""
+    raw: dict[str, Any] = data  # type: ignore[assignment]
     if server_api is ServerApi.MESSAGES:
-        blocks = data.get("content", [])
-        if isinstance(blocks, list):
+        raw_blocks = raw.get("content", [])
+        if isinstance(raw_blocks, list):
             parts: list[str] = []
-            for b in blocks:
-                if isinstance(b, dict) and b.get("type") == "text":
+            for b in raw_blocks:
+                if isinstance(b, dict):
                     t = b.get("text", "")
                     if isinstance(t, str):
                         parts.append(t)
             return "".join(parts)
         return ""
     if server_api is ServerApi.CHAT_COMPLETIONS:
-        choices = data.get("choices")
-        if isinstance(choices, list) and choices:
-            msg = choices[0].get("message") if isinstance(choices[0], dict) else None
-            if isinstance(msg, dict):
-                content = msg.get("content")
-                return content if isinstance(content, str) else ""
+        raw_choices = raw.get("choices")
+        if isinstance(raw_choices, list) and raw_choices:
+            first = raw_choices[0]
+            if isinstance(first, dict):
+                raw_msg = first.get("message")
+                if isinstance(raw_msg, dict):
+                    c = raw_msg.get("content")
+                    return c if isinstance(c, str) else ""
         return ""
-    output = data.get("output")
-    if isinstance(output, list):
+    raw_output = raw.get("output")
+    if isinstance(raw_output, list):
         parts: list[str] = []
-        for item in output:
-            if isinstance(item, dict) and item.get("type") == "message":
-                content = item.get("content")
-                if isinstance(content, list):
-                    for c in content:
-                        if isinstance(c, dict) and c.get("type") == "output_text":
+        for item in raw_output:
+            if isinstance(item, dict):
+                raw_content = item.get("content")
+                if isinstance(raw_content, list):
+                    for c in raw_content:
+                        if isinstance(c, dict):
                             t = c.get("text", "")
                             if isinstance(t, str):
                                 parts.append(t)
@@ -305,23 +314,27 @@ def _extract_non_stream_text(data: dict[str, Any], server_api: ServerApi) -> str
     return ""
 
 
-def _extract_input_tokens(data: dict[str, Any], server_api: ServerApi) -> int:
-    usage = data.get("usage")
-    if not isinstance(usage, dict):
+def _extract_input_tokens(data: object, server_api: ServerApi) -> int:
+    if not isinstance(data, dict) or not isinstance(data.get("usage"), dict):
         return 0
+    raw_usage: dict[str, Any] = data["usage"]
     if server_api is ServerApi.MESSAGES:
-        return usage.get("input_tokens", 0) or 0
+        val = raw_usage.get("input_tokens")
+        return int(val) if isinstance(val, int) else 0
     if server_api is ServerApi.CHAT_COMPLETIONS:
-        return usage.get("prompt_tokens", 0) or 0
+        val = raw_usage.get("prompt_tokens")
+        return int(val) if isinstance(val, int) else 0
     return 0
 
 
-def _extract_output_tokens(data: dict[str, Any], server_api: ServerApi) -> int:
-    usage = data.get("usage")
-    if not isinstance(usage, dict):
+def _extract_output_tokens(data: object, server_api: ServerApi) -> int:
+    if not isinstance(data, dict) or not isinstance(data.get("usage"), dict):
         return 0
+    raw_usage: dict[str, Any] = data["usage"]
     if server_api is ServerApi.MESSAGES:
-        return usage.get("output_tokens", 0) or 0
+        val = raw_usage.get("output_tokens")
+        return int(val) if isinstance(val, int) else 0
     if server_api is ServerApi.CHAT_COMPLETIONS:
-        return usage.get("completion_tokens", 0) or 0
+        val = raw_usage.get("completion_tokens")
+        return int(val) if isinstance(val, int) else 0
     return 0

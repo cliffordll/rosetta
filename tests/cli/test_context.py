@@ -1,4 +1,4 @@
-﻿"""ChatContext 单元测试:流/非流控制 + 响应解析工具函数。
+"""ChatContext 单元测试:流/非流控制 + 响应解析工具函数。
 
 不依赖 server,直接构造 ChatContext + MockClient 验证 run_turn 的流和非流路径,
 以及 _extract_non_stream_text / _extract_input_tokens / _extract_output_tokens 的解析行为。
@@ -6,12 +6,10 @@
 
 from __future__ import annotations
 
-import pytest
 from typing import Any
 
 import httpx
 import pytest
-import pytest_asyncio
 
 from rosetta.cli.core.context import (
     ChatContext,
@@ -19,7 +17,6 @@ from rosetta.cli.core.context import (
     _extract_non_stream_text,
     _extract_output_tokens,
 )
-from rosetta.sdk.client import ProxyClient
 from rosetta.shared.server_api import ServerApi
 
 
@@ -53,8 +50,6 @@ class _MockClient:
         upstream_header: str | None = None,
     ) -> tuple[str, dict[str, str]]:
         return ("http://t/v1/messages", {})
-
-
 
 
 # ---------- _extract_non_stream_text ----------

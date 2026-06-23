@@ -629,6 +629,7 @@ async def test_clear_logs_deletes_entries(client: AsyncClient, session: AsyncSes
     assert after.json()["total"] == 0
     assert after.json()["items"] == []
 
+
 # ---------- chat config ----------
 
 
