@@ -10,6 +10,11 @@ from rosetta.server.logs_config import (
     LogsPageSize,
     normalize_log_content,
     normalize_logs_page_size,
+    CHAT_MAX_TOKENS_KEY,
+    CHAT_STREAM_KEY,
+    ChatConfig,
+    normalize_chat_max_tokens,
+    normalize_chat_stream,
 )
 
 
@@ -45,3 +50,23 @@ class SettingsRepo:
         await self.set(LOGS_PAGE_SIZE_KEY, str(next_page_size))
         await self.session.commit()
         return LogsConfig(log_content=next_log_content, page_size=next_page_size)
+
+    async def get_chat_config(self) -> ChatConfig:
+        return ChatConfig(
+            max_tokens=normalize_chat_max_tokens(await self.get(CHAT_MAX_TOKENS_KEY)),
+            stream=normalize_chat_stream(await self.get(CHAT_STREAM_KEY)),
+        )
+
+    async def update_chat_config(
+        self,
+        *,
+        max_tokens: int | None = None,
+        stream: bool | None = None,
+    ) -> ChatConfig:
+        current = await self.get_chat_config()
+        next_max_tokens = max_tokens if max_tokens is not None else current.max_tokens
+        next_stream = stream if stream is not None else current.stream
+        await self.set(CHAT_MAX_TOKENS_KEY, str(next_max_tokens))
+        await self.set(CHAT_STREAM_KEY, str(next_stream).lower())
+        await self.session.commit()
+        return ChatConfig(max_tokens=next_max_tokens, stream=next_stream)

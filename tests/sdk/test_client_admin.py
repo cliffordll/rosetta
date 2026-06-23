@@ -397,3 +397,106 @@ async def test_direct_mode_blocks_admin_methods() -> None:
                 await getattr(client, method_name)()
     finally:
         await http.aclose()
+
+# ---------- chat config ----------
+
+
+async def test_chat_config_get(echo_client: tuple[ProxyClient, dict[str, Any]]) -> None:
+    client, captured = echo_client
+    captured["response"] = httpx.Response(
+        200,
+        json={"max_tokens": 4096, "stream": False},
+    )
+    config = await client.chat_config()
+    assert config.max_tokens == 4096
+    assert config.stream is False
+    req = captured["request"]
+    assert req.method == "GET"
+    assert req.url.path == "/admin/chat/config"
+
+
+async def test_chat_config_get_defaults(
+    echo_client: tuple[ProxyClient, dict[str, Any]],
+) -> None:
+    client, captured = echo_client
+    captured["response"] = httpx.Response(
+        200,
+        json={"max_tokens": 8192, "stream": True},
+    )
+    config = await client.chat_config()
+    assert config.max_tokens == 8192
+    assert config.stream is True
+
+
+async def test_chat_config_update_max_tokens(
+    echo_client: tuple[ProxyClient, dict[str, Any]],
+) -> None:
+    client, captured = echo_client
+    captured["response"] = httpx.Response(
+        200,
+        json={"max_tokens": 2048, "stream": True},
+    )
+    config = await client.update_chat_config(max_tokens=2048)
+    assert config.max_tokens == 2048
+    assert config.stream is True
+    req = captured["request"]
+    assert req.method == "PUT"
+    assert req.url.path == "/admin/chat/config"
+    import json as _json
+    sent = _json.loads(req.content)
+    assert sent == {"max_tokens": 2048}
+
+
+async def test_chat_config_update_stream(
+    echo_client: tuple[ProxyClient, dict[str, Any]],
+) -> None:
+    client, captured = echo_client
+    captured["response"] = httpx.Response(
+        200,
+        json={"max_tokens": 8192, "stream": False},
+    )
+    config = await client.update_chat_config(stream=False)
+    assert config.max_tokens == 8192
+    assert config.stream is False
+    req = captured["request"]
+    assert req.method == "PUT"
+    assert req.url.path == "/admin/chat/config"
+    import json as _json
+    sent = _json.loads(req.content)
+    assert sent == {"stream": False}
+
+
+async def test_chat_config_update_both(
+    echo_client: tuple[ProxyClient, dict[str, Any]],
+) -> None:
+    client, captured = echo_client
+    captured["response"] = httpx.Response(
+        200,
+        json={"max_tokens": 4096, "stream": False},
+    )
+    config = await client.update_chat_config(max_tokens=4096, stream=False)
+    assert config.max_tokens == 4096
+    assert config.stream is False
+    req = captured["request"]
+    assert req.method == "PUT"
+    assert req.url.path == "/admin/chat/config"
+    import json as _json
+    sent = _json.loads(req.content)
+    assert sent == {"max_tokens": 4096, "stream": False}
+
+
+async def test_chat_config_direct_mode_raises() -> None:
+    http = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200)))
+    client = ProxyClient(
+        http=http,
+        base_url="https://api.anthropic.com",
+        mode="direct",
+        _direct_api_key="sk",
+    )
+    try:
+        with pytest.raises(RuntimeError, match="direct 模式不支持 admin 操作"):
+            await client.chat_config()
+        with pytest.raises(RuntimeError, match="direct 模式不支持 admin 操作"):
+            await client.update_chat_config(max_tokens=4096)
+    finally:
+        await http.aclose()

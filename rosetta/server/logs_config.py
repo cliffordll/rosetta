@@ -9,8 +9,8 @@ from rosetta.shared.server_api import ServerApi
 LogContentMode = Literal["none", "summary", "full"]
 LogsPageSize = Literal[10, 20, 50, 100]
 
-LOG_CONTENT_KEY = "log_content"
-LOGS_PAGE_SIZE_KEY = "logs_page_size"
+LOG_CONTENT_KEY = "logs:log_content"
+LOGS_PAGE_SIZE_KEY = "logs:page_size"
 LOG_CONTENT_DEFAULT: LogContentMode = "summary"
 LOGS_PAGE_SIZE_DEFAULT: LogsPageSize = 20
 LOGS_PAGE_SIZE_OPTIONS: tuple[LogsPageSize, ...] = (10, 20, 50, 100)
@@ -266,3 +266,33 @@ def _extract_sse_text(server_api: ServerApi, event_name: str | None, data: dict[
         return ""
     delta = data.get("delta")
     return delta if isinstance(delta, str) else ""
+
+
+# ── Chat config ──────────────────────────────────────────────────────────
+
+CHAT_MAX_TOKENS_KEY = "chat:max_tokens"
+CHAT_STREAM_KEY = "chat:stream"
+CHAT_MAX_TOKENS_DEFAULT = 8192
+CHAT_STREAM_DEFAULT = True
+
+
+def normalize_chat_max_tokens(value: str | None) -> int:
+    if value is None:
+        return CHAT_MAX_TOKENS_DEFAULT
+    try:
+        v = int(value)
+        return v if v > 0 else CHAT_MAX_TOKENS_DEFAULT
+    except (TypeError, ValueError):
+        return CHAT_MAX_TOKENS_DEFAULT
+
+
+def normalize_chat_stream(value: str | None) -> bool:
+    if value is None:
+        return CHAT_STREAM_DEFAULT
+    return value.strip().lower() == "true"
+
+
+@dataclass(frozen=True)
+class ChatConfig:
+    max_tokens: int = CHAT_MAX_TOKENS_DEFAULT
+    stream: bool = CHAT_STREAM_DEFAULT

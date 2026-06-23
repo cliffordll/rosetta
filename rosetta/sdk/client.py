@@ -25,6 +25,7 @@ from typing import Any, Literal, Self, cast
 import httpx
 
 from rosetta.sdk.discover import discover
+from rosetta.server.controller.chat import ChatConfigOut
 from rosetta.server.controller.logs import LogListResponse, LogsConfigOut
 from rosetta.server.controller.runtime import StatusResponse
 from rosetta.server.controller.stats import Period, StatsOut
@@ -242,6 +243,35 @@ class ProxyClient:
         )
         resp.raise_for_status()
         return LogsConfigOut.model_validate(resp.json())
+
+    async def chat_config(self) -> ChatConfigOut:
+        self._require_server("chat_config")
+        resp = await self.http.get(
+            f"{self.base_url}/admin/chat/config",
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return ChatConfigOut.model_validate(resp.json())
+
+    async def update_chat_config(
+        self,
+        *,
+        max_tokens: int | None = None,
+        stream: bool | None = None,
+    ) -> ChatConfigOut:
+        self._require_server("update_chat_config")
+        payload: dict[str, int | bool] = {}
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+        if stream is not None:
+            payload["stream"] = stream
+        resp = await self.http.put(
+            f"{self.base_url}/admin/chat/config",
+            json=payload,
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return ChatConfigOut.model_validate(resp.json())
 
     async def clear_logs(self) -> int:
         self._require_server("clear_logs")

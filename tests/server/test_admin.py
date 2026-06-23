@@ -628,3 +628,44 @@ async def test_clear_logs_deletes_entries(client: AsyncClient, session: AsyncSes
     after = await client.get("/admin/logs")
     assert after.json()["total"] == 0
     assert after.json()["items"] == []
+
+# ---------- chat config ----------
+
+
+async def test_chat_config_defaults(client: AsyncClient) -> None:
+    r = await client.get("/admin/chat/config")
+    assert r.status_code == 200
+    assert r.json() == {"max_tokens": 8192, "stream": True}
+
+
+async def test_chat_config_update_max_tokens(client: AsyncClient) -> None:
+    r = await client.put("/admin/chat/config", json={"max_tokens": 4096})
+    assert r.status_code == 200
+    assert r.json() == {"max_tokens": 4096, "stream": True}
+
+    again = await client.get("/admin/chat/config")
+    assert again.json() == {"max_tokens": 4096, "stream": True}
+
+
+async def test_chat_config_update_stream(client: AsyncClient) -> None:
+    r = await client.put("/admin/chat/config", json={"stream": False})
+    assert r.status_code == 200
+    assert r.json() == {"max_tokens": 8192, "stream": False}
+
+    again = await client.get("/admin/chat/config")
+    assert again.json() == {"max_tokens": 8192, "stream": False}
+
+
+async def test_chat_config_update_both(client: AsyncClient) -> None:
+    r = await client.put("/admin/chat/config", json={"max_tokens": 4096, "stream": False})
+    assert r.status_code == 200
+    assert r.json() == {"max_tokens": 4096, "stream": False}
+
+    again = await client.get("/admin/chat/config")
+    assert again.json() == {"max_tokens": 4096, "stream": False}
+
+
+async def test_chat_config_empty_update_noop(client: AsyncClient) -> None:
+    r = await client.put("/admin/chat/config", json={})
+    assert r.status_code == 200
+    assert r.json() == {"max_tokens": 8192, "stream": True}

@@ -161,6 +161,11 @@ export interface LogsConfigOut {
   page_size: 10 | 20 | 50 | 100;
 }
 
+export interface ChatConfigOut {
+  max_tokens: number;
+  stream: boolean;
+}
+
 export interface StatsOut {
   period: string;
   since: string;
@@ -268,6 +273,17 @@ export const api = {
   logsConfig(): Promise<LogsConfigOut> {
     return request("/admin/logs/config");
   },
+  chatConfig(): Promise<ChatConfigOut> {
+    return request("/admin/chat/config");
+  },
+
+  updateChatConfig(payload: Partial<ChatConfigOut>): Promise<ChatConfigOut> {
+    return request("/admin/chat/config", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  },
+
   updateLogsConfig(payload: Partial<LogsConfigOut>): Promise<LogsConfigOut> {
     return request("/admin/logs/config", {
       method: "PUT",
