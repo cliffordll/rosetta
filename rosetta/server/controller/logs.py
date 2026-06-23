@@ -60,6 +60,10 @@ class LogsConfigUpdate(BaseModel):
     page_size: LogsPageSize | None = None
 
 
+class LogsClearOut(BaseModel):
+    deleted: int
+
+
 @router.get("/logs/config", response_model=LogsConfigOut)
 async def get_logs_config(settings_repo: SettingsRepoDep) -> LogsConfigOut:
     config = await settings_repo.get_logs_config()
@@ -132,3 +136,9 @@ async def list_logs(
         for entry, u in rows
     ]
     return LogListResponse(items=items, total=total)
+
+
+@router.delete("/logs", response_model=LogsClearOut)
+async def clear_logs(log_repo: LogRepoDep) -> LogsClearOut:
+    deleted = await log_repo.clear()
+    return LogsClearOut(deleted=deleted)

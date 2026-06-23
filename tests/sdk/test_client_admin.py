@@ -183,6 +183,19 @@ async def test_update_logs_config(
     assert captured["request"].url.path == "/admin/logs/config"
 
 
+async def test_clear_logs(
+    echo_client: tuple[ProxyClient, dict[str, Any]],
+) -> None:
+    client, captured = echo_client
+    captured["response"] = httpx.Response(200, json={"deleted": 3})
+
+    deleted = await client.clear_logs()
+
+    assert deleted == 3
+    assert captured["request"].method == "DELETE"
+    assert captured["request"].url.path == "/admin/logs"
+
+
 def test_server_data_headers_use_x_api_key_for_messages_override() -> None:
     client, _ = _make_client_with_handler()
 

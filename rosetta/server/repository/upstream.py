@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from types import EllipsisType
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -170,6 +170,12 @@ class UpstreamRepo:
         return target
 
     async def delete(self, upstream: Upstream) -> None:
+        await self.session.execute(
+            delete(Setting).where(
+                Setting.key.like("default_model:%"),
+                or_(Setting.value == upstream.id, Setting.value == upstream.name),
+            )
+        )
         await self.session.delete(upstream)
         await self.session.commit()
 

@@ -64,6 +64,23 @@ def config_cmd(
         Renderer.stream_newline()
 
 
+@logs_app.command("clear")
+def clear_cmd(
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", "-y", help="确认清空全部 logs"),
+    ] = False,
+) -> None:
+    """清空全部请求日志。"""
+    if not yes:
+        Renderer.die("清空全部 logs 需要显式传 --yes")
+        return
+    try:
+        asyncio.run(_clear())
+    except KeyboardInterrupt:
+        Renderer.stream_newline()
+
+
 async def _run(*, n: int | None, upstream: str | None, follow: bool) -> None:
     try:
         async with ProxyClient.discover_session(spawn_if_missing=False) as client:
@@ -92,6 +109,15 @@ async def _config(*, log_content: str | None, page_size: int | None) -> None:
                     ["page_size", cfg.page_size],
                 ],
             )
+    except RuntimeError as e:
+        Renderer.die(f"server 未就绪: {e}")
+
+
+async def _clear() -> None:
+    try:
+        async with ProxyClient.discover_session(spawn_if_missing=False) as client:
+            deleted = await client.clear_logs()
+            Renderer.out(f"cleared {deleted} log entr{'y' if deleted == 1 else 'ies'}")
     except RuntimeError as e:
         Renderer.die(f"server 未就绪: {e}")
 

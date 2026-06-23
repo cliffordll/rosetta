@@ -206,6 +206,28 @@ async def test_delete_upstream_success(client: AsyncClient, session: AsyncSessio
     assert result.scalar_one_or_none() is None
 
 
+async def test_delete_upstream_removes_model_default(client: AsyncClient) -> None:
+    create = await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "defaulted",
+            "native_api": "messages",
+            "api_key": "sk",
+            "base_url": "https://api.example.com/defaulted",
+        },
+    )
+    pid = create.json()["id"]
+    assert (
+        await client.put("/admin/upstreams/defaulted/model-default?model=gpt-4o")
+    ).status_code == 200
+
+    r = await client.delete(f"/admin/upstreams/{pid}")
+
+    assert r.status_code == 204
+    defaults = await client.get("/admin/upstreams/model-defaults")
+    assert defaults.json() == {}
+
+
 async def test_delete_upstream_not_found(client: AsyncClient) -> None:
     r = await client.delete("/admin/upstreams/99999")
     assert r.status_code == 404
@@ -572,3 +594,37 @@ async def test_logs_total_independent_of_limit(client: AsyncClient, session: Asy
     body = r.json()
     assert body["total"] == 7  # 全表 7 条
     assert len(body["items"]) == 3  # 当前页 3 条
+
+
+async def test_clear_logs_deletes_entries(client: AsyncClient, session: AsyncSession) -> None:
+    from datetime import UTC, datetime
+
+    from rosetta.server.database.models import LogEntry
+
+    session.add_all(
+        [
+            LogEntry(
+                id="1".zfill(32),
+                upstream_id=None,
+                model="m-1",
+                status="ok",
+                created_at=datetime.now(UTC),
+            ),
+            LogEntry(
+                id="2".zfill(32),
+                upstream_id=None,
+                model="m-2",
+                status="error",
+                created_at=datetime.now(UTC),
+            ),
+        ]
+    )
+    await session.commit()
+
+    r = await client.delete("/admin/logs")
+    assert r.status_code == 200
+    assert r.json() == {"deleted": 2}
+
+    after = await client.get("/admin/logs")
+    assert after.json()["total"] == 0
+    assert after.json()["items"] == []

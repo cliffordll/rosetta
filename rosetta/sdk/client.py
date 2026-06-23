@@ -243,6 +243,13 @@ class ProxyClient:
         resp.raise_for_status()
         return LogsConfigOut.model_validate(resp.json())
 
+    async def clear_logs(self) -> int:
+        self._require_server("clear_logs")
+        resp = await self.http.delete(f"{self.base_url}/admin/logs", timeout=_ADMIN_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+        return int(data.get("deleted", 0))
+
     async def stats(self, *, period: Period = "today") -> StatsOut:
         self._require_server("stats")
         resp = await self.http.get(

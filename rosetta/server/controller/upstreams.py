@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-import sys
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Response, status

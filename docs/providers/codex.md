@@ -31,7 +31,23 @@ rosetta upstream default ds-upstream --model deepseek-v4-flash
 
 ## 3. 客户端使用说明
 
-### 3.1. 环境配置说明
+### 3.1. 安装与卸载
+
+安装：使用 Node.js 的包管理器 npm 进行全局安装。
+
+```bash
+npm install -g @openai/codex
+```
+
+卸载：使用 npm 卸载全局包，并可选择清理残留的配置文件夹。
+
+```bash
+npm uninstall -g @openai/codex
+# 清理配置（可选）
+rm -rf ~/.codex
+```
+
+### 3.2. 环境配置说明
 
 修改 Codex 配置文件：打开 ~/.codex/config.toml，按照下面的示例调整，关键是把 wire_api 改成 "responses"。
 
@@ -76,7 +92,7 @@ bash
 export OPENAI_API_KEY="sk-your-key"
 ```
 
-### 3.2. 客户端使用说明
+### 3.3. 客户端使用说明
 
 ```bash
 codex --oss --local-provider ds_provider

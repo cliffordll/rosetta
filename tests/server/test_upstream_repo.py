@@ -50,6 +50,31 @@ class TestModelDefault:
         with pytest.raises(LookupError):
             await repo.set_model_default("ghost", "gpt-4o")
 
+    async def test_delete_upstream_clears_matching_model_default(
+        self, session: AsyncSession
+    ) -> None:
+        upstream = await _insert(session, name="a", native_api="messages")
+        repo = UpstreamRepo(session)
+        await repo.set_model_default("a", "gpt-4o")
+
+        await repo.delete(upstream)
+
+        assert await repo.default_model_upstream_id("gpt-4o") is None
+        assert await repo.list_model_defaults() == {}
+
+    async def test_delete_upstream_clears_legacy_name_model_default(
+        self, session: AsyncSession
+    ) -> None:
+        from rosetta.server.database.models import Setting
+
+        upstream = await _insert(session, name="legacy", native_api="messages")
+        session.add(Setting(key="default_model:gpt-legacy", value="legacy"))
+        await session.commit()
+
+        await UpstreamRepo(session).delete(upstream)
+
+        assert await session.get(Setting, "default_model:gpt-legacy") is None
+
 
 class TestUpdate:
     async def test_update_single_field(self, session: AsyncSession) -> None:

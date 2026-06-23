@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import ColumnElement, and_, case, func, select
+from sqlalchemy import ColumnElement, and_, case, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rosetta.server.database.models import LogEntry, Upstream
@@ -107,6 +107,13 @@ class LogRepo:
             stmt = stmt.where(and_(*filters))
         result = await self.session.execute(stmt)
         return int(result.scalar_one() or 0)
+
+    async def clear(self) -> int:
+        """删除全部请求日志,返回删除条数。"""
+        count = await self.count_with_filters()
+        await self.session.execute(delete(LogEntry))
+        await self.session.commit()
+        return count
 
     async def aggregate_stats(self, *, since: datetime) -> tuple[int, int, float]:
         """窗口内聚合;返回 (total, ok_count, avg_latency_ms)。无样本时各字段 0。"""

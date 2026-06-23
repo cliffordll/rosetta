@@ -33,7 +33,22 @@ rosetta upstream default ds-upstream --model deepseek-v4-flash
 
 这是最关键的一步。你需要通过设置几个环境变量，告诉 Claude Code 去找本地的 Resotta 服务，而不是官方的云端 API。
 
-### 3.1. 方法 A：临时配置
+### 3.1. 安装与卸载
+
+安装：使用 Node.js 的包管理器 npm 进行全局安装。
+
+```bash
+npm install -g @anthropic-ai/claude-agent-sdk
+```
+
+卸载：使用 npm 卸载全局包，并可选择清理残留的配置文件夹。
+
+```bash
+npm uninstall -g @anthropic-ai/claude-agent-sdk
+# 清理配置（可选）
+rm -rf ~/.claude
+```
+### 3.2. 方法 A：临时配置
 
 直接在终端里运行下面的命令，效果只对当前这个终端窗口有效。
 
@@ -64,7 +79,7 @@ export ANTHROPIC_DEFAULT_HAIKU_MODEL="deepseek-v4-flashb"
 export ANTHROPIC_DEFAULT_OPUS_MODEL="deepseek-v4-flash"
 ```
 
-### 3.2. 方法 B：永久配置
+### 3.3. 方法 B：永久配置
 
 在 Claude Code 的用户设置文件 ~/.claude/settings.json 里添加 "env" 字段，这样配置会一直生效。
 
@@ -81,7 +96,7 @@ export ANTHROPIC_DEFAULT_OPUS_MODEL="deepseek-v4-flash"
 }
 ```
 
-### 3.3. Claude 启动
+### 3.4. Claude 启动
 
 ```bash
 claude

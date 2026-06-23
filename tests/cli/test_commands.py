@@ -19,6 +19,7 @@ from typer.testing import CliRunner
 
 from rosetta.cli.__main__ import app
 from rosetta.cli.commands import chat as chat_mod
+from rosetta.cli.commands import logs as logs_mod
 from rosetta.cli.commands import upstream as upstream_mod
 
 runner = CliRunner()
@@ -244,6 +245,33 @@ def test_logs_config_help_exists() -> None:
     out = _plain(result.output)
     assert "--log-content" in out
     assert "--page-size" in out
+
+
+def test_logs_clear_help_exists() -> None:
+    result = runner.invoke(app, ["logs", "clear", "--help"])
+    assert result.exit_code == 0
+    assert "--yes" in _plain(result.output)
+
+
+def test_logs_clear_requires_yes() -> None:
+    result = runner.invoke(app, ["logs", "clear"])
+    assert result.exit_code != 0
+    assert "--yes" in _plain(result.output)
+
+
+def test_logs_clear_yes_invokes_clear(monkeypatch: pytest.MonkeyPatch) -> None:
+    called = False
+
+    async def _capture_clear() -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(logs_mod, "_clear", _capture_clear)
+
+    result = runner.invoke(app, ["logs", "clear", "--yes"])
+
+    assert result.exit_code == 0
+    assert called is True
 
 
 def test_chat_invalid_server_api_fails() -> None:
