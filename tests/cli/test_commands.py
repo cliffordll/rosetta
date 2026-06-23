@@ -1,4 +1,4 @@
-"""CLI 子命令结构测试(阶段 4.2 · 不调 server,只验 typer 接线)。
+﻿"""CLI 子命令结构测试(阶段 4.2 · 不调 server,只验 typer 接线)。
 
 用 typer.testing.CliRunner 执行 `rosetta` / `rosetta <cmd> --help`,断言:
 - 根命令和所有子命令可用(`rosetta --help` 退出 0)
@@ -357,3 +357,139 @@ def test_short_quiet_flag() -> None:
     runner.invoke(app, ["-q", "chat", "--server-api", "bogus", "hi"])
     assert Renderer.QUIET is True
     Renderer.QUIET = False
+
+# ---------- --api-key / --model sentinel normalization ----------
+
+def test_chat_api_key_sentinel_none_becomes_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """--api-key=none 应被规范化为 None,不会作为真实 key 透传。"""
+    captured: dict[str, object] = {}
+
+    async def _capture_run(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(chat_mod, "_run", _capture_run)
+
+    result = runner.invoke(app, ["chat", "--api-key", "none", "--upstream", "mock", "hi"])
+
+    assert result.exit_code == 0, f"exit={result.exit_code}, out={result.output!r}"
+    assert captured.get("api_key") is None, f"api_key 应为 None,实际={captured['api_key']!r}"
+
+
+def test_chat_api_key_sentinel_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None:
+    """--api-key=None / NONE 也应规范化为 None(大小写不敏感)。"""
+    captured: dict[str, object] = {}
+
+    async def _capture_run(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(chat_mod, "_run", _capture_run)
+
+    result = runner.invoke(app, ["chat", "--api-key", "None", "--upstream", "mock", "hi"])
+
+    assert result.exit_code == 0
+    assert captured.get("api_key") is None
+
+
+def test_chat_api_key_empty_string_stays_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """--api-key="" 是 falsy 值,不会被发送 auth header(行为等价于 None)。"""
+    captured: dict[str, object] = {}
+
+    async def _capture_run(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(chat_mod, "_run", _capture_run)
+
+    result = runner.invoke(app, ["chat", "--api-key", "", "--upstream", "mock", "hi"])
+
+    assert result.exit_code == 0
+    # 空串是 falsy,不会被 sentinel 处理,保持原值
+    assert captured.get("api_key") == ""
+
+
+def test_chat_api_key_real_value_preserved(monkeypatch: pytest.MonkeyPatch) -> None:
+    """真实的 --api-key=sk-xxx 不应被修改。"""
+    captured: dict[str, object] = {}
+
+    async def _capture_run(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(chat_mod, "_run", _capture_run)
+
+    result = runner.invoke(app, ["chat", "--api-key", "sk-real-key", "--upstream", "mock", "hi"])
+
+    assert result.exit_code == 0
+    assert captured.get("api_key") == "sk-real-key"
+
+
+def test_chat_omitted_api_key_stays_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """不传 --api-key 时(选项缺省),api_key 仍为 None。"""
+    captured: dict[str, object] = {}
+
+    async def _capture_run(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(chat_mod, "_run", _capture_run)
+
+    result = runner.invoke(app, ["chat", "--upstream", "mock", "hi"])
+
+    assert result.exit_code == 0
+    # 未传 --api-key → 参数默认值 None,断言两个路径都收敛到 None
+    assert captured.get("api_key") is None
+
+
+def test_chat_model_sentinel_none_becomes_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """--model=none 应被规范化为 None。"""
+    captured: dict[str, object] = {}
+
+    async def _capture_run(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(chat_mod, "_run", _capture_run)
+
+    result = runner.invoke(app, ["chat", "--model", "none", "--upstream", "mock", "hi"])
+
+    assert result.exit_code == 0
+    assert captured.get("model") is None, f"model 应为 None,实际={captured['model']!r}"
+
+
+def test_chat_model_real_value_preserved(monkeypatch: pytest.MonkeyPatch) -> None:
+    """真实的 --model=claude-4 不应被修改。"""
+    captured: dict[str, object] = {}
+
+    async def _capture_run(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(chat_mod, "_run", _capture_run)
+
+    result = runner.invoke(app, ["chat", "--model", "claude-4", "--upstream", "mock", "hi"])
+
+    assert result.exit_code == 0
+    assert captured.get("model") == "claude-4"
+
+
+def test_chat_direct_mode_rejects_sentinel_api_key() -> None:
+    """--base-url 模式下 --api-key=none 应因为规范化为 None 而触达必填校验。"""
+    result = runner.invoke(app, [
+        "chat", "--base-url", "https://api.example.com", "--api-key", "none",
+        "--model", "claude-4", "hi",
+    ])
+    # sentinel 规范化为 None → if not api_key → Renderer.die → typer 视为用户错误
+    assert result.exit_code != 0
+
+
+def test_chat_direct_mode_real_api_key_works(monkeypatch: pytest.MonkeyPatch) -> None:
+    """--base-url 模式下传入真实 api_key 不应报错。"""
+    captured: dict[str, object] = {}
+
+    async def _capture_run(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(chat_mod, "_run", _capture_run)
+
+    result = runner.invoke(app, [
+        "chat", "--base-url", "https://api.example.com", "--api-key", "sk-real",
+        "--model", "claude-4", "hi",
+    ])
+
+    assert result.exit_code == 0
+    assert captured.get("api_key") == "sk-real"
