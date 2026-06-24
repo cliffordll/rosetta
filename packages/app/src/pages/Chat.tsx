@@ -44,6 +44,8 @@ import type { SseFrame } from "@/lib/sse";
 const NO_UPSTREAM_SELECTED = "__none__";
 const DEFAULT_RAW_EDGE_FRAMES = 5;
 const DEFAULT_RAW_EXPAND_STEP = 10;
+const LABEL_TEXT = "text-xs font-medium text-muted-foreground";
+const LABEL_HINT = "text-xs font-normal text-muted-foreground";
 
 interface MetaInfo {
   upstreamLabel: string;
@@ -404,7 +406,7 @@ export default function Chat() {
         <div className="flex items-center gap-2">
           {viewMode === "raw" && (
             <div className="flex items-center gap-1">
-              <Label className="text-xs text-muted-foreground">Edge</Label>
+              <Label className={LABEL_TEXT}>Edge</Label>
               <Input
                 type="number"
                 min={1}
@@ -413,7 +415,7 @@ export default function Chat() {
                 onChange={(e) => setRawEdgeFrames(parsePositiveInt(e.target.value, 1))}
                 className="h-8 w-16"
               />
-              <Label className="text-xs text-muted-foreground">Step</Label>
+              <Label className={LABEL_TEXT}>Step</Label>
               <Input
                 type="number"
                 min={1}
@@ -435,34 +437,36 @@ export default function Chat() {
         </div>
       </div>
 
-      <div className="mb-4 flex flex-nowrap items-center gap-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <Label className="shrink-0 text-xs text-muted-foreground">
+      <div className="mb-4 grid grid-cols-[1.2fr_1.2fr_1.5fr] items-center gap-4">
+        <div className="flex items-center gap-2 overflow-hidden">
+          <Label className={`${LABEL_TEXT} shrink-0`}>
             server_api
           </Label>
-          <Select value={serverApi} onValueChange={(v) => onServerApiChange(v as ServerApi)}>
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ServerApi.MESSAGES}>
-                {serverApiLabel(ServerApi.MESSAGES)}
-              </SelectItem>
-              <SelectItem value={ServerApi.CHAT_COMPLETIONS}>
-                {serverApiLabel(ServerApi.CHAT_COMPLETIONS)}
-              </SelectItem>
-              <SelectItem value={ServerApi.RESPONSES}>
-                {serverApiLabel(ServerApi.RESPONSES)}
-              </SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="min-w-0 flex-1">
+            <Select value={serverApi} onValueChange={(v) => onServerApiChange(v as ServerApi)}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ServerApi.MESSAGES}>
+                  {serverApiLabel(ServerApi.MESSAGES)}
+                </SelectItem>
+                <SelectItem value={ServerApi.CHAT_COMPLETIONS}>
+                  {serverApiLabel(ServerApi.CHAT_COMPLETIONS)}
+                </SelectItem>
+                <SelectItem value={ServerApi.RESPONSES}>
+                  {serverApiLabel(ServerApi.RESPONSES)}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <Label className="shrink-0 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 overflow-hidden">
+          <Label className={`${LABEL_TEXT} shrink-0`}>
             upstream
           </Label>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <Select value={upstreamChoice} onValueChange={setUpstreamChoice}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="请选择 upstream" />
@@ -481,25 +485,24 @@ export default function Chat() {
                 ))}
               </SelectContent>
             </Select>
-
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <Label className="shrink-0 text-xs text-muted-foreground">
+
+        <div className="flex min-w-0 items-center justify-end gap-1.5 overflow-hidden">
+          <Label className="truncate text-xs font-medium text-muted-foreground">
             {upstreamsErr
               ? upstreamsErr
-              : !upstreamsErr && upstreams.length === 0
+              : upstreams.length === 0
                 ? "还没有 upstream,先去 Upstreams 页面添加"
-                : !upstreamsErr && upstreams.length > 0 && !resolvedUpstream && model.trim().length > 0
+                : !resolvedUpstream && model.trim().length > 0
                   ? "未选 upstream,将按 model 匹配"
                   : "会话级覆盖：model · api_key · max_tokens · stream"}
           </Label>
-          <Button variant="outline" onClick={openOverrideDialog}>
+          <Button className="shrink-0" variant="outline" onClick={openOverrideDialog}>
             {overrideKey ? "Override settings · set" : "Override settings"}
           </Button>
         </div>
       </div>
-
       <div
         ref={scrollRef}
         onScroll={(e) => {
@@ -576,9 +579,9 @@ export default function Chat() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="ov-model">
+              <Label htmlFor="ov-model" className={LABEL_TEXT}>
                 model{" "}
-                <span className="text-xs text-muted-foreground">
+                <span className={LABEL_HINT}>
                   (仅本次会话生效 · 留空则走 upstream 默认 model)
                 </span>
               </Label>
@@ -590,12 +593,12 @@ export default function Chat() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="ov-api-key">
-              api_key{" "}
-              <span className="text-xs text-muted-foreground">
-                (仅本次会话生效 · 留空则走 upstream 的 api_key)
-              </span>
-            </Label>
+              <Label htmlFor="ov-api-key" className={LABEL_TEXT}>
+                api_key{" "}
+                <span className={LABEL_HINT}>
+                  (仅本次会话生效 · 留空则走 upstream 的 api_key)
+                </span>
+              </Label>
               <Input
                 id="ov-api-key"
                 value={overrideDraft}
@@ -605,12 +608,12 @@ export default function Chat() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="ov-max-tokens">
-              max_tokens{" "}
-              <span className="text-xs text-muted-foreground">
-                (默认 8192)
-              </span>
-            </Label>
+              <Label htmlFor="ov-max-tokens" className={LABEL_TEXT}>
+                max_tokens{" "}
+                <span className={LABEL_HINT}>
+                  (默认 8192)
+                </span>
+              </Label>
               <Input
                 id="ov-max-tokens"
                 type="number"
@@ -628,7 +631,7 @@ export default function Chat() {
                 onChange={(e) => setOverrideDialogStreamDraft(e.target.checked)}
                 className="h-4 w-4"
               />
-              <Label htmlFor="stream-chk" className="cursor-pointer">
+              <Label htmlFor="stream-chk" className={`${LABEL_TEXT} cursor-pointer`}>
                 stream
               </Label>
             </div>

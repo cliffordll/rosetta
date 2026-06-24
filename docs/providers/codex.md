@@ -6,32 +6,9 @@
 
 当 Codex 客户端支持配置 OpenAI-compatible endpoint 时，可以把 Rosetta 作为本地代理入口。
 
-## 2. 服务端使用说明
+## 2. 使用说明
 
-### 2.1. 添加 Upstream 示例
-
-```bash
-rosetta upstream add \
-  --name ds-upstream \
-  --provider ollama \
-  --native-api completions \
-  --base-url http://localhost:11434/ \
-  --api-key sk-default-key \
-  --model deepseek-v4-flash
-```
-
-### 2.2. 配置默认模型
-
-如果客户端无法传递 `r-upstream`，Rosetta 会按请求体里的 `model` 匹配 upstream。
-同一个 model 对应多个 upstream 时，需要设置默认 upstream：
-
-```bash
-rosetta upstream default ds-upstream --model deepseek-v4-flash
-```
-
-## 3. 客户端使用说明
-
-### 3.1. 安装与卸载
+### 2.1. 安装与卸载
 
 安装：使用 Node.js 的包管理器 npm 进行全局安装。
 
@@ -47,7 +24,7 @@ npm uninstall -g @openai/codex
 rm -rf ~/.codex
 ```
 
-### 3.2. 环境配置说明
+### 2.2. 环境配置说明
 
 修改 Codex 配置文件：打开 ~/.codex/config.toml，按照下面的示例调整，关键是把 wire_api 改成 "responses"。
 
@@ -92,13 +69,13 @@ bash
 export OPENAI_API_KEY="sk-your-key"
 ```
 
-### 3.3. 客户端使用说明
+### 2.3. 客户端使用说明
 
 ```bash
 codex --oss --local-provider ds_provider
 ```
 
-## 4. 注意事项
+## 3. 注意事项
 
 - 不要把 upstream 的 `base_url` 填成 Rosetta 地址；upstream 指真实上游根地址。
 - 客户端连接 Rosetta 时，base URL 使用本地 Rosetta server 地址。

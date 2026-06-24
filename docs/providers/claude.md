@@ -6,34 +6,11 @@
 
 当 Claude 客户端支持配置 Anthropic Messages endpoint 时，可以把 Rosetta 作为本地代理入口。
 
-## 2. 服务端使用说明
-
-### 2.1. 添加 Upstream 示例
-
-```bash
-rosetta upstream add \
-  --name ds-upstream \
-  --provider ollama \
-  --native-api completions \
-  --base-url http://localhost:11434/ \
-  --api-key sk-ant-default-key \
-  --model deepseek-v4-flash
-```
-
-### 2.2. 配置默认模型
-
-如果客户端无法传递 `r-upstream`，Rosetta 会按请求体里的 `model` 匹配 upstream。
-同一个 model 对应多个 upstream 时，需要设置默认 upstream：
-
-```bash
-rosetta upstream default ds-upstream --model deepseek-v4-flash
-```
-
-## 3. 客户端使用说明
+## 2. 使用说明
 
 这是最关键的一步。你需要通过设置几个环境变量，告诉 Claude Code 去找本地的 Resotta 服务，而不是官方的云端 API。
 
-### 3.1. 安装与卸载
+### 2.1. 安装与卸载
 
 安装：使用 Node.js 的包管理器 npm 进行全局安装。
 
@@ -48,7 +25,7 @@ npm uninstall -g @anthropic-ai/claude-agent-sdk
 # 清理配置（可选）
 rm -rf ~/.claude
 ```
-### 3.2. 方法 A：临时配置
+### 2.2. 方法 A：临时配置
 
 直接在终端里运行下面的命令，效果只对当前这个终端窗口有效。
 
@@ -79,7 +56,7 @@ export ANTHROPIC_DEFAULT_HAIKU_MODEL="deepseek-v4-flashb"
 export ANTHROPIC_DEFAULT_OPUS_MODEL="deepseek-v4-flash"
 ```
 
-### 3.3. 方法 B：永久配置
+### 2.3. 方法 B：永久配置
 
 在 Claude Code 的用户设置文件 ~/.claude/settings.json 里添加 "env" 字段，这样配置会一直生效。
 
@@ -96,13 +73,13 @@ export ANTHROPIC_DEFAULT_OPUS_MODEL="deepseek-v4-flash"
 }
 ```
 
-### 3.4. Claude 启动
+### 2.4. Claude 启动
 
 ```bash
 claude
 ```
 
-## 4. 注意事项
+## 3. 注意事项
 
 - Claude Messages 入口通常使用 `x-api-key` 鉴权头。
 - Rosetta 会按入口协议读取客户端 API key；如果客户端传入 key，会覆盖 upstream 中保存的 key。

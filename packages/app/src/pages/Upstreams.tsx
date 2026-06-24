@@ -80,6 +80,13 @@ type UpstreamTableColumn = (typeof UPSTREAM_TABLE_COLUMNS)[number];
 
 type UpstreamColumnWidths = Record<UpstreamTableColumn, number>;
 
+const TABLE_CELL = "p-1.5 text-xs text-muted-foreground";
+const TABLE_NAME = `${TABLE_CELL} font-medium truncate`;
+const TABLE_TEXT = `${TABLE_CELL} truncate`;
+const TABLE_TECH = `${TABLE_TEXT} font-mono tabular-nums`;
+const FORM_LABEL = "text-sm text-muted-foreground";
+const FORM_LABEL_HINT = "text-xs text-muted-foreground";
+
 const DEFAULT_UPSTREAM_COLUMN_WIDTHS: UpstreamColumnWidths = {
   name: 9,
   provider: 6,
@@ -424,33 +431,33 @@ export default function Upstreams() {
                   <TableBody className="[&_tr:last-child]:border-b [&_tr]:h-10">
                     {items.map((u) => (
                       <TableRow key={u.id}>
-                        <TableCell className="p-1 truncate font-medium" title={u.name}>
+                        <TableCell className={TABLE_NAME} title={u.name}>
                           {u.name}
                         </TableCell>
-                        <TableCell className="p-1">
+                        <TableCell className={TABLE_CELL}>
                           <Badge variant="outline">{u.provider}</Badge>
                         </TableCell>
-                        <TableCell className="p-1 truncate text-xs text-muted-foreground"
+                        <TableCell className={TABLE_TEXT}
                           title={serverApiLabel(u.native_api)}
                         >
                           {serverApiLabel(u.native_api)}
                         </TableCell>
-                        <TableCell className="p-1 truncate font-mono text-xs text-muted-foreground"
+                        <TableCell className={TABLE_TECH}
                           title={u.model ?? ""}
                         >
                           {u.model ?? "-"}
                         </TableCell>
-                        <TableCell className="p-1 truncate text-xs text-muted-foreground"
+                        <TableCell className={TABLE_TEXT}
                           title={u.base_url}
                         >
                           {u.base_url}
                         </TableCell>
-                        <TableCell className="p-1 truncate font-mono text-xs text-muted-foreground"
+                        <TableCell className={TABLE_TECH}
                           title={u.api_key ?? ""}
                         >
                           {u.api_key ?? "-"}
                         </TableCell>
-                        <TableCell className="p-1 text-center text-xs">
+                        <TableCell className={`${TABLE_CELL} text-center`}>
                           <span className="inline-flex items-center justify-center gap-1.5">
                             <span
                               className={`size-2 rounded-full ${
@@ -458,19 +465,17 @@ export default function Upstreams() {
                               }`}
                               aria-hidden
                             />
-                            <span
-                              className={u.enabled ? "font-medium" : "text-muted-foreground"}
-                            >
+                            <span className={u.enabled ? "font-medium" : ""}>
                               {u.enabled ? "on" : "off"}
                             </span>
                           </span>
                         </TableCell>
-                        <TableCell className="p-1 truncate font-mono text-xs text-muted-foreground"
+                        <TableCell className={TABLE_TECH}
                           title={formatDate(u.created_at)}
                         >
                           {formatDate(u.created_at)}
                         </TableCell>
-                        <TableCell className="p-1 text-right overflow-hidden">
+                        <TableCell className={`${TABLE_CELL} overflow-hidden text-right`}>
                           <div className="flex justify-end gap-1 overflow-hidden">
                             {u.provider !== "mock" && (
                               <>
@@ -733,7 +738,7 @@ function ModelDefaultsPanel({
         <h2 className="text-sm font-medium text-muted-foreground">
           Model defaults
         </h2>
-        <p className="text-xs text-muted-foreground">
+        <p className={FORM_LABEL_HINT}>
           无 r-upstream 时按 body.model 匹配 upstream；同一个 model 对应多个 upstream 时，必须在这里指定默认 upstream。
         </p>
       </div>
@@ -767,18 +772,18 @@ function ModelDefaultsPanel({
               const saving = savingModel === group.model;
               return (
                 <TableRow key={group.model}>
-                  <TableCell className="truncate font-mono text-xs p-1" title={group.model}>
+                  <TableCell className={TABLE_TECH} title={group.model}>
                     {group.model}
                   </TableCell>
-                  <TableCell className="p-1">
+                  <TableCell className={TABLE_CELL}>
                     <Badge variant={group.defaultUpstreamName ? "outline" : "destructive"}>
                       {group.defaultUpstreamName ? "configured" : "required"}
                     </Badge>
                   </TableCell>
-                  <TableCell className="truncate text-xs text-muted-foreground p-1">
+                  <TableCell className={TABLE_TEXT}>
                     {group.defaultUpstreamName ?? "-"}
                   </TableCell>
-                  <TableCell className="p-1">
+                  <TableCell className={TABLE_CELL}>
                     <Select
                       value={draft || undefined}
                       onValueChange={(value) => onDraftChange(group.model, value)}
@@ -795,7 +800,7 @@ function ModelDefaultsPanel({
                       </SelectContent>
                     </Select>
                   </TableCell>
-                  <TableCell className="text-right p-1">
+                  <TableCell className={`${TABLE_CELL} text-right`}>
                     <Button
                       variant="outline"
                       size="icon-sm"
@@ -814,19 +819,19 @@ function ModelDefaultsPanel({
               const upstream = group.upstreams[0];
               return (
                 <TableRow key={group.model}>
-                  <TableCell className="truncate font-mono text-xs p-1" title={group.model}>
+                  <TableCell className={TABLE_TECH} title={group.model}>
                     {group.model}
                   </TableCell>
-                  <TableCell className="p-1">
+                  <TableCell className={TABLE_CELL}>
                     <Badge variant="outline">unique</Badge>
                   </TableCell>
-                  <TableCell className="truncate text-xs text-muted-foreground p-1">
+                  <TableCell className={TABLE_TEXT}>
                     {upstream.name}
                   </TableCell>
-                  <TableCell className="truncate text-xs text-muted-foreground p-1">
+                  <TableCell className={TABLE_TEXT}>
                     {formatUpstreamOptionLabel(upstream)}
                   </TableCell>
-                  <TableCell className="text-right text-xs text-muted-foreground p-1">auto</TableCell>
+                  <TableCell className={`${TABLE_CELL} text-right`}>auto</TableCell>
                 </TableRow>
               );
             })}
@@ -999,9 +1004,9 @@ function UpstreamFormDialog({
         </DialogHeader>
         <form onSubmit={(e) => void submit(e)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="u-name">
+            <Label htmlFor="u-name" className={FORM_LABEL}>
               name{" "}
-              <span className="text-xs text-muted-foreground">
+              <span className={FORM_LABEL_HINT}>
                 (唯一标识 · r-upstream header 的值)
               </span>
             </Label>
@@ -1014,9 +1019,9 @@ function UpstreamFormDialog({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="u-native-api">
+            <Label htmlFor="u-native-api" className={FORM_LABEL}>
               native_api{" "}
-              <span className="text-xs text-muted-foreground">
+              <span className={FORM_LABEL_HINT}>
                 (API 格式 · 决定 base_url 追加的路径)
               </span>
             </Label>
@@ -1034,9 +1039,9 @@ function UpstreamFormDialog({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="u-provider">
+            <Label htmlFor="u-provider" className={FORM_LABEL}>
               provider{" "}
-              <span className="text-xs text-muted-foreground">
+              <span className={FORM_LABEL_HINT}>
                 (暂时只用于区分 upstream 类别)
               </span>
             </Label>
@@ -1054,9 +1059,9 @@ function UpstreamFormDialog({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="u-base">
+            <Label htmlFor="u-base" className={FORM_LABEL}>
               base_url{" "}
-              <span className="text-xs text-muted-foreground">
+              <span className={FORM_LABEL_HINT}>
                 (填根地址 · rosetta 会按 native API 自动追加 /v1/…)
               </span>
             </Label>
@@ -1068,9 +1073,9 @@ function UpstreamFormDialog({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="u-model">
+            <Label htmlFor="u-model" className={FORM_LABEL}>
               model{" "}
-              <span className="text-xs text-muted-foreground">
+              <span className={FORM_LABEL_HINT}>
                 (可选 · 客户端不传 r-upstream 时，按 body.model 自动匹配到此上游)
               </span>
             </Label>
@@ -1082,9 +1087,9 @@ function UpstreamFormDialog({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="u-key">
+            <Label htmlFor="u-key" className={FORM_LABEL}>
               api_key{" "}
-              <span className="text-xs text-muted-foreground">
+              <span className={FORM_LABEL_HINT}>
                 {isEdit
                   ? "(已回显 · 清空保存 = 删除)"
                   : isCopy
@@ -1099,7 +1104,7 @@ function UpstreamFormDialog({
               onChange={(e) => setApiKey(e.target.value)}
               placeholder="sk-..."
             />
-            {keyStatus && <p className="text-xs text-muted-foreground">{keyStatus}</p>}
+            {keyStatus && <p className={FORM_LABEL_HINT}>{keyStatus}</p>}
           </div>
           {(isEdit || isCopy) && (
             <div className="flex items-center gap-2">
@@ -1110,7 +1115,7 @@ function UpstreamFormDialog({
                 onChange={(e) => setEnabled(e.target.checked)}
                 className="h-4 w-4"
               />
-              <Label htmlFor="u-enabled" className="cursor-pointer">
+              <Label htmlFor="u-enabled" className={`${FORM_LABEL} cursor-pointer`}>
                 enabled
               </Label>
             </div>

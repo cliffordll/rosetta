@@ -1,3 +1,4 @@
+import { LayoutDashboard, Server, MessageSquare, ScrollText } from "lucide-react";
 import { Navigate, Route, Routes } from "react-router";
 
 import Chat from "@/pages/Chat";
@@ -6,10 +7,10 @@ import Logs from "@/pages/Logs";
 import Upstreams from "@/pages/Upstreams";
 
 export const NAV_ITEMS = [
-  { path: "/dashboard", label: "Dashboard" },
-  { path: "/upstreams", label: "Upstreams" },
-  { path: "/chat", label: "Chat" },
-  { path: "/logs", label: "Logs" },
+  { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { path: "/upstreams", label: "Upstreams", icon: Server },
+  { path: "/chat", label: "Chat", icon: MessageSquare },
+  { path: "/logs", label: "Logs", icon: ScrollText },
 ] as const;
 
 export function AppRoutes() {

@@ -55,6 +55,12 @@ const DASHBOARD_COLUMNS = ["name", "provider", "native_api", "model", "enabled",
 type DashColumn = (typeof DASHBOARD_COLUMNS)[number];
 type DashWidths = Record<DashColumn, number>;
 
+const TABLE_CELL = "p-1.5 text-xs text-muted-foreground";
+const TABLE_NAME = `${TABLE_CELL} font-medium truncate`;
+const TABLE_TEXT = `${TABLE_CELL} truncate`;
+const TABLE_TECH = `${TABLE_TEXT} font-mono tabular-nums`;
+const LABEL_TEXT = "text-sm text-muted-foreground";
+
 const DEFAULT_DASH_WIDTHS: DashWidths = {
   name: 20,
   provider: 10,
@@ -407,19 +413,19 @@ export default function Dashboard() {
                     <TableBody className="[&_tr:last-child]:border-b [&_tr]:h-10">
                       {state.data.upstreams.map((u) => (
                         <TableRow key={u.id}>
-                          <TableCell className="truncate font-medium">
+                          <TableCell className={TABLE_NAME}>
                             {u.name}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className={TABLE_CELL}>
                             <Badge variant="outline">{u.provider}</Badge>
                           </TableCell>
-                          <TableCell className="truncate text-xs text-muted-foreground">
+                          <TableCell className={TABLE_TEXT}>
                             {serverApiLabel(u.native_api)}
                           </TableCell>
-                          <TableCell className="truncate font-mono text-xs text-muted-foreground">
+                          <TableCell className={TABLE_TECH}>
                             {u.model ?? "-"}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className={TABLE_CELL}>
                             <span className="inline-flex items-center justify-center gap-1.5">
                               <span
                                 className={`size-2 rounded-full ${
@@ -434,7 +440,7 @@ export default function Dashboard() {
                               </span>
                             </span>
                           </TableCell>
-                          <TableCell className="text-center align-middle" title={u.test_result === "ok" ? "Test passed" : u.test_result === "fail" ? "Test failed" : "Not tested"}>
+                          <TableCell className={`${TABLE_CELL} text-center align-middle`} title={u.test_result === "ok" ? "Test passed" : u.test_result === "fail" ? "Test failed" : "Not tested"}>
                             {u.test_result === "ok" ? (
                               <BugIcon className="inline size-4 text-emerald-500" />
                             ) : u.test_result === "fail" ? (
@@ -458,6 +464,12 @@ export default function Dashboard() {
               <div className="flex items-center gap-6">
                 <button
                   className="text-sm text-muted-foreground underline hover:text-foreground"
+                  onClick={() => void loadGuide("readme")}
+                >
+                  README
+                </button>
+                <button
+                  className="text-sm text-muted-foreground underline hover:text-foreground"
                   onClick={() => void loadGuide("codex")}
                 >
                   Codex
@@ -467,12 +479,6 @@ export default function Dashboard() {
                   onClick={() => void loadGuide("claude")}
                 >
                   Claude
-                </button>
-                <button
-                  className="text-sm text-muted-foreground underline hover:text-foreground"
-                  onClick={() => void loadGuide("readme")}
-                >
-                  README
                 </button>
               </div>
             </div>
@@ -530,7 +536,7 @@ export default function Dashboard() {
 function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-border p-4">
-      <div className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
+      <div className={`mb-1 ${LABEL_TEXT}`}>
         {label}
       </div>
       <div className="text-lg font-medium">{value}</div>

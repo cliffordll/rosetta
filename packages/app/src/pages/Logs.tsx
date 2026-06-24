@@ -56,6 +56,11 @@ const LOG_TABLE_COLUMNS = [
 type LogTableColumn = (typeof LOG_TABLE_COLUMNS)[number];
 type LogColumnWidths = Record<LogTableColumn, number>;
 
+const TABLE_CELL = "p-1.5 text-xs text-muted-foreground";
+const TABLE_TEXT = `${TABLE_CELL} truncate`;
+const TABLE_TECH = `${TABLE_TEXT} font-mono tabular-nums`;
+const LABEL_TEXT = "text-sm text-muted-foreground";
+
 const DEFAULT_LOG_COLUMN_WIDTHS: LogColumnWidths = {
   created_at: 11,
   upstream: 9,
@@ -262,7 +267,7 @@ export default function Logs() {
         <h1 className="text-2xl font-semibold">Logs</h1>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2">
-            <Label className="text-xs text-muted-foreground">log content</Label>
+            <Label className={LABEL_TEXT}>log content</Label>
             <Select
               value={logContent}
               onValueChange={(value) =>
@@ -399,42 +404,42 @@ export default function Logs() {
             <TableBody className="[&_tr:last-child]:border-b [&_tr]:h-10">
               {items.map((entry) => (
                 <TableRow key={entry.id}>
-                  <TableCell className="truncate font-mono text-xs text-muted-foreground" title={formatDate(entry.created_at)}>
+                  <TableCell className={TABLE_TECH} title={formatDate(entry.created_at)}>
                     {formatDate(entry.created_at)}
                   </TableCell>
                   <TableCell
-                    className="truncate"
+                    className={TABLE_TEXT}
                     title={entry.upstream ?? ""}
                   >
                     {entry.upstream ?? "-"}
                   </TableCell>
                   <TableCell
-                    className="truncate font-mono text-xs"
+                    className={TABLE_TECH}
                     title={entry.model ?? ""}
                   >
                     {entry.model ?? "-"}
                   </TableCell>
-                  <TableCell>{statusBadge(entry.status)}</TableCell>
-                  <TableCell className="text-right font-mono text-xs">
+                  <TableCell className={TABLE_CELL}>{statusBadge(entry.status)}</TableCell>
+                  <TableCell className={`${TABLE_CELL} text-right font-mono tabular-nums`}>
                     {entry.latency_ms !== null ? `${entry.latency_ms}ms` : "-"}
                   </TableCell>
-                  <TableCell className="text-right font-mono text-xs">
+                  <TableCell className={`${TABLE_CELL} text-right font-mono tabular-nums`}>
                     {(entry.input_tokens ?? 0)}→{(entry.output_tokens ?? 0)}
                   </TableCell>
-                  <TableCell className="align-top">
+                  <TableCell className={`${TABLE_CELL} align-top`}>
                     <LogTextCell text={entry.request_text} />
                   </TableCell>
-                  <TableCell className="align-top">
+                  <TableCell className={`${TABLE_CELL} align-top`}>
                     <LogTextCell text={entry.response_text} />
                   </TableCell>
                   <TableCell
-                    className="truncate font-mono text-xs text-muted-foreground"
+                    className={TABLE_TECH}
                     title={entry.client_addr ?? ""}
                   >
                     {entry.client_addr ?? "-"}
                   </TableCell>
                   <TableCell
-                    className="truncate text-xs text-muted-foreground"
+                    className={TABLE_TEXT}
                     title={entry.error ?? ""}
                   >
                     {entry.error ?? "-"}
