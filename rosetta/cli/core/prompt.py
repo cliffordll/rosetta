@@ -24,7 +24,7 @@ SLASH_COMPLETIONS: tuple[CompletionItem, ...] = (
     CompletionItem("/server_api", "显示或切换 API 格式"),
     CompletionItem("/raw", "显示或切换 raw 输出"),
     CompletionItem("/raw_edge", "显示或设置 raw 前/后 frame 数"),
-    CompletionItem("/raw_step", "显示或设置 raw 每次展开 frame 数"),
+    CompletionItem("/raw_step", "保留配置;CLI 当前不交互展开"),
     CompletionItem("/api_key", "显示或切换 api_key"),
     CompletionItem("/upstream", "显示或切换 upstream"),
     CompletionItem("/max_tokens", "显示或切换 max_tokens"),

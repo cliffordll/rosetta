@@ -478,7 +478,7 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 
 **upstream 连通性测试**:`POST /admin/upstreams/{id}/test` 由 server 按该 upstream 自己的 `native_api` 发一个最小探测请求。成功时确认 `base_url + api_key + model` 组合可用;失败时尽量归类为 `network` / `auth` / `model` / `config` / `upstream_error` / `invalid_response`。CLI `rosetta upstream test <id>` 和 GUI Upstreams 页 `Test` 按钮都走这条接口,保证诊断口径一致且不污染正常业务 logs。
 
-**logs 全局配置**:`settings` 表同时承载 `log_content` 与 `logs_page_size` 两个全局键。`log_content` 取 `none | summary | full`,控制是否记录请求/响应文本以及摘要截断;`logs_page_size` 取 `10 | 20 | 50 | 100`,作为 CLI `rosetta logs` 和 GUI Logs 页的统一默认分页条数。管理入口统一是 `GET/PUT /admin/logs/config` 与 CLI `rosetta logs config`。
+**logs 全局配置**:`settings` 表同时承载 `logs:log_content` 与 `logs:page_size` 两个全局键。`logs:log_content` 取 `none | summary | full`,控制是否记录请求/响应文本以及摘要截断;`logs:page_size` 取 `10 | 20 | 50 | 100`,作为 CLI `rosetta logs` 和 GUI Logs 页的统一默认分页条数。旧键 `log_content` / `logs_page_size` 不再读取。管理入口统一是 `GET/PUT /admin/logs/config` 与 CLI `rosetta logs config`。
 
 **错误响应体**:
 
@@ -681,7 +681,7 @@ rosetta chat --raw "hi"                  # 一次性：打印 request + SSE resp
 rosetta chat --raw                       # REPL raw 模式；每轮打印 request + SSE response frames
                                          #   /api_key X 临时覆盖上游 key、/raw on|off
                                          #   /raw_edge <n>
-                                         #   /raw_step <n>
+                                         #   /raw_step <n>  保留配置;CLI 当前不交互展开
 
 # 直连（BYOK）模式：传 --base-url 即触发，绕过 server，详见 §8.6
 rosetta chat \
@@ -697,7 +697,7 @@ rosetta chat \
 - **一次性模式**（带 `"text"` 参数或 stdin 管道）：发完即退，不保留历史，也不写任何本地文件——这是"启动后测一下链路通不通"的最小形态。
 - **鉴权**：CLI **不持有任何 rosetta 自有的本地 key**——server 不做 API-level auth（loopback-only）。`--api-key` 是**可选的上游 key override**：server 模式按入口 server_api 附加 `x-api-key`(Messages) 或 `Authorization: Bearer`(OpenAI-compatible)；不传就让 server 用 `upstreams.api_key`。direct 模式下 `--api-key` 是必填,并按上游 API 写成 `x-api-key` 或 `Authorization`。
 - **direct 模式触发**：命令里（或 env）出现 `--base-url` → 直接打上游，不经 server。详见 §8.6。
-- **REPL slash 命令**:支持自动补全和上下键选择候选。`/server_api <api_type>` 切换 API 格式(`messages|completions|responses`);`/model <name>` 切换模型,`/model clear` 切回 auto;`/upstream <name>` 切换精确 upstream,`/upstream clear` 切回按 model 匹配;`/api_key <key>` 临时覆盖上游 key,`/api_key clear` 切回 DB key;`/raw on|off` 切换 raw 输出;`/raw_edge <n>` / `/raw_step <n>` 调整 raw SSE frame 预览。
+- **REPL slash 命令**:支持自动补全和上下键选择候选。`/server_api <api_type>` 切换 API 格式(`messages|completions|responses`);`/model <name>` 切换模型,`/model clear` 切回 auto;`/upstream <name>` 切换精确 upstream,`/upstream clear` 切回按 model 匹配;`/api_key <key>` 临时覆盖上游 key,`/api_key clear` 切回 DB key;`/raw on|off` 切换 raw 输出;`/raw_edge <n>` 调整 raw SSE frame 预览;`/raw_step <n>` 仅保留配置口径,CLI 当前不做 Web Raw 那样的交互式逐步展开。
 - **已知局限**(v0 故意不处理):REPL 中切换 `/model` 或 `/server_api` 时,前文只保留 text block(role=user/assistant);工具调用 / thinking / 图片等块在 server_api 切换后丢弃并打印 warning——"切 API 格式 = 新对话的开始"比"翻译前文"简单太多。
 
 ### CLI 完整使用 demo（从零到多轮对话）

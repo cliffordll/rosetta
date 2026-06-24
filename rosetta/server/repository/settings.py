@@ -14,7 +14,7 @@ from rosetta.server.logs_config import (
     normalize_chat_max_tokens,
     normalize_chat_stream,
     normalize_log_content,
-    normalize_logs_page_size,
+    normalize_log_page_size,
 )
 
 
@@ -32,7 +32,7 @@ class SettingsRepo:
     async def get_logs_config(self) -> LogsConfig:
         return LogsConfig(
             log_content=normalize_log_content(await self.get(LOG_CONTENT_KEY)),
-            page_size=normalize_logs_page_size(await self.get(LOGS_PAGE_SIZE_KEY)),
+            page_size=normalize_log_page_size(await self.get(LOGS_PAGE_SIZE_KEY)),
         )
 
     async def update_logs_config(
@@ -43,7 +43,7 @@ class SettingsRepo:
     ) -> LogsConfig:
         current = await self.get_logs_config()
         next_log_content = normalize_log_content(log_content or current.log_content)
-        next_page_size = normalize_logs_page_size(
+        next_page_size = normalize_log_page_size(
             current.page_size if page_size is None else page_size
         )
         await self.set(LOG_CONTENT_KEY, next_log_content)

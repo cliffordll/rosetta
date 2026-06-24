@@ -56,7 +56,7 @@ class ChatRepl:
         "  /stream on|off            显示或切换 stream 模式\n"
         "  /raw on|off               切换 raw request/response 输出\n"
         "  /raw_edge <n>             raw 模式显示前/后 n 条 SSE frame\n"
-        "  /raw_step <n>             raw 模式每次展开 n 条 SSE frame\n"
+        "  /raw_step <n>             保留配置;CLI 当前不交互展开,完整输出用 --raw-full\n"
         "  /help                     本说明"
     )
 

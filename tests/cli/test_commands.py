@@ -293,6 +293,8 @@ def test_chat_raw_help_uses_short_raw_option_names() -> None:
     assert "--raw-full" in out
     assert "--raw-edge-frames" not in out
     assert "--raw-expand-step" not in out
+    assert "交互展开" in out
+    assert "每步展开" not in out
 
 
 def test_chat_raw_repl_passes_raw_options(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -513,3 +515,99 @@ def test_chat_direct_mode_real_api_key_works(monkeypatch: pytest.MonkeyPatch) ->
 
     assert result.exit_code == 0
     assert captured.get("api_key") == "sk-real"
+
+
+def test_chat_run_uses_server_stream_config_when_cli_omits_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeClient:
+        mode = "server"
+
+        async def chat_config(self) -> SimpleNamespace:
+            return SimpleNamespace(max_tokens=2048, stream=False)
+
+    @asynccontextmanager
+    async def _fake_session(**_: object):
+        yield _FakeClient()
+
+    class _FakeOnce:
+        def __init__(self, ctx: object, **_: object) -> None:
+            captured["stream"] = ctx.stream
+            captured["max_tokens"] = ctx.max_tokens
+
+        async def run(self, text: str) -> None:
+            captured["text"] = text
+
+    monkeypatch.setattr(chat_mod, "_session", _fake_session)
+    from rosetta.cli.core import once as once_mod
+
+    monkeypatch.setattr(once_mod, "ChatOnce", _FakeOnce)
+
+    asyncio.run(
+        chat_mod._run(
+            text="hi",
+            server_api=chat_mod.ServerApi.MESSAGES,
+            model=None,
+            upstream=None,
+            api_key=None,
+            base_url=None,
+            max_tokens=8192,
+            stream=None,
+            raw=False,
+            raw_edge=5,
+            raw_step=10,
+            raw_full=False,
+        )
+    )
+
+    assert captured["stream"] is False
+    assert captured["max_tokens"] == 2048
+
+
+def test_chat_run_no_stream_overrides_server_stream_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeClient:
+        mode = "server"
+
+        async def chat_config(self) -> SimpleNamespace:
+            return SimpleNamespace(max_tokens=2048, stream=True)
+
+    @asynccontextmanager
+    async def _fake_session(**_: object):
+        yield _FakeClient()
+
+    class _FakeOnce:
+        def __init__(self, ctx: object, **_: object) -> None:
+            captured["stream"] = ctx.stream
+
+        async def run(self, text: str) -> None:
+            captured["text"] = text
+
+    monkeypatch.setattr(chat_mod, "_session", _fake_session)
+    from rosetta.cli.core import once as once_mod
+
+    monkeypatch.setattr(once_mod, "ChatOnce", _FakeOnce)
+
+    asyncio.run(
+        chat_mod._run(
+            text="hi",
+            server_api=chat_mod.ServerApi.MESSAGES,
+            model=None,
+            upstream=None,
+            api_key=None,
+            base_url=None,
+            max_tokens=8192,
+            stream=False,
+            raw=False,
+            raw_edge=5,
+            raw_step=10,
+            raw_full=False,
+        )
+    )
+
+    assert captured["stream"] is False

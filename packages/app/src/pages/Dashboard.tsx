@@ -269,7 +269,7 @@ export default function Dashboard() {
                   : "Check for updates"}
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={() => void load()}>
+          <Button variant="outline" onClick={() => void load()}>
             Refresh
           </Button>
         </div>

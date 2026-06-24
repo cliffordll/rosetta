@@ -70,11 +70,11 @@ def chat_cmd(
         int, typer.Option("--max-tokens", help="messages 格式的 max_tokens")
     ] = 8192,
     stream: Annotated[
-        bool,
+        bool | None,
         typer.Option(
             "--stream/--no-stream", help="流式逐 token 输出;非流式等待完整响应后一次性输出"
         ),
-    ] = True,
+    ] = None,
     raw: Annotated[
         bool,
         typer.Option("--raw", help="输出原始 request 和 SSE response,不做 nice 文本渲染"),
@@ -85,7 +85,7 @@ def chat_cmd(
     ] = 5,
     raw_step: Annotated[
         int,
-        typer.Option("--raw-step", min=1, help="raw response 每步展开多少条 SSE frame"),
+        typer.Option("--raw-step", min=1, help="保留参数:CLI 当前不交互展开;完整输出用 --raw-full"),
     ] = 10,
     raw_full: Annotated[
         bool,
@@ -178,7 +178,7 @@ async def _run(
     api_key: str | None,
     base_url: str | None,
     max_tokens: int,
-    stream: bool = True,
+    stream: bool | None = None,
     raw: bool,
     raw_edge: int,
     raw_step: int,
@@ -193,13 +193,13 @@ async def _run(
                 try:
                     cfg = await client.chat_config()
                     _max_tokens = max_tokens if max_tokens != 8192 else cfg.max_tokens
-                    _stream = stream if stream else cfg.stream
+                    _stream = cfg.stream if stream is None else stream
                 except Exception:
                     _max_tokens = max_tokens
-                    _stream = stream
+                    _stream = True if stream is None else stream
             else:
                 _max_tokens = max_tokens
-                _stream = stream
+                _stream = True if stream is None else stream
             ctx = ChatContext(
                 client=client,
                 server_api=server_api,

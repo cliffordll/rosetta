@@ -29,7 +29,7 @@ def normalize_log_content(value: str | None) -> LogContentMode:
     return LOG_CONTENT_DEFAULT
 
 
-def normalize_logs_page_size(value: int | str | None) -> LogsPageSize:
+def normalize_log_page_size(value: int | str | None) -> LogsPageSize:
     try:
         parsed = int(value) if value is not None else LOGS_PAGE_SIZE_DEFAULT
     except (TypeError, ValueError):

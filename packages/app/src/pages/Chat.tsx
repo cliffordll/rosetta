@@ -317,6 +317,9 @@ export default function Chat() {
     resolvedUpstream,
     hasModelRouting,
     overrideKey,
+    overrideMaxTokens,
+    overrideStream,
+    overrideModel,
   ]);
 
   const handleStop = useCallback(() => {
@@ -421,26 +424,12 @@ export default function Chat() {
               />
             </div>
           )}
-          <div className="flex rounded-md border border-border p-0.5">
-            <Button
-              type="button"
-              variant={viewMode === "nice" ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setViewMode("nice")}
-            >
-              Nice
-            </Button>
-            <Button
-              type="button"
-              variant={viewMode === "raw" ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setViewMode("raw")}
-            >
-              Raw
-            </Button>
-          </div>
+          <NiceRawToggle
+            raw={viewMode === "raw"}
+            onRawChange={(raw) => setViewMode(raw ? "raw" : "nice")}
+          />
 
-          <Button variant="outline" size="sm" onClick={handleNewChat}>
+          <Button variant="outline" onClick={handleNewChat}>
             New chat
           </Button>
         </div>
@@ -505,7 +494,7 @@ export default function Chat() {
                   ? "未选 upstream,将按 model 匹配"
                   : "会话级覆盖：model · api_key · max_tokens · stream"}
           </Label>
-          <Button variant="outline" size="sm" onClick={openOverrideDialog}>
+          <Button variant="outline" onClick={openOverrideDialog}>
             {overrideKey ? "Override settings · set" : "Override settings"}
           </Button>
         </div>
@@ -535,10 +524,10 @@ export default function Chat() {
                 m.role === "assistant" &&
                 (m.status === "error" || m.status === "aborted");
               return (
-                <li key={i}>
+                <li key={i + "-" + viewMode}>
                   <MessageBubble
                     msg={m}
-                    viewMode={viewMode}
+                    initialShowRaw={viewMode === "raw"}
                     rawEdgeFrames={rawEdgeFrames}
                     rawExpandStep={rawExpandStep}
                     onRetry={canRetry ? handleRetry : undefined}
@@ -663,67 +652,227 @@ export default function Chat() {
 
 function MessageBubble({
   msg,
-  viewMode,
   rawEdgeFrames,
   rawExpandStep,
   onRetry,
+  initialShowRaw = false,
 }: {
   msg: DisplayMsg;
-  viewMode: ChatViewMode;
   rawEdgeFrames: number;
   rawExpandStep: number;
   onRetry?: () => void;
+  initialShowRaw?: boolean;
 }) {
   if (msg.role === "user") {
-    return (
-      <div className="flex justify-end">
-        {viewMode === "raw" ? (
-          <RawUserRequest request={msg.rawRequest} />
+    return <UserMessageBubble msg={msg} initialShowRaw={initialShowRaw} />;
+  }
+
+  const isStreaming = msg.status === "streaming";
+  return (
+    <AssistantMessageBubble
+      msg={msg}
+      initialShowRaw={initialShowRaw}
+      rawEdgeFrames={rawEdgeFrames}
+      rawExpandStep={rawExpandStep}
+      onRetry={onRetry}
+      isStreaming={isStreaming}
+    />
+  );
+}
+
+const RAW_PREVIEW_CHARS = 8000;
+const NICE_RAW_TOGGLE_BASE =
+  "h-7 min-w-12 rounded-sm px-2.5 text-xs transition-colors";
+const NICE_RAW_TOGGLE_ACTIVE =
+  "border border-border/70 bg-background text-foreground shadow-sm hover:bg-background";
+const NICE_RAW_TOGGLE_INACTIVE =
+  "text-muted-foreground hover:bg-background/70 hover:text-foreground";
+const RAW_ACTION_BUTTON_CLASS =
+  "text-muted-foreground !text-xs hover:bg-muted hover:text-foreground";
+
+function NiceRawToggle({
+  raw,
+  onRawChange,
+}: {
+  raw: boolean;
+  onRawChange: (raw: boolean) => void;
+}) {
+  return (
+    <div className="flex h-9 items-center gap-0.5 rounded-md border border-border bg-muted/45 p-0.5">
+      <Button
+        type="button"
+        variant="ghost"
+        size="xs"
+        className={`${NICE_RAW_TOGGLE_BASE} ${!raw ? NICE_RAW_TOGGLE_ACTIVE : NICE_RAW_TOGGLE_INACTIVE}`}
+        onClick={() => onRawChange(false)}
+      >
+        Nice
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="xs"
+        className={`${NICE_RAW_TOGGLE_BASE} ${raw ? NICE_RAW_TOGGLE_ACTIVE : NICE_RAW_TOGGLE_INACTIVE}`}
+        onClick={() => onRawChange(true)}
+      >
+        Raw
+      </Button>
+    </div>
+  );
+}
+function UserMessageBubble({
+  msg,
+  initialShowRaw = false,
+}: {
+  msg: DisplayMsg & { role: "user" };
+  initialShowRaw?: boolean;
+}) {
+  const [showRaw, setShowRaw] = useState(initialShowRaw);
+  const [jsonFormat, setJsonFormat] = useState<"raw" | "json">("raw");
+  const [expanded, setExpanded] = useState(false);
+  const fullText =
+    jsonFormat === "raw" ? formatRawRequest(msg.rawRequest) : formatParsedRawRequest(msg.rawRequest);
+  const preview = expanded
+    ? { text: fullText, isTruncated: false, omittedChars: 0 }
+    : previewLongText(fullText, RAW_PREVIEW_CHARS);
+  return (
+    <div className="flex justify-end">
+      <div className="flex w-full max-w-full flex-col items-end gap-1">
+        <div className="flex flex-wrap items-center gap-1">
+          {showRaw && (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className={RAW_ACTION_BUTTON_CLASS}
+                onClick={() => setJsonFormat((c) => (c === "raw" ? "json" : "raw"))}
+              >
+                {jsonFormat === "raw" ? "Parse JSON" : "Raw Request"}
+              </Button>
+              {(preview.isTruncated || expanded) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  className={RAW_ACTION_BUTTON_CLASS}
+                  onClick={() => setExpanded((c) => !c)}
+                >
+                  {expanded ? "Collapse" : `Show hidden (${preview.omittedChars})`}
+                </Button>
+              )}
+            </>
+          )}
+          <NiceRawToggle raw={showRaw} onRawChange={setShowRaw} />
+        </div>
+        {showRaw ? (
+          <pre className="max-w-full max-h-96 overflow-y-auto rounded-lg bg-primary/55 px-3 py-2 text-xs whitespace-pre text-primary-foreground">
+            {preview.text}
+          </pre>
         ) : (
-          <div className="max-w-[85%] rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground whitespace-pre-wrap">
+          <div className="max-w-[85%] max-h-96 overflow-y-auto rounded-lg bg-primary/55 px-3 py-2 text-sm text-primary-foreground whitespace-pre-wrap">
             {msg.content}
           </div>
         )}
       </div>
-    );
-  }
+    </div>
+  );
+}
 
-  const isStreaming = msg.status === "streaming";
-  if (viewMode === "raw") {
-    return (
-      <div className="flex flex-col items-start gap-1">
-        <RawAssistantResponse
-          raw={msg.raw}
-          edgeFrames={rawEdgeFrames}
-          expandStep={rawExpandStep}
-        />
-        {msg.status === "error" && msg.errorMsg && (
-          <div className="max-w-[85%] rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1 text-xs text-destructive">
-            {msg.errorMsg}
-          </div>
-        )}
-        {onRetry && (
-          <button
-            type="button"
-            onClick={onRetry}
-            className="text-xs text-muted-foreground underline-offset-2 hover:underline"
-          >
-            Retry(回填输入框,按 Send 重发)
-          </button>
-        )}
-        {msg.meta && <MetaLine meta={msg.meta} />}
-      </div>
-    );
-  }
+function AssistantMessageBubble({
+  msg,
+  rawEdgeFrames,
+  initialShowRaw = false,
+  rawExpandStep,
+  onRetry,
+  isStreaming,
+}: {
+  msg: DisplayMsg & { role: "assistant" };
+  rawEdgeFrames: number;
+  initialShowRaw?: boolean;
+  rawExpandStep: number;
+  onRetry?: () => void;
+  isStreaming: boolean;
+}) {
+  const [showRaw, setShowRaw] = useState(initialShowRaw);
+  const [jsonFormat, setJsonFormat] = useState<"sse" | "json">("sse");
+  const [expanded, setExpanded] = useState(false);
+  const [revealedMiddleFrames, setRevealedMiddleFrames] = useState(0);
+  const response = {
+    responseFrames: msg.raw.responseFrames,
+    error: msg.raw.error,
+  };
+  const fullText =
+    jsonFormat === "sse" ? formatRawResponse(response) : formatParsedRawResponse(response);
+  const framePreview =
+    expanded || jsonFormat === "json"
+      ? null
+      : previewRawResponseFrames(response, {
+          edgeFrames: rawEdgeFrames,
+          revealedMiddleFrames,
+        });
+  const textPreview =
+    framePreview ??
+    (expanded
+      ? { text: fullText, isTruncated: false, omittedChars: 0 }
+      : previewLongText(fullText, RAW_PREVIEW_CHARS));
+  const canRevealMore = framePreview !== null && framePreview.hiddenFrames > 0;
 
   return (
     <div className="flex flex-col items-start gap-1">
-      <div className="max-w-[85%] rounded-lg border border-border bg-background px-3 py-2 text-sm whitespace-pre-wrap">
-        {msg.content || (isStreaming ? <span className="text-muted-foreground">…</span> : null)}
-        {msg.status === "aborted" && (
-          <span className="ml-1 text-xs text-muted-foreground">[已中断]</span>
+      <div className="flex flex-wrap items-center gap-1">
+        <NiceRawToggle raw={showRaw} onRawChange={setShowRaw} />
+        {showRaw && (
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              className={RAW_ACTION_BUTTON_CLASS}
+              onClick={() => setJsonFormat((c) => (c === "sse" ? "json" : "sse"))}
+            >
+              {jsonFormat === "sse" ? "Parse JSON" : "Raw SSE"}
+            </Button>
+            {canRevealMore && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className={RAW_ACTION_BUTTON_CLASS}
+                onClick={() => setRevealedMiddleFrames((c) => c + rawExpandStep)}
+              >
+                Show {rawExpandStep} more ({framePreview.hiddenFrames})
+              </Button>
+            )}
+            {(textPreview.isTruncated || expanded) && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className={RAW_ACTION_BUTTON_CLASS}
+                onClick={() => {
+                  setExpanded((c) => !c);
+                  setRevealedMiddleFrames(0);
+                }}
+              >
+                {expanded ? "Collapse" : "Show all"}
+              </Button>
+            )}
+          </>
         )}
       </div>
+      {showRaw ? (
+        <pre className="max-w-full max-h-96 overflow-y-auto rounded-lg border border-border bg-background px-3 py-2 text-xs whitespace-pre">
+          {textPreview.text}
+        </pre>
+      ) : (
+        <div className="max-w-[85%] max-h-96 overflow-y-auto rounded-lg border border-border bg-background px-3 py-2 text-sm whitespace-pre-wrap">
+          {msg.content || (isStreaming ? <span className="text-muted-foreground">…</span> : null)}
+          {msg.status === "aborted" && (
+            <span className="ml-1 text-xs text-muted-foreground">[已中断]</span>
+          )}
+        </div>
+      )}
       {msg.status === "error" && msg.errorMsg && (
         <div className="max-w-[85%] rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1 text-xs text-destructive">
           {msg.errorMsg}
@@ -743,118 +892,6 @@ function MessageBubble({
   );
 }
 
-const RAW_PREVIEW_CHARS = 8000;
-
-function RawUserRequest({ request }: { request: RawChatRequest | null }) {
-  const [format, setFormat] = useState<"raw" | "json">("raw");
-  const [expanded, setExpanded] = useState(false);
-  const fullText =
-    format === "raw" ? formatRawRequest(request) : formatParsedRawRequest(request);
-  const preview = expanded ? { text: fullText, isTruncated: false, omittedChars: 0 } : previewLongText(fullText, RAW_PREVIEW_CHARS);
-  return (
-    <div className="flex max-w-full flex-col items-end gap-1">
-      <div className="flex gap-1">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => setFormat((current) => (current === "raw" ? "json" : "raw"))}
-        >
-          {format === "raw" ? "Parse JSON" : "Raw Request"}
-        </Button>
-        {(preview.isTruncated || expanded) && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setExpanded((current) => !current)}
-          >
-            {expanded ? "Collapse" : `Show hidden (${preview.omittedChars})`}
-          </Button>
-        )}
-      </div>
-      <pre className="max-w-full overflow-x-auto rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs whitespace-pre">
-        {preview.text}
-      </pre>
-    </div>
-  );
-}
-
-function RawAssistantResponse({
-  raw,
-  edgeFrames,
-  expandStep,
-}: {
-  raw: RawChatTurn;
-  edgeFrames: number;
-  expandStep: number;
-}) {
-  const [format, setFormat] = useState<"sse" | "json">("sse");
-  const [expanded, setExpanded] = useState(false);
-  const [revealedMiddleFrames, setRevealedMiddleFrames] = useState(0);
-  const response = {
-    responseFrames: raw.responseFrames,
-    error: raw.error,
-  };
-  const fullText =
-    format === "sse" ? formatRawResponse(response) : formatParsedRawResponse(response);
-  const framePreview =
-    expanded || format === "json"
-      ? null
-      : previewRawResponseFrames(response, {
-          edgeFrames,
-          revealedMiddleFrames,
-        });
-  const textPreview =
-    framePreview ??
-    (expanded
-      ? { text: fullText, isTruncated: false, omittedChars: 0 }
-      : previewLongText(fullText, RAW_PREVIEW_CHARS));
-  const canRevealMore = framePreview !== null && framePreview.hiddenFrames > 0;
-
-  return (
-    <div className="flex max-w-full flex-col items-start gap-1">
-      <div className="flex gap-1">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => setFormat((current) => (current === "sse" ? "json" : "sse"))}
-        >
-          {format === "sse" ? "Parse JSON" : "Raw SSE"}
-        </Button>
-        {canRevealMore && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              setRevealedMiddleFrames((current) => current + expandStep)
-            }
-          >
-            Show {expandStep} more ({framePreview.hiddenFrames})
-          </Button>
-        )}
-        {(textPreview.isTruncated || expanded) && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setExpanded((current) => !current);
-              setRevealedMiddleFrames(0);
-            }}
-          >
-            {expanded ? "Collapse" : "Show all"}
-          </Button>
-        )}
-      </div>
-      <pre className="max-w-full overflow-x-auto rounded-lg border border-border bg-background px-3 py-2 text-xs whitespace-pre">
-        {textPreview.text}
-      </pre>
-    </div>
-  );
-}
 
 function MetaLine({ meta }: { meta: MetaInfo }) {
   const parts = [

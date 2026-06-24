@@ -11,7 +11,7 @@
 - **跨生态调用**:客户端用任一主流 API 格式写,上游可以是任一主流 LLM 服务,中间格式差异由代理透明翻译
 - **多 upstream 集中管理**:一个地方管所有 key / 用量统计;客户端通过 `r-upstream` header 显式选,或按入口 server_api 走 default upstream(支持 global fallback + per-server_api default,`rosetta upstream default <name>` 配置)
 - **开箱即用**:CLI 一次性对话、REPL 多轮、桌面 GUI 三种交互,SSE 流式全程原生转发
-- **Raw 调试视图**:GUI Chat 和 CLI 都能查看实际发送的 request 与返回的 SSE frame;支持前/后 frame 裁剪、逐步展开和 JSON 解析
+- **Raw 调试视图**:GUI Chat 和 CLI 都能查看实际发送的 request 与返回的 SSE frame;GUI 支持逐步展开和 JSON 解析,CLI 支持前/后 frame 裁剪与完整输出
 
 **类比**:cc-switch 的"AI 配置管家"概念 + 自研的格式翻译引擎。cc-switch 切的是配置文件,本项目切的是运行时流量并做格式转换。
 
@@ -109,13 +109,13 @@ uv run rosetta chat --raw
 # /model clear            切回 auto(走 upstream.model 兜底)
 # /raw on|off             切换 raw request/response 输出
 # /raw_edge <n>           raw 模式显示前/后 n 条 SSE frame
-# /raw_step <n>           raw 模式每次展开 n 条 SSE frame
+# /raw_step <n>           保留配置;CLI 当前不交互展开,完整输出用 --raw-full
 # /server_api、/model、/raw、/raw_edge、/raw_step 不带参数时显示当前配置
 
 # raw response 默认显示前/后 5 条 SSE frame,中间隐藏;可调裁剪数量
 uv run rosetta chat --raw --raw-edge 20 "hello"
 
-# `--raw-step` 与 GUI 的"每次展开 N 条"语义一致;CLI 一次性输出中用于保留配置口径
+# `--raw-step` 仅保留配置口径;CLI 一次性 raw 输出不会交互式逐步展开
 uv run rosetta chat --raw --raw-edge 5 --raw-step 10 "hello"
 
 # 输出完整 raw response,不隐藏中间 SSE frame
@@ -147,6 +147,8 @@ uv run rosetta upstream test <id>
 uv run rosetta chat --base-url https://api.anthropic.com --api-key sk-ant-XXX --model claude-haiku-4-5 "hello"
 
 # GUI Chat 页:
+# - 顶部配置行不换行:server_api 和 upstream 两个选择器占满可用宽度,Override settings 作为 shrink-0 操作区排在行尾
+# - 正常宽度下 Override settings 会被推到该行最右侧;窄屏不会自动换行,可能横向挤压或溢出
 # - Nice 模式:普通聊天气泡 + 流式文本
 # - Raw 模式:用户气泡显示发送 request,模型气泡显示返回 SSE frame
 # - 返回 raw 默认显示前/后 N 条 frame,中间隐藏;Edge / Step 配置会记住
@@ -174,6 +176,10 @@ uv run ruff check .
 uv run ruff format --check .
 uv run pyright .
 uv run pytest
+
+# 保持 lockfile 一致性
+bun install --frozen-lockfile
+# npm install
 ```
 
 ---
