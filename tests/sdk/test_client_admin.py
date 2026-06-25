@@ -220,6 +220,19 @@ def test_server_data_headers_use_authorization_for_completions_override() -> Non
     assert "x-api-key" not in headers
 
 
+def test_direct_data_url_allows_base_url_with_path_prefix() -> None:
+    client = ProxyClient(
+        http=httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200))),
+        base_url="https://gateway.example.com/proxy/openai",
+        mode="direct",
+        _direct_api_key="sk",
+    )
+
+    url, _ = client.data_url_and_headers(server_api=ServerApi.CHAT_COMPLETIONS)
+
+    assert url == "https://gateway.example.com/proxy/openai/v1/chat/completions"
+
+
 async def test_create_upstream(echo_client: tuple[ProxyClient, dict[str, Any]]) -> None:
     client, captured = echo_client
     captured["response"] = httpx.Response(

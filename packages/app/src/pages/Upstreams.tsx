@@ -1,4 +1,4 @@
-﻿import { isTauri } from "@/lib/updater";
+import { isTauri } from "@/lib/updater";
 import { BugIcon, CopyIcon, PencilIcon, SaveIcon, Trash2Icon } from "lucide-react";
 import {
   useCallback,
@@ -1022,7 +1022,7 @@ function UpstreamFormDialog({
             <Label htmlFor="u-native-api" className={FORM_LABEL}>
               native_api{" "}
               <span className={FORM_LABEL_HINT}>
-                (API 格式 · 决定 base_url 追加的路径)
+                (API 格式 · 决定 base_url 自动补全的 endpoint)
               </span>
             </Label>
             <Select value={nativeApi} onValueChange={(v) => setNativeApi(v as UpstreamNativeApi)}>
@@ -1062,14 +1062,14 @@ function UpstreamFormDialog({
             <Label htmlFor="u-base" className={FORM_LABEL}>
               base_url{" "}
               <span className={FORM_LABEL_HINT}>
-                (填根地址 · rosetta 会按 native API 自动追加 /v1/…)
+                (API 前缀 · 可含 /v1，勿填完整 endpoint)
               </span>
             </Label>
             <Input
               id="u-base"
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="https://api.example.com (不要带 /v1)"
+              placeholder="https://api.example.com 或 https://api.example.com/v1"
             />
           </div>
           <div className="space-y-2">

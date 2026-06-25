@@ -72,6 +72,7 @@ rosetta upstream defaults
 
 - Codex: 参见 `rosetta guide codex`
 - Claude: 参见 `rosetta guide claude`
+- OpenCode: 参见 `rosetta guide opencode`
 - README: 参见 `rosetta guide readme`
 
 ## 5. CLI 常用命令
@@ -115,12 +116,13 @@ rosetta logs clear --yes                             # 清空全部日志
 # 配置说明
 rosetta guide codex                         # Codex 说明
 rosetta guide claude                        # Claude 说明
+rosetta guide opencode                      # OpenCode 说明
 rosetta guide readme                        # 本说明
 ```
 
 ## 6. 注意事项
 
-- upstream 的 `base_url` 填真实 LLM 服务根地址（如 `https://api.openai.com`），不要填 Rosetta 地址，不要带 `/v1/` 路径。
+- upstream 的 `base_url` 填真实 LLM 服务 API 前缀（如 `https://api.openai.com` 或 `https://api.openai.com/v1`），不要填 Rosetta 地址，不要填完整 endpoint。
 - 客户端连接 Rosetta 时，base_url 设为 `http://localhost:1687`。
 - 客户端传入 api-key 时会覆盖 upstream 中保存的 key。
 - `rosetta start` 默认绑定 `127.0.0.1:1687`，暴露到局域网需显式 `--host 0.0.0.0`（无 auth 层，请在受信任网络下使用）。

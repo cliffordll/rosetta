@@ -7,7 +7,7 @@
   多 upstream 时用 `rosetta upstream default --model ...` 指定默认。
   `--model` 同样可选,留空时不发 `body.model`,server forwarder 用 `upstream.model`
   兜底(与 `--api-key` 行为对称)。
-- direct 模式:`--base-url` 给上游根地址,绕过 server 直连;必须同时传
+- direct 模式:`--base-url` 给上游 API 前缀,绕过 server 直连;必须同时传
   `--api-key` + `--model`。`--base-url` 一旦给出,`--upstream` 自动失效。
 """
 
@@ -52,7 +52,10 @@ def chat_cmd(
         str | None,
         typer.Option(
             "--base-url",
-            help="direct 模式:绕 server 直连上游根地址;给出后 --upstream 自动失效",
+            help=(
+                "direct 模式:绕 server 直连上游 API 前缀;"
+                "可含 /v1,不要填完整 endpoint;给出后 --upstream 自动失效"
+            ),
         ),
     ] = None,
     model: Annotated[

@@ -24,7 +24,6 @@ from fastapi.responses import Response
 
 from rosetta.server.database.models import Upstream
 from rosetta.server.database.session import close_session_safely, get_session_maker
-from rosetta.server.repository import UpstreamRepo
 from rosetta.server.service.forwarder import forwarder
 from rosetta.server.service.selector import pick_upstream
 from rosetta.shared.server_api import ServerApi
@@ -67,12 +66,6 @@ class RequestCtx:
     model: str | None
 
 
-@dataclass(frozen=True)
-class DataplaneConfig:
-    upstream: Upstream
-    api_type_paths: dict[str, str]
-
-
 def _extract_client_addr(request: Request) -> str | None:
     """FastAPI request.client 的 'host:port' 字符串;ASGI / HTTP/2 / 反代下可能是 None。"""
     client = request.client
@@ -107,7 +100,7 @@ def _model_from_body(body: bytes) -> str | None:
     return model
 
 
-async def load_dataplane_config(ctx: RequestCtx, server_api: ServerApi) -> DataplaneConfig:
+async def load_dataplane_config(ctx: RequestCtx) -> Upstream:
     """短生命周期读取数据面配置,避免 DB session 跨越流式转发阶段。"""
     session_maker = get_session_maker()
     if session_maker is None:
@@ -119,22 +112,20 @@ async def load_dataplane_config(ctx: RequestCtx, server_api: ServerApi) -> Datap
             header_upstream=ctx.rosetta_upstream,
             model=ctx.model,
         )
-        api_type_paths = await UpstreamRepo(session).api_type_paths()
         await session.commit()
     finally:
         await close_session_safely(session)
-    return DataplaneConfig(upstream=upstream, api_type_paths=api_type_paths)
+    return upstream
 
 
 @router.post("/v1/messages")
 async def messages(request: Request) -> Response:
     server_api = ServerApi.MESSAGES
     ctx = await parse_request(request, server_api)
-    config = await load_dataplane_config(ctx, server_api)
+    upstream = await load_dataplane_config(ctx)
     return await forwarder.forward(
-        upstream=config.upstream,
+        upstream=upstream,
         server_api=server_api,
-        api_type_paths=config.api_type_paths,
         body=ctx.body,
         content_type=ctx.content_type,
         client_api_key=ctx.client_api_key,
@@ -146,11 +137,10 @@ async def messages(request: Request) -> Response:
 async def chat_completions(request: Request) -> Response:
     server_api = ServerApi.CHAT_COMPLETIONS
     ctx = await parse_request(request, server_api)
-    config = await load_dataplane_config(ctx, server_api)
+    upstream = await load_dataplane_config(ctx)
     return await forwarder.forward(
-        upstream=config.upstream,
+        upstream=upstream,
         server_api=server_api,
-        api_type_paths=config.api_type_paths,
         body=ctx.body,
         content_type=ctx.content_type,
         client_api_key=ctx.client_api_key,
@@ -162,11 +152,10 @@ async def chat_completions(request: Request) -> Response:
 async def responses_endpoint(request: Request) -> Response:
     server_api = ServerApi.RESPONSES
     ctx = await parse_request(request, server_api)
-    config = await load_dataplane_config(ctx, server_api)
+    upstream = await load_dataplane_config(ctx)
     return await forwarder.forward(
-        upstream=config.upstream,
+        upstream=upstream,
         server_api=server_api,
-        api_type_paths=config.api_type_paths,
         body=ctx.body,
         content_type=ctx.content_type,
         client_api_key=ctx.client_api_key,

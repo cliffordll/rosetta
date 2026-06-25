@@ -40,10 +40,7 @@ from rosetta.server.translation.dispatcher import (
     translate_response,
     translate_stream_bytes,
 )
-from rosetta.shared.server_api import (
-    DEFAULT_SERVER_API_PATHS,
-    ServerApi,
-)
+from rosetta.shared.server_api import ServerApi, upstream_endpoint_url
 
 _log = logging.getLogger("rosetta.server.forwarder")
 
@@ -96,11 +93,6 @@ class Forwarder:
         return self._client
 
     # ---------- 无状态 helper(上游配置、响应装配、流控) ----------
-
-    @staticmethod
-    def _base_url_for(upstream: Upstream) -> str:
-        # base_url 在 DB 层已经 NOT NULL,直接 rstrip
-        return upstream.base_url.rstrip("/")
 
     @staticmethod
     def _auth_headers(upstream: Upstream, override_key: str | None = None) -> dict[str, str]:
@@ -211,7 +203,7 @@ class Forwarder:
             )
 
         native_api = ServerApi(upstream.native_api)
-        url = self._base_url_for(upstream) + DEFAULT_SERVER_API_PATHS[native_api]
+        url = upstream_endpoint_url(upstream.base_url, native_api)
         body = json.dumps(self._probe_body(native_api, upstream.model), ensure_ascii=False).encode(
             "utf-8"
         )
@@ -316,7 +308,6 @@ class Forwarder:
         server_api: ServerApi,
         body: bytes,
         content_type: str,
-        api_type_paths: dict[str, str] | None = None,
         extra_response_headers: dict[str, str] | None = None,
         client_api_key: str | None = None,
         client_addr: str | None = None,
@@ -368,7 +359,6 @@ class Forwarder:
                 resp = await self._forward_upstream(
                     upstream=upstream,
                     server_api=server_api,
-                    api_type_paths=api_type_paths,
                     body=body,
                     body_dict=body_dict,
                     is_stream=is_stream,
@@ -432,7 +422,6 @@ class Forwarder:
         *,
         upstream: Upstream,
         server_api: ServerApi,
-        api_type_paths: dict[str, str] | None,
         body: bytes,
         body_dict: dict[str, Any],
         is_stream: bool,
@@ -440,15 +429,7 @@ class Forwarder:
     ) -> Response:
         """真实上游(非 mock)的转发路径:同格式直通 / 跨格式翻译二选一。"""
         native_api = ServerApi(upstream.native_api)
-        paths = api_type_paths or DEFAULT_SERVER_API_PATHS
-        api_type_path = paths.get(native_api.value)
-        if not api_type_path:
-            raise ServiceError(
-                status=500,
-                code="api_type_path_missing",
-                message=f"api_types 缺少 native_api={native_api.value} 的 path",
-            )
-        url = self._base_url_for(upstream) + api_type_path
+        url = upstream_endpoint_url(upstream.base_url, native_api)
         headers = {
             "content-type": "application/json",
             **self._auth_headers(upstream, override_key=client_api_key),

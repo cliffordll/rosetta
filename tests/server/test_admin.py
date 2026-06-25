@@ -76,12 +76,12 @@ async def test_logs_config_update(client: AsyncClient) -> None:
     assert again.json() == {"log_content": "full", "page_size": 50}
 
 
-async def test_provider_guide_returns_packaged_doc(client: AsyncClient) -> None:
-    r = await client.get("/admin/upstreams/guide/codex")
+async def test_client_guide_returns_packaged_doc(client: AsyncClient) -> None:
+    r = await client.get("/admin/upstreams/guide/opencode")
     assert r.status_code == 200
     body = r.json()
-    assert body["provider"] == "codex"
-    assert "Codex" in body["content"]
+    assert body["client"] == "opencode"
+    assert "OpenCode" in body["content"]
 
 
 # ---------- upstreams ----------

@@ -585,7 +585,7 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 
 | 参数 | CLI flag | env | 含义 |
 |---|---|---|---|
-| 上游 URL | `--base-url` | `ROSETTA_DIRECT_BASE_URL` | 上游根地址，不带 `/v1` 不带尾斜杠 |
+| 上游 URL | `--base-url` | `ROSETTA_DIRECT_BASE_URL` | 上游 API 前缀;可带网关路径或 `/v1`,不要填完整 endpoint |
 | 上游 api-key | `--api-key` | `ROSETTA_DIRECT_API_KEY` | 直接写到 `x-api-key` 或 `Authorization: Bearer`(按 `--server-api` 的约定) |
 | API 格式 | `--server-api` | `ROSETTA_DIRECT_SERVER_API` | `messages\|completions\|responses`,**必须 = 上游原生 API 格式**(direct 模式不翻译) |
 | 模型 | `--model` | `ROSETTA_DIRECT_MODEL` | 上游能识别的模型名 |

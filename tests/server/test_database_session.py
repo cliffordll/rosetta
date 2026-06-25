@@ -116,3 +116,17 @@ async def test_init_db_uses_null_pool(tmp_path) -> None:
         assert isinstance(_state.engine.sync_engine.pool, NullPool)
     finally:
         await dispose_db()
+
+
+async def test_init_db_does_not_create_api_types_table(tmp_path) -> None:
+    db_path = tmp_path / "rosetta.db"
+    await init_db(db_path)
+    try:
+        with sqlite3.connect(db_path) as db:
+            row = db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'api_types'"
+            ).fetchone()
+    finally:
+        await dispose_db()
+
+    assert row is None

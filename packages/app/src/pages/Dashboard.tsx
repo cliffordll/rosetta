@@ -246,7 +246,7 @@ export default function Dashboard() {
     setGuideErr(null);
     setGuideLoading(true);
     try {
-      const result = await api.getProviderGuide(provider);
+      const result = await api.getClientGuide(provider);
       setGuideContent(result.content);
     } catch (e) {
       setGuideContent(null);
@@ -479,6 +479,12 @@ export default function Dashboard() {
                   onClick={() => void loadGuide("claude")}
                 >
                   Claude
+                </button>
+                <button
+                  className="text-sm text-muted-foreground underline hover:text-foreground"
+                  onClick={() => void loadGuide("opencode")}
+                >
+                  OpenCode
                 </button>
               </div>
             </div>

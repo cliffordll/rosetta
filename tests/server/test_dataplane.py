@@ -129,7 +129,7 @@ async def test_anthropic_passthrough_url_and_headers(
     assert "authorization" not in req.headers
 
 
-async def test_forwarder_uses_api_type_path_mapping(
+async def test_forwarder_allows_base_url_with_path_prefix(
     mock_client: dict[str, Any],
 ) -> None:
     mock_client["handler"] = lambda req: httpx.Response(
@@ -147,14 +147,13 @@ async def test_forwarder_uses_api_type_path_mapping(
 
     body = json.dumps({"model": "claude-haiku-4-5", "messages": []}).encode("utf-8")
     resp = await forwarder.forward(
-        upstream=_anthropic_upstream(),
+        upstream=_anthropic_upstream(base_url="https://gateway.example.com/proxy/ant/"),
         server_api=ServerApi.MESSAGES,
-        api_type_paths={"messages": "/custom/messages"},
         body=body,
         content_type="application/json",
     )
     assert resp.status_code == 200
-    assert mock_client["request"].url.path == "/custom/messages"
+    assert str(mock_client["request"].url) == "https://gateway.example.com/proxy/ant/v1/messages"
 
 
 async def test_openai_passthrough_url_and_headers(

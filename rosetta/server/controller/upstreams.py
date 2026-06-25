@@ -246,20 +246,25 @@ async def delete_upstream(upstream_id: str, repo: UpstreamRepoDep) -> Response:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-class ProviderGuideOut(BaseModel):
-    provider: str
+class ClientGuideOut(BaseModel):
+    client: str
     content: str
 
 
-_PROVIDER_GUIDES = {"codex": "codex.md", "claude": "claude.md", "readme": "readme.md"}
+_CLIENT_GUIDES = {
+    "codex": "codex.md",
+    "claude": "claude.md",
+    "opencode": "opencode.md",
+    "readme": "readme.md",
+}
 
 
-def _provider_guide_path(filename: str) -> Path | None:
+def _client_guide_path(filename: str) -> Path | None:
     candidates: list[Path] = []
     bundle_root = getattr(sys, "_MEIPASS", None)
     if isinstance(bundle_root, str):
-        candidates.append(Path(bundle_root) / "docs" / "providers" / filename)
-    candidates.append(Path(__file__).resolve().parents[3] / "docs" / "providers" / filename)
+        candidates.append(Path(bundle_root) / "docs" / "clients" / filename)
+    candidates.append(Path(__file__).resolve().parents[3] / "docs" / "clients" / filename)
 
     for path in candidates:
         if path.is_file():
@@ -267,14 +272,14 @@ def _provider_guide_path(filename: str) -> Path | None:
     return None
 
 
-@router.get("/upstreams/guide/{provider}")
-async def get_provider_guide(provider: str) -> ProviderGuideOut:
-    """Return provider guide doc content for codex/claude."""
-    filename = _PROVIDER_GUIDES.get(provider.lower())
+@router.get("/upstreams/guide/{client}")
+async def get_client_guide(client: str) -> ClientGuideOut:
+    """Return client guide doc content for supported clients."""
+    filename = _CLIENT_GUIDES.get(client.lower())
     if filename is None:
-        raise HTTPException(status_code=404, detail=f"unknown provider: {provider}")
-    doc_path = _provider_guide_path(filename)
+        raise HTTPException(status_code=404, detail=f"unknown client: {client}")
+    doc_path = _client_guide_path(filename)
     if doc_path is None:
         raise HTTPException(status_code=404, detail="guide file not found")
     content = doc_path.read_text(encoding="utf-8")
-    return ProviderGuideOut(provider=provider.lower(), content=content)
+    return ClientGuideOut(client=client.lower(), content=content)

@@ -16,11 +16,7 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rosetta.server.database.models import (
-    ApiType,
-    Setting,
-    Upstream,
-)
+from rosetta.server.database.models import Setting, Upstream
 
 MOCK_UPSTREAM_FIELDS: dict[str, Any] = {
     "id": "0" * 32,
@@ -85,13 +81,6 @@ class UpstreamRepo:
             if upstream is not None:
                 defaults[setting.key.removeprefix("default_model:")] = upstream.name
         return defaults
-
-    async def api_type_paths(self) -> dict[str, str]:
-        """读取启用的 API 类型 name → path 映射,供 forwarder 拼上游 URL。"""
-        result = await self.session.execute(
-            select(ApiType).where(ApiType.enabled.is_(True)).order_by(ApiType.name)
-        )
-        return {api_type.name: api_type.path for api_type in result.scalars().all()}
 
     async def create(
         self,

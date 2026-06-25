@@ -1,4 +1,4 @@
-﻿/**
+/**
  * rosetta server admin API 薄封装。
  *
  * - 浏览器 / vite dev:相对路径 `/admin/*` + vite.config proxy 转到 server
@@ -294,8 +294,8 @@ export const api = {
     return request("/admin/logs", { method: "DELETE" });
   },
 
-  getProviderGuide(provider: string): Promise<{provider: string; content: string}> {
-    return request(`/admin/upstreams/guide/${provider}`, { method: "GET" });
+  getClientGuide(client: string): Promise<{client: string; content: string}> {
+    return request(`/admin/upstreams/guide/${client}`, { method: "GET" });
   },
   stats(period = "today"): Promise<StatsOut> {
     return request(`/admin/stats?period=${period}`);

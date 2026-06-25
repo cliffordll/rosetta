@@ -72,15 +72,6 @@ class Setting(Base):
     value: Mapped[str]
 
 
-class ApiType(Base):
-    __tablename__ = "api_types"
-
-    name: Mapped[str] = mapped_column(primary_key=True)
-    path: Mapped[str] = mapped_column(unique=True)
-    enabled: Mapped[bool] = mapped_column(default=True)
-    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
-
-
 class LogEntry(Base):
     __tablename__ = "logs"
 

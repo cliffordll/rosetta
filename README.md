@@ -1,4 +1,4 @@
-﻿# Rosetta
+# Rosetta
 
 > 本地跑的 LLM API 格式转换中枢 · Claude Messages / OpenAI Chat Completions / OpenAI Responses **三格式任意互译**
 
@@ -123,9 +123,9 @@ uv run rosetta chat --raw --raw-full "hello"
 
 # 想配真实上游:添 upstream 后按 name 选
 # `--model` 可选,作为该 upstream 的默认模型;client body 不传 model 时由 server 兜底
-# `--base-url` 填上游根地址,不要带 API 路径;rosetta 会按 upstream native API 自动追加
+# `--base-url` 填上游 API 前缀,可以带网关路径或 /v1,不要填完整 endpoint;rosetta 会按 upstream native API 自动追加
 # /v1/messages、/v1/chat/completions 或 /v1/responses。
-# 这些路径来自 api_types 字典表:messages=/v1/messages,completions=/v1/chat/completions,responses=/v1/responses。
+# 固定路径:messages=/v1/messages,completions=/v1/chat/completions,responses=/v1/responses。base_url 若已以 /v1 结尾不会重复追加。
 # 例:填 https://api.example.com,不要填 https://api.example.com/v1
 uv run rosetta upstream add --name anthropic-main --native-api messages --api-key sk-ant-XXX --base-url https://api.anthropic.com --model claude-haiku-4-5
 uv run rosetta chat --upstream anthropic-main "hello"   # 不传 --model 也跑,用 upstream.model

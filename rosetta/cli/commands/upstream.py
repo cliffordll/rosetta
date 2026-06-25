@@ -24,7 +24,12 @@ from rosetta.shared.server_api import DEFAULT_SERVER_API_PATHS
 
 _ALLOWED_NATIVE_APIS = get_args(UpstreamNativeApiCreatable)
 _ALLOWED_PROVIDERS = get_args(UpstreamProvider)
-_PROVIDER_GUIDES = {"codex": "codex.md", "claude": "claude.md", "readme": "readme.md"}
+_CLIENT_GUIDES = {
+    "codex": "codex.md",
+    "claude": "claude.md",
+    "opencode": "opencode.md",
+    "readme": "readme.md",
+}
 _NATIVE_API_ERR = "--native-api 必须是 messages/completions/responses"
 
 app = typer.Typer(
@@ -74,7 +79,9 @@ async def _list() -> None:
 @app.command("add")
 def add_cmd(
     name: Annotated[str, typer.Option("--name", help="upstream 名")],
-    base_url: Annotated[str, typer.Option("--base-url", help="上游根地址(必填)")],
+    base_url: Annotated[
+        str, typer.Option("--base-url", help="上游 API 前缀(必填;可含 /v1,不要填完整 endpoint)")
+    ],
     native_api: Annotated[
         str,
         typer.Option(
@@ -332,17 +339,17 @@ async def _restore_mock(force: bool) -> None:
 
 @app.command("guide")
 def guide_cmd(
-    provider: Annotated[
+    client: Annotated[
         str,
-        typer.Argument(help="配置说明: codex | claude | readme"),
+        typer.Argument(help="配置说明: codex | claude | opencode | readme"),
     ],
 ) -> None:
     """显示客户端配置说明文档路径。"""
-    filename = _PROVIDER_GUIDES.get(provider.lower())
+    filename = _CLIENT_GUIDES.get(client.lower())
     if filename is None:
-        Renderer.die("--provider 必须是 codex/claude/readme")
+        Renderer.die("--client 必须是 codex/claude/opencode/readme")
         return
-    Renderer.out(str(_repo_root() / "docs" / "providers" / filename))
+    Renderer.out(str(_repo_root() / "docs" / "clients" / filename))
 
 
 def register(app_root: typer.Typer) -> None:

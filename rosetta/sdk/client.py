@@ -30,14 +30,14 @@ from rosetta.server.controller.logs import LogListResponse, LogsConfigOut
 from rosetta.server.controller.runtime import StatusResponse
 from rosetta.server.controller.stats import Period, StatsOut
 from rosetta.server.controller.upstreams import (
-    ProviderGuideOut,
+    ClientGuideOut,
     RestoreMockOut,
     UpstreamCreate,
     UpstreamOut,
     UpstreamProbeOut,
     UpstreamUpdate,
 )
-from rosetta.shared.server_api import SERVER_API_PATHS, ServerApi
+from rosetta.shared.server_api import ServerApi, upstream_endpoint_url
 
 _DATA_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
 _ADMIN_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
@@ -306,9 +306,8 @@ class ProxyClient:
         upstream_header: str | None,
     ) -> tuple[str, dict[str, str]]:
         """按 mode 拼数据面 URL + header。"""
-        path = SERVER_API_PATHS[server_api]
         if self.mode == "server":
-            url = f"{self.base_url}{path}"
+            url = upstream_endpoint_url(self.base_url, server_api)
             headers: dict[str, str] = {"content-type": "application/json"}
             if override_api_key:
                 # server 模式:override key 作为客户端真实上游 key 发给 server,
@@ -326,7 +325,7 @@ class ProxyClient:
             raise RuntimeError("direct 模式未设置 api_key")
         if upstream_header:
             raise RuntimeError("direct 模式不支持 upstream_header(DESIGN §8.6 互斥)")
-        url = f"{self.base_url}{path}"
+        url = upstream_endpoint_url(self.base_url, server_api)
         headers = {"content-type": "application/json"}
         if server_api is ServerApi.MESSAGES:
             headers["x-api-key"] = self._direct_api_key
@@ -391,12 +390,12 @@ class ProxyClient:
     def direct_model(self) -> str | None:
         return self._direct_model
 
-    async def get_provider_guide(self, provider: str) -> ProviderGuideOut:
-        """Fetch provider guide doc content from backend API."""
-        self._require_server("get_provider_guide")
+    async def get_client_guide(self, client: str) -> ClientGuideOut:
+        """Fetch client guide doc content from backend API."""
+        self._require_server("get_client_guide")
         resp = await self.http.get(
-            f"{self.base_url}/admin/upstreams/guide/{provider}",
+            f"{self.base_url}/admin/upstreams/guide/{client}",
             timeout=_ADMIN_TIMEOUT,
         )
         resp.raise_for_status()
-        return ProviderGuideOut.model_validate_json(resp.text)
+        return ClientGuideOut.model_validate_json(resp.text)
