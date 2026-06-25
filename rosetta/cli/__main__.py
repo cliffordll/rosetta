@@ -27,6 +27,9 @@ from rosetta.cli.commands import (
     logs as logs_mod,
 )
 from rosetta.cli.commands import (
+    setup as setup_mod,
+)
+from rosetta.cli.commands import (
     start as start_mod,
 )
 from rosetta.cli.commands import (
@@ -74,6 +77,7 @@ for mod in (
     upstream_mod,
     guide_mod,
     logs_mod,
+    setup_mod,
     stats_mod,
     chat_mod,
 ):

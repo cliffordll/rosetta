@@ -517,3 +517,52 @@ async def test_chat_config_direct_mode_raises() -> None:
             await client.update_chat_config(max_tokens=4096)
     finally:
         await http.aclose()
+
+
+async def test_setup_preview(echo_client: tuple[ProxyClient, dict[str, Any]]) -> None:
+    client, captured = echo_client
+    captured["response"] = httpx.Response(
+        200,
+        json={
+            "target": "codex",
+            "path": "C:/Users/me/.codex/config.toml",
+            "exists": True,
+            "original": "old",
+            "generated": "new",
+            "language": "toml",
+            "backup_path": None,
+        },
+    )
+
+    result = await client.setup_preview("codex", upstream_id="u1")
+
+    assert result.target == "codex"
+    assert result.original == "old"
+    assert result.generated == "new"
+    assert captured["request"].method == "GET"
+    assert captured["request"].url.path == "/admin/setup/codex/preview"
+    assert captured["request"].url.params["upstream_id"] == "u1"
+
+
+async def test_setup_apply(echo_client: tuple[ProxyClient, dict[str, Any]]) -> None:
+    client, captured = echo_client
+    captured["response"] = httpx.Response(
+        200,
+        json={
+            "target": "claude",
+            "path": "C:/Users/me/.claude/settings.json",
+            "exists": True,
+            "original": "old",
+            "generated": "new",
+            "language": "json",
+            "backup_path": "C:/Users/me/.claude/settings.json.bak-20260625-153000",
+        },
+    )
+
+    result = await client.setup_apply("claude", upstream_id="u1")
+
+    assert result.target == "claude"
+    assert result.backup_path == "C:/Users/me/.claude/settings.json.bak-20260625-153000"
+    assert captured["request"].method == "POST"
+    assert captured["request"].url.path == "/admin/setup/claude/apply"
+    assert captured["request"].read() == b'{"upstream_id":"u1"}'

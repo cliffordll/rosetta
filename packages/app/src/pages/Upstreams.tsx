@@ -1,5 +1,11 @@
-import { isTauri } from "@/lib/updater";
-import { BugIcon, CopyIcon, PencilIcon, SaveIcon, Trash2Icon } from "lucide-react";
+﻿import { isTauri } from "@/lib/updater";
+import {
+  BugIcon,
+  CopyIcon,
+  PenBoxIcon,
+  SaveIcon,
+  Trash2Icon,
+} from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -147,7 +153,7 @@ export default function Upstreams() {
   const [upstreamColumnWidths, setUpstreamColumnWidths] = useState<UpstreamColumnWidths>(
     () => ({
       ...DEFAULT_UPSTREAM_COLUMN_WIDTHS,
-      ...(isTauri() ? { actions: 11 } : { actions: 9 }),
+      ...(isTauri() ? { actions: 12 } : { actions: 10 }),
     }),
   );
   const upstreamResizeRef = useRef<{
@@ -486,7 +492,7 @@ export default function Upstreams() {
                                   title="Edit"
                                   onClick={() => setToEdit(u)}
                                 >
-                                  <PencilIcon />
+                                  <PenBoxIcon />
                                 </Button>
                                 <Button
                                   variant="ghost"

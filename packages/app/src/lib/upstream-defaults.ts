@@ -1,5 +1,22 @@
 import type { ModelDefaultsOut, UpstreamOut } from "./api";
 
+export type DefaultBindingScope = "global" | "messages" | "completions" | "responses";
+
+export interface DefaultBindingRow {
+  scope: DefaultBindingScope;
+  upstreamName: string | null;
+}
+
+export function defaultBindingRows(
+  defaults: Partial<Record<DefaultBindingScope, string | null>>,
+): DefaultBindingRow[] {
+  const scopes: DefaultBindingScope[] = ["global", "messages", "completions", "responses"];
+  return scopes.map((scope) => ({
+    scope,
+    upstreamName: defaults[scope] ?? null,
+  }));
+}
+
 export interface ModelUpstreamGroup {
   model: string;
   upstreams: UpstreamOut[];

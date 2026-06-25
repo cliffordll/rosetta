@@ -17,7 +17,7 @@ from __future__ import annotations
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from rosetta.server.controller import chat, dataplane, logs, runtime, stats, upstreams
+from rosetta.server.controller import chat, dataplane, logs, runtime, setup, stats, upstreams
 from rosetta.server.controller.errors import rosetta_error
 from rosetta.server.service.exceptions import ServiceError
 
@@ -26,6 +26,7 @@ admin_router.include_router(runtime.router)
 admin_router.include_router(upstreams.router)
 admin_router.include_router(chat.router)
 admin_router.include_router(logs.router)
+admin_router.include_router(setup.router)
 admin_router.include_router(stats.router)
 
 dataplane_router = APIRouter()

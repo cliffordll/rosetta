@@ -13,8 +13,10 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import httpx
+import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -670,3 +672,78 @@ async def test_chat_config_empty_update_noop(client: AsyncClient) -> None:
     r = await client.put("/admin/chat/config", json={})
     assert r.status_code == 200
     assert r.json() == {"max_tokens": 8192, "stream": True}
+
+
+async def test_setup_preview_returns_original_and_generated_config(
+    client: AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ROSETTA_SETUP_CONFIG_HOME", str(tmp_path))
+    existing = tmp_path / ".codex" / "config.toml"
+    existing.parent.mkdir(parents=True)
+    existing.write_text('model = "old"\n', encoding="utf-8")
+    created = await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "ds",
+            "native_api": "responses",
+            "provider": "openai",
+            "base_url": "https://api.example.com/v1",
+            "model": "deepseek-v4-flash",
+        },
+    )
+
+    r = await client.get(
+        "/admin/setup/codex/preview",
+        params={"upstream_id": created.json()["id"]},
+    )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["target"] == "codex"
+    assert body["path"].endswith((".codex/config.toml", ".codex\\config.toml"))
+    assert body["exists"] is True
+    assert body["original"] == 'model = "old"\n'
+    assert 'model = "deepseek-v4-flash"' in body["generated"]
+    assert body["backup_path"] is None
+
+
+async def test_setup_apply_backs_up_and_writes_config(
+    client: AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ROSETTA_SETUP_CONFIG_HOME", str(tmp_path))
+    existing = tmp_path / ".claude" / "settings.json"
+    existing.parent.mkdir(parents=True)
+    existing.write_text('{"old": true}\n', encoding="utf-8")
+    created = await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "ds",
+            "native_api": "messages",
+            "provider": "anthropic",
+            "base_url": "https://api.example.com",
+            "model": "deepseek-v4-flash",
+        },
+    )
+
+    r = await client.post(
+        "/admin/setup/claude/apply",
+        json={"upstream_id": created.json()["id"]},
+    )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["target"] == "claude"
+    assert body["backup_path"] is not None
+    assert Path(body["backup_path"]).read_text(encoding="utf-8") == '{"old": true}\n'
+    assert existing.read_text(encoding="utf-8") == body["generated"]
+    assert '"ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4-flash"' in body["generated"]
+
+
+async def test_setup_preview_unknown_upstream_returns_404(client: AsyncClient) -> None:
+    r = await client.get("/admin/setup/codex/preview", params={"upstream_id": "missing"})
+
+    assert r.status_code == 404

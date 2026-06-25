@@ -611,3 +611,96 @@ def test_chat_run_no_stream_overrides_server_stream_config(
     )
 
     assert captured["stream"] is False
+
+
+def test_setup_help_exists() -> None:
+    result = runner.invoke(app, ["setup", "--help"])
+    assert result.exit_code == 0
+    out = _plain(result.output)
+    assert "preview" in out
+    assert "apply" in out
+
+
+def test_root_help_includes_setup() -> None:
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+    assert "setup" in _plain(result.output)
+
+
+def test_setup_preview_prints_original_and_generated(monkeypatch: pytest.MonkeyPatch) -> None:
+    from rosetta.cli.commands import setup as setup_mod
+
+    captured: dict[str, object] = {"out": []}
+
+    class _FakeClient:
+        async def setup_preview(self, target: str, *, upstream_id: str) -> SimpleNamespace:
+            captured["target"] = target
+            captured["upstream_id"] = upstream_id
+            return SimpleNamespace(
+                target=target,
+                path="C:/config.toml",
+                exists=True,
+                original="old-config",
+                generated="new-config",
+                language="toml",
+                backup_path=None,
+            )
+
+    @asynccontextmanager
+    async def _discover_session(**_: object):
+        yield _FakeClient()
+
+    def _capture_out(value: object) -> None:
+        captured["out"].append(str(value))
+
+    monkeypatch.setattr(setup_mod.ProxyClient, "discover_session", _discover_session)
+    monkeypatch.setattr(setup_mod.Renderer, "out", _capture_out)
+
+    result = runner.invoke(app, ["setup", "preview", "codex", "--upstream-id", "u1"])
+
+    assert result.exit_code == 0
+    assert captured["target"] == "codex"
+    assert captured["upstream_id"] == "u1"
+    output = "\n".join(captured["out"])
+    assert "C:/config.toml" in output
+    assert "old-config" in output
+    assert "new-config" in output
+
+
+def test_setup_apply_prints_backup_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    from rosetta.cli.commands import setup as setup_mod
+
+    captured: dict[str, object] = {"out": []}
+
+    class _FakeClient:
+        async def setup_apply(self, target: str, *, upstream_id: str) -> SimpleNamespace:
+            captured["target"] = target
+            captured["upstream_id"] = upstream_id
+            return SimpleNamespace(
+                target=target,
+                path="C:/settings.json",
+                exists=True,
+                original="old",
+                generated="new",
+                language="json",
+                backup_path="C:/settings.json.bak-20260625-153000",
+            )
+
+    @asynccontextmanager
+    async def _discover_session(**_: object):
+        yield _FakeClient()
+
+    def _capture_out(value: object) -> None:
+        captured["out"].append(str(value))
+
+    monkeypatch.setattr(setup_mod.ProxyClient, "discover_session", _discover_session)
+    monkeypatch.setattr(setup_mod.Renderer, "out", _capture_out)
+
+    result = runner.invoke(app, ["setup", "apply", "claude", "--upstream-id", "u1"])
+
+    assert result.exit_code == 0
+    assert captured["target"] == "claude"
+    assert captured["upstream_id"] == "u1"
+    output = "\n".join(captured["out"])
+    assert "C:/settings.json" in output
+    assert "C:/settings.json.bak-20260625-153000" in output

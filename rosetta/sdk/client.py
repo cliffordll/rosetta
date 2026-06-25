@@ -28,6 +28,7 @@ from rosetta.sdk.discover import discover
 from rosetta.server.controller.chat import ChatConfigOut
 from rosetta.server.controller.logs import LogListResponse, LogsConfigOut
 from rosetta.server.controller.runtime import StatusResponse
+from rosetta.server.controller.setup import SetupConfigOut, SetupTarget
 from rosetta.server.controller.stats import Period, StatsOut
 from rosetta.server.controller.upstreams import (
     ClientGuideOut,
@@ -289,6 +290,26 @@ class ProxyClient:
         )
         resp.raise_for_status()
         return StatsOut.model_validate(resp.json())
+
+    async def setup_preview(self, target: SetupTarget, *, upstream_id: str) -> SetupConfigOut:
+        self._require_server("setup_preview")
+        resp = await self.http.get(
+            f"{self.base_url}/admin/setup/{target}/preview",
+            params={"upstream_id": upstream_id},
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return SetupConfigOut.model_validate(resp.json())
+
+    async def setup_apply(self, target: SetupTarget, *, upstream_id: str) -> SetupConfigOut:
+        self._require_server("setup_apply")
+        resp = await self.http.post(
+            f"{self.base_url}/admin/setup/{target}/apply",
+            json={"upstream_id": upstream_id},
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return SetupConfigOut.model_validate(resp.json())
 
     async def shutdown(self) -> None:
         """请求 server 优雅关闭;response 返回后不等待实际退出。"""

@@ -118,6 +118,18 @@ export interface UpstreamUpdate {
 }
 
 /** `POST /admin/upstreams/restore-mock` 返回;`created` 表本次是否真插入。 */
+
+export type SetupTarget = "codex" | "claude" | "opencode";
+
+export interface SetupConfigOut {
+  target: SetupTarget;
+  path: string;
+  exists: boolean;
+  original: string;
+  generated: string;
+  language: "toml" | "json";
+  backup_path: string | null;
+}
 export interface RestoreMockResult {
   created: boolean;
   upstream: UpstreamOut;
@@ -297,7 +309,16 @@ export const api = {
   getClientGuide(client: string): Promise<{client: string; content: string}> {
     return request(`/admin/upstreams/guide/${client}`, { method: "GET" });
   },
-  stats(period = "today"): Promise<StatsOut> {
+  setupPreview(target: SetupTarget, upstreamId: string): Promise<SetupConfigOut> {
+    const q = new URLSearchParams({ upstream_id: upstreamId });
+    return request(`/admin/setup/${target}/preview?${q.toString()}`);
+  },
+  setupApply(target: SetupTarget, upstreamId: string): Promise<SetupConfigOut> {
+    return request(`/admin/setup/${target}/apply`, {
+      method: "POST",
+      body: JSON.stringify({ upstream_id: upstreamId }),
+    });
+  },  stats(period = "today"): Promise<StatsOut> {
     return request(`/admin/stats?period=${period}`);
   },
   restoreMockUpstream(force = false): Promise<RestoreMockResult> {
