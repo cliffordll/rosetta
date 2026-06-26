@@ -6,7 +6,7 @@ v0.1 没 logger 真往 logs 表写入,因此本端点常态返空。保留是为
 查询参数:
 - `limit`(默认 50,上限 500)
 - `offset`(默认 0)
-- `upstream`:按 upstream name 过滤(server 内部 JOIN 到 id)
+- `upstream`:按 upstream id 过滤
 - `since` / `until`:ISO 8601 时间戳过滤 `created_at`
 
 响应:`{items: LogOut[], total: int}` — `total` 是同条件下的全表计数(用于分页器
@@ -97,11 +97,11 @@ async def list_logs(
 ) -> LogListResponse:
     upstream_id: str | None = None
     if upstream is not None:
-        u = await upstream_repo.get_by_name(upstream)
+        u = await upstream_repo.get_by_id(upstream)
         if u is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"upstream '{upstream}' 不存在",
+                detail=f"upstream id={upstream} 不存在",
             )
         upstream_id = u.id
 

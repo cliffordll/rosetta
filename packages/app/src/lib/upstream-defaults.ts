@@ -20,7 +20,7 @@ export function defaultBindingRows(
 export interface ModelUpstreamGroup {
   model: string;
   upstreams: UpstreamOut[];
-  defaultUpstreamName: string | null;
+  defaultUpstreamId: string | null;
 }
 
 export function modelUpstreamGroups(
@@ -38,7 +38,7 @@ export function modelUpstreamGroups(
     .map(([model, groupedUpstreams]) => ({
       model,
       upstreams: groupedUpstreams.sort((a, b) => a.name.localeCompare(b.name)),
-      defaultUpstreamName: defaults[model] ?? null,
+      defaultUpstreamId: defaults[model] ?? null,
     }))
     .sort((a, b) => {
       const duplicateDelta = Number(b.upstreams.length > 1) - Number(a.upstreams.length > 1);

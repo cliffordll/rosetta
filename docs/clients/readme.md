@@ -75,6 +75,16 @@ rosetta upstream defaults
 - OpenCode: 参见 `rosetta guide opencode`
 - README: 参见 `rosetta guide readme`
 
+也可以直接用 `rosetta setup` 管理本机客户端配置：
+
+```bash
+rosetta setup preview codex --upstream <upstream-id>
+rosetta setup apply codex --upstream <upstream-id>
+rosetta setup clear codex --yes
+```
+
+`codex` 可替换为 `claude` 或 `opencode`。
+
 ## 5. CLI 常用命令
 
 ```bash

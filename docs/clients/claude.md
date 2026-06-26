@@ -72,7 +72,6 @@ export ANTHROPIC_DEFAULT_OPUS_MODEL="deepseek-v4-flash"
 {
   "env": {
     "ANTHROPIC_BASE_URL": "http://localhost:1687",
-    "ANTHROPIC_API_KEY": "sk-ant-your-key",
     "ANTHROPIC_AUTH_TOKEN": "ollama",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4-flash",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4-flash",

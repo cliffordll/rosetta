@@ -45,7 +45,7 @@ def chat_cmd(
         str | None,
         typer.Option(
             "--upstream",
-            help="server 模式 upstream 名;未给则 server 按 model 匹配;--base-url 给时失效",
+            help="server 模式 upstream id;未给则 server 按 model 匹配;--base-url 给时失效",
         ),
     ] = None,
     base_url: Annotated[

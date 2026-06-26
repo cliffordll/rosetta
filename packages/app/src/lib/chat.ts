@@ -1,9 +1,9 @@
-﻿/**
+/**
  * Chat 页的核心:历史消息 → 请求体构造 + 一轮流式请求。
  *
  * 对齐 `rosetta/cli/commands/chat_core.py` 的 `_build_body` + `run_turn`:
  * - v0.1 历史只存纯文本 `{role, content}[]`,三格式的多轮表达都能直接消化
- * - 浏览器走 `fetch` + SSE;`override api-key` 按入口协议写 `x-api-key`(Claude) 或 `Authorization: Bearer`(OpenAI);指定 upstream → `r-upstream` 头
+ * - 浏览器走 `fetch` + SSE;`override api-key` 按入口协议写 `x-api-key`(Claude) 或 `Authorization: Bearer`(OpenAI);指定 upstream id → `r-upstream` 头
  * - 返回 `(assistantText, inputTokens, outputTokens, latencyMs)`;非 2xx 抛 `ChatError`
  */
 
@@ -21,7 +21,7 @@ export interface ChatTurnOpts {
   serverApi: ServerApi;
   /** 留空(null/"")则不发 body.model,server forwarder 用 upstream.model 兜底 */
   model: string | null;
-  upstreamName: string | null;
+  upstreamId: string | null;
   overrideApiKey: string | null;
   maxTokens: number;
   /** 默认 true(流式);false 则等待完整响应后一次返回 */
@@ -66,7 +66,7 @@ export async function runTurn(
   const doStream = opts.stream ?? true;
   const body = buildBody(opts.serverApi, messages, opts.model, opts.maxTokens, doStream);
   const headers: Record<string, string> = { "content-type": "application/json" };
-  if (opts.upstreamName) headers["r-upstream"] = opts.upstreamName;
+  if (opts.upstreamId) headers["r-upstream"] = opts.upstreamId;
   if (opts.overrideApiKey) {
     if (opts.serverApi === ServerApi.MESSAGES) {
       headers["x-api-key"] = opts.overrideApiKey;

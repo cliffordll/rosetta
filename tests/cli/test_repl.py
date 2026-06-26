@@ -169,12 +169,12 @@ def test_upstream_slash_command_sets_and_clears_upstream(monkeypatch) -> None:
 
     repl = ChatRepl(ctx=ctx)  # type: ignore[arg-type]
 
-    assert repl._handle_slash("/upstream openai-main") is False
-    assert ctx.upstream == "openai-main"
+    assert repl._handle_slash("/upstream u-openai-main") is False
+    assert ctx.upstream == "u-openai-main"
     assert repl._handle_slash("/upstream clear") is False
     assert ctx.upstream is None
 
-    assert messages == ["upstream → openai-main", "upstream → auto(按 model 匹配)"]
+    assert messages == ["upstream → u-openai-main", "upstream → auto(按 model 匹配)"]
 
 
 def test_api_key_slash_command_sets_and_clears_override(monkeypatch) -> None:

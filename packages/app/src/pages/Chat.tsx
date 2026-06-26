@@ -1,4 +1,5 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { Eye, EyeOff } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -89,6 +90,7 @@ export default function Chat() {
   const [overrideKey, setOverrideKey] = useState<string | null>(null);
   const [overrideDialogOpen, setOverrideDialogOpen] = useState(false);
   const [overrideDraft, setOverrideDraft] = useState("");
+  const [showOverrideKey, setShowOverrideKey] = useState(false);
   const [overrideMaxTokens, setOverrideMaxTokens] = useState(8192);
   const [overrideStream, setOverrideStream] = useState(true);
   const [overrideModel, setOverrideModel] = useState<string | null>(null);
@@ -229,7 +231,7 @@ export default function Chat() {
     abortRef.current = ctrl;
 
     // 没选 upstream → 不传 r-upstream,server 按 body.model 匹配 upstream。
-    const upstreamName = resolvedUpstream ? resolvedUpstream.name : null;
+    const upstreamId = resolvedUpstream ? resolvedUpstream.id : null;
     const upstreamLabel = resolvedUpstream ? formatUpstreamLabel(resolvedUpstream) : "model-route";
     const pathLabel = resolvedUpstream
       ? computePathLabel(serverApi, resolvedUpstream)
@@ -243,7 +245,7 @@ export default function Chat() {
       const result = await runTurn(history, {
         serverApi: serverApi,
         model: (overrideModel ?? model).trim() || null,
-        upstreamName,
+        upstreamId,
         overrideApiKey: overrideKey,
         maxTokens: overrideMaxTokens,
         stream: overrideStream,
@@ -361,12 +363,14 @@ export default function Chat() {
   const [overrideDialogStreamDraft, setOverrideDialogStreamDraft] = useState(true);
   const [overrideDialogModelDraft, setOverrideDialogModelDraft] = useState("");
   const openOverrideDialog = useCallback(() => {
+    if (!resolvedUpstream) return;
     setOverrideDraft(overrideKey ?? "");
+    setShowOverrideKey(false);
     setOverrideDialogOpen(true);
     setOverrideDialogMaxTokensDraft(String(overrideMaxTokens));
     setOverrideDialogStreamDraft(overrideStream);
     setOverrideDialogModelDraft(overrideModel ?? model);
-  }, [overrideKey, overrideMaxTokens, overrideStream, overrideModel, model]);
+  }, [resolvedUpstream, overrideKey, overrideMaxTokens, overrideStream, overrideModel, model]);
 
   const saveOverride = useCallback(() => {
     const v = overrideDraft.trim();
@@ -490,15 +494,15 @@ export default function Chat() {
 
         <div className="flex min-w-0 items-center justify-end gap-1.5 overflow-hidden">
           <Label className="truncate text-xs font-medium text-muted-foreground">
-            {upstreamsErr
-              ? upstreamsErr
-              : upstreams.length === 0
-                ? "还没有 upstream,先去 Upstreams 页面添加"
-                : !resolvedUpstream && model.trim().length > 0
-                  ? "未选 upstream,将按 model 匹配"
-                  : "会话级覆盖：model · api_key · max_tokens · stream"}
+            会话级覆盖：model · api_key · max_tokens · stream
           </Label>
-          <Button className="shrink-0" variant="outline" onClick={openOverrideDialog}>
+          <Button
+            className="shrink-0"
+            variant="outline"
+            disabled={!resolvedUpstream}
+            title={resolvedUpstream ? "Configure session overrides" : "Select an upstream first"}
+            onClick={openOverrideDialog}
+          >
             {overrideKey ? "Override settings · set" : "Override settings"}
           </Button>
         </div>
@@ -571,6 +575,12 @@ export default function Chat() {
         )}
       </div>
 
+      {(upstreamsErr || upstreams.length === 0) && (
+        <div className="mt-3 shrink-0 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive whitespace-normal break-words">
+          {upstreamsErr ?? "还没有 upstream,先去 Upstreams 页面添加"}
+        </div>
+      )}
+
       <Dialog open={overrideDialogOpen} onOpenChange={setOverrideDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -599,13 +609,25 @@ export default function Chat() {
                   (仅本次会话生效 · 留空则走 upstream 的 api_key)
                 </span>
               </Label>
-              <Input
-                id="ov-api-key"
-                value={overrideDraft}
-                onChange={(e) => setOverrideDraft(e.target.value)}
-                placeholder="sk-..."
-                autoFocus
-              />
+              <div className="relative">
+                <Input
+                  id="ov-api-key"
+                  type={showOverrideKey ? "text" : "password"}
+                  value={overrideDraft}
+                  onChange={(e) => setOverrideDraft(e.target.value)}
+                  placeholder="sk-..."
+                  autoFocus
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => setShowOverrideKey((current) => !current)}
+                  aria-label={showOverrideKey ? "Hide API key" : "Show API key"}
+                >
+                  {showOverrideKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="ov-max-tokens" className={LABEL_TEXT}>

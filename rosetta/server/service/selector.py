@@ -19,7 +19,7 @@ async def pick_upstream(
     repo = UpstreamRepo(session)
 
     if header_upstream:
-        upstream = await repo.get_by_name(header_upstream)
+        upstream = await repo.get_by_id(header_upstream)
         if upstream is None:
             raise ServiceError(
                 status=400,

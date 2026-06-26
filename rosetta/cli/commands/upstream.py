@@ -237,17 +237,17 @@ async def _remove(upstream_id: str) -> None:
 
 @app.command("default")
 def default_cmd(
-    name: Annotated[str, typer.Argument(help="要设为 model 默认的 upstream name")],
+    upstream_id: Annotated[str, typer.Argument(help="要设为 model 默认的 upstream id")],
     model: Annotated[str, typer.Option("--model", help="模型名称")],
 ) -> None:
     """把 upstream 设为某个 model 的默认路由。"""
-    asyncio.run(_model_default(name, model))
+    asyncio.run(_model_default(upstream_id, model))
 
 
-async def _model_default(name: str, model: str) -> None:
+async def _model_default(upstream_id: str, model: str) -> None:
     try:
         async with ProxyClient.discover_session(spawn_if_missing=False) as client:
-            updated = await client.set_model_default_upstream(name, model=model)
+            updated = await client.set_model_default_upstream(upstream_id, model=model)
     except httpx.HTTPStatusError as e:
         Renderer.die(f"设置 model 默认失败: {e.response.status_code} {e.response.text}")
         return

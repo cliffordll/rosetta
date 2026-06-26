@@ -39,11 +39,11 @@ class TestModelDefault:
         upstream = await _insert(session, name="a", native_api="messages")
         repo = UpstreamRepo(session)
 
-        result = await repo.set_model_default("a", "gpt-4o")
+        result = await repo.set_model_default(upstream.id, "gpt-4o")
 
         assert result.id == upstream.id
         assert await repo.default_model_upstream_id("gpt-4o") == upstream.id
-        assert await repo.list_model_defaults() == {"gpt-4o": "a"}
+        assert await repo.list_model_defaults() == {"gpt-4o": upstream.id}
 
     async def test_set_model_default_unknown_raises(self, session: AsyncSession) -> None:
         repo = UpstreamRepo(session)
@@ -55,7 +55,7 @@ class TestModelDefault:
     ) -> None:
         upstream = await _insert(session, name="a", native_api="messages")
         repo = UpstreamRepo(session)
-        await repo.set_model_default("a", "gpt-4o")
+        await repo.set_model_default(upstream.id, "gpt-4o")
 
         await repo.delete(upstream)
 

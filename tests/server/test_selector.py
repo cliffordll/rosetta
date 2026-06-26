@@ -1,7 +1,7 @@
 """数据面 upstream 选择测试。
 
 pick_upstream 三阶段策略:
-- header 有值 -> 按 name 精确匹配
+- header 有值 -> 按 id 精确匹配
 - header 缺失 -> 按 model 匹配
 - header/model 都缺失 -> 400
 """
@@ -40,13 +40,22 @@ async def _insert_upstream(
 
 
 class TestHeaderUpstream:
-    async def test_header_exact_match(self, session: AsyncSession) -> None:
+    async def test_header_id_exact_match(self, session: AsyncSession) -> None:
         picked_expected = await _insert_upstream(session, name="ant-a", model="claude")
         await _insert_upstream(session, name="ant-b", model="gpt")
 
-        picked = await pick_upstream(session, header_upstream="ant-a", model="gpt")
+        picked = await pick_upstream(session, header_upstream=picked_expected.id, model="gpt")
 
         assert picked.id == picked_expected.id
+
+    async def test_header_name_is_not_accepted(self, session: AsyncSession) -> None:
+        await _insert_upstream(session, name="ant-a", model="claude")
+
+        with pytest.raises(ServiceError) as exc:
+            await pick_upstream(session, header_upstream="ant-a", model="claude")
+
+        assert exc.value.status == 400
+        assert exc.value.code == "upstream_not_found"
 
     async def test_header_not_found_400(self, session: AsyncSession) -> None:
         await _insert_upstream(session, name="ant-a")
@@ -58,10 +67,10 @@ class TestHeaderUpstream:
         assert exc.value.code == "upstream_not_found"
 
     async def test_header_disabled_400(self, session: AsyncSession) -> None:
-        await _insert_upstream(session, name="ant-a", enabled=False)
+        upstream = await _insert_upstream(session, name="ant-a", enabled=False)
 
         with pytest.raises(ServiceError) as exc:
-            await pick_upstream(session, header_upstream="ant-a", model="claude")
+            await pick_upstream(session, header_upstream=upstream.id, model="claude")
 
         assert exc.value.status == 400
         assert exc.value.code == "upstream_disabled"

@@ -4,6 +4,7 @@
 - `/v1/messages`:Messages 格式入口
 - `/v1/chat/completions`:Chat Completions 入口
 - `/v1/responses`:Responses 入口(2.5.1 起真翻译;跨格式时 forwarder 内部做 degrade)
+- `/responses`:兼容旧 Codex Rosetta 配置,等同 `/v1/responses`
 
 阶段 3.1:upstream 选择从"第一个 enabled 硬编"换成 `pick_upstream`(DESIGN §8.4)。
 阶段 3.2:客户端按入口协议传的真实鉴权头作为上游 key override。
@@ -148,6 +149,7 @@ async def chat_completions(request: Request) -> Response:
     )
 
 
+@router.post("/responses")
 @router.post("/v1/responses")
 async def responses_endpoint(request: Request) -> Response:
     server_api = ServerApi.RESPONSES

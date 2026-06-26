@@ -5,7 +5,7 @@
 - `/` 开头分派 slash 命令,否则作为新一轮 user message
 - 每轮调 `ctx.run_turn()` 流式打印 assistant + meta 行
 - slash 命令:`/exit`(`/quit` 别名) / `/reset` / `/model <name>` /
-  `/upstream <name>` / `/api_key <key>` / `/server_api <api_type>` /
+  `/upstream <id>` / `/api_key <key>` / `/server_api <api_type>` /
   `/raw on|off` / `/raw_edge <n>` / `/raw_step <n>` / `/help`
 
 状态持有
@@ -48,7 +48,7 @@ class ChatRepl:
     _HELP: ClassVar[str] = (
         "  /exit, /quit              退出 REPL\n"
         "  /reset                    清空对话历史\n"
-        "  /upstream <name|clear>    显示/切换 upstream;clear = 按 model 匹配\n"
+        "  /upstream <id|clear>    显示/切换 upstream;clear = 按 model 匹配\n"
         "  /server_api <api_type>    切换 API 格式(messages|completions|responses)\n"
         "  /model <name|clear>       显示/切换模型;clear = auto\n"
         "  /api_key <sk-xxx|clear>   显示/设置 api-key 覆盖;clear = 走 upstream.api_key\n"

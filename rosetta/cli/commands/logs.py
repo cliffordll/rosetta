@@ -35,9 +35,7 @@ logs_app = typer.Typer(
 def logs_cmd(
     ctx: typer.Context,
     n: Annotated[int | None, typer.Option("-n", "--limit", help="最多显示多少条")] = None,
-    upstream: Annotated[
-        str | None, typer.Option("--upstream", help="按 upstream name 过滤")
-    ] = None,
+    upstream: Annotated[str | None, typer.Option("--upstream", help="按 upstream id 过滤")] = None,
     follow: Annotated[
         bool, typer.Option("-f", "--follow", help="持续跟踪新日志(Ctrl+C 退出)")
     ] = False,

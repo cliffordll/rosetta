@@ -261,9 +261,9 @@ export const api = {
       method: "POST",
     });
   },
-  setModelDefaultUpstream(name: string, model: string): Promise<UpstreamOut> {
+  setModelDefaultUpstream(upstreamId: string, model: string): Promise<UpstreamOut> {
     const query = `?model=${encodeURIComponent(model)}`;
-    return request(`/admin/upstreams/${encodeURIComponent(name)}/model-default${query}`, {
+    return request(`/admin/upstreams/${encodeURIComponent(upstreamId)}/model-default${query}`, {
       method: "PUT",
     });
   },
@@ -308,6 +308,15 @@ export const api = {
 
   getClientGuide(client: string): Promise<{client: string; content: string}> {
     return request(`/admin/upstreams/guide/${client}`, { method: "GET" });
+  },
+  setupCurrent(target: SetupTarget): Promise<SetupConfigOut> {
+    return request(`/admin/setup/${target}/current`);
+  },
+  setupClearPreview(target: SetupTarget): Promise<SetupConfigOut> {
+    return request(`/admin/setup/${target}/clear-preview`);
+  },
+  setupClear(target: SetupTarget): Promise<SetupConfigOut> {
+    return request(`/admin/setup/${target}/clear`, { method: "POST" });
   },
   setupPreview(target: SetupTarget, upstreamId: string): Promise<SetupConfigOut> {
     const q = new URLSearchParams({ upstream_id: upstreamId });

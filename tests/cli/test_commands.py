@@ -373,7 +373,9 @@ def test_chat_api_key_sentinel_none_becomes_none(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr(chat_mod, "_run", _capture_run)
 
-    result = runner.invoke(app, ["chat", "--api-key", "none", "--upstream", "mock", "hi"])
+    result = runner.invoke(
+        app, ["chat", "--api-key", "none", "--upstream", "00000000000000000000000000000000", "hi"]
+    )
 
     assert result.exit_code == 0, f"exit={result.exit_code}, out={result.output!r}"
     assert captured.get("api_key") is None, f"api_key 应为 None,实际={captured['api_key']!r}"
@@ -388,7 +390,9 @@ def test_chat_api_key_sentinel_case_insensitive(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(chat_mod, "_run", _capture_run)
 
-    result = runner.invoke(app, ["chat", "--api-key", "None", "--upstream", "mock", "hi"])
+    result = runner.invoke(
+        app, ["chat", "--api-key", "None", "--upstream", "00000000000000000000000000000000", "hi"]
+    )
 
     assert result.exit_code == 0
     assert captured.get("api_key") is None
@@ -403,7 +407,9 @@ def test_chat_api_key_empty_string_stays_empty(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(chat_mod, "_run", _capture_run)
 
-    result = runner.invoke(app, ["chat", "--api-key", "", "--upstream", "mock", "hi"])
+    result = runner.invoke(
+        app, ["chat", "--api-key", "", "--upstream", "00000000000000000000000000000000", "hi"]
+    )
 
     assert result.exit_code == 0
     # 空串是 falsy,不会被 sentinel 处理,保持原值
@@ -419,7 +425,17 @@ def test_chat_api_key_real_value_preserved(monkeypatch: pytest.MonkeyPatch) -> N
 
     monkeypatch.setattr(chat_mod, "_run", _capture_run)
 
-    result = runner.invoke(app, ["chat", "--api-key", "sk-real-key", "--upstream", "mock", "hi"])
+    result = runner.invoke(
+        app,
+        [
+            "chat",
+            "--api-key",
+            "sk-real-key",
+            "--upstream",
+            "00000000000000000000000000000000",
+            "hi",
+        ],
+    )
 
     assert result.exit_code == 0
     assert captured.get("api_key") == "sk-real-key"
@@ -434,7 +450,7 @@ def test_chat_omitted_api_key_stays_none(monkeypatch: pytest.MonkeyPatch) -> Non
 
     monkeypatch.setattr(chat_mod, "_run", _capture_run)
 
-    result = runner.invoke(app, ["chat", "--upstream", "mock", "hi"])
+    result = runner.invoke(app, ["chat", "--upstream", "00000000000000000000000000000000", "hi"])
 
     assert result.exit_code == 0
     # 未传 --api-key → 参数默认值 None,断言两个路径都收敛到 None
@@ -450,7 +466,9 @@ def test_chat_model_sentinel_none_becomes_none(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(chat_mod, "_run", _capture_run)
 
-    result = runner.invoke(app, ["chat", "--model", "none", "--upstream", "mock", "hi"])
+    result = runner.invoke(
+        app, ["chat", "--model", "none", "--upstream", "00000000000000000000000000000000", "hi"]
+    )
 
     assert result.exit_code == 0
     assert captured.get("model") is None, f"model 应为 None,实际={captured['model']!r}"
@@ -465,7 +483,9 @@ def test_chat_model_real_value_preserved(monkeypatch: pytest.MonkeyPatch) -> Non
 
     monkeypatch.setattr(chat_mod, "_run", _capture_run)
 
-    result = runner.invoke(app, ["chat", "--model", "claude-4", "--upstream", "mock", "hi"])
+    result = runner.invoke(
+        app, ["chat", "--model", "claude-4", "--upstream", "00000000000000000000000000000000", "hi"]
+    )
 
     assert result.exit_code == 0
     assert captured.get("model") == "claude-4"
@@ -656,7 +676,7 @@ def test_setup_preview_prints_original_and_generated(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(setup_mod.ProxyClient, "discover_session", _discover_session)
     monkeypatch.setattr(setup_mod.Renderer, "out", _capture_out)
 
-    result = runner.invoke(app, ["setup", "preview", "codex", "--upstream-id", "u1"])
+    result = runner.invoke(app, ["setup", "preview", "codex", "--upstream", "u1"])
 
     assert result.exit_code == 0
     assert captured["target"] == "codex"
@@ -696,7 +716,7 @@ def test_setup_apply_prints_backup_path(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(setup_mod.ProxyClient, "discover_session", _discover_session)
     monkeypatch.setattr(setup_mod.Renderer, "out", _capture_out)
 
-    result = runner.invoke(app, ["setup", "apply", "claude", "--upstream-id", "u1"])
+    result = runner.invoke(app, ["setup", "apply", "claude", "--upstream", "u1"])
 
     assert result.exit_code == 0
     assert captured["target"] == "claude"
@@ -704,3 +724,46 @@ def test_setup_apply_prints_backup_path(monkeypatch: pytest.MonkeyPatch) -> None
     output = "\n".join(captured["out"])
     assert "C:/settings.json" in output
     assert "C:/settings.json.bak-20260625-153000" in output
+
+
+def test_setup_clear_requires_yes() -> None:
+    result = runner.invoke(app, ["setup", "clear", "codex"])
+    assert result.exit_code != 0
+    assert "--yes" in _plain(result.output)
+
+
+def test_setup_clear_prints_backup_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    from rosetta.cli.commands import setup as setup_mod
+
+    captured: dict[str, object] = {"out": []}
+
+    class _FakeClient:
+        async def setup_clear(self, target: str) -> SimpleNamespace:
+            captured["target"] = target
+            return SimpleNamespace(
+                target=target,
+                path="C:/config.toml",
+                exists=True,
+                original="old",
+                generated="new",
+                language="toml",
+                backup_path="C:/config.toml.bak-20260625-153000",
+            )
+
+    @asynccontextmanager
+    async def _discover_session(**_: object):
+        yield _FakeClient()
+
+    def _capture_out(value: object) -> None:
+        captured["out"].append(str(value))
+
+    monkeypatch.setattr(setup_mod.ProxyClient, "discover_session", _discover_session)
+    monkeypatch.setattr(setup_mod.Renderer, "out", _capture_out)
+
+    result = runner.invoke(app, ["setup", "clear", "codex", "--yes"])
+
+    assert result.exit_code == 0
+    assert captured["target"] == "codex"
+    output = "\n".join(captured["out"])
+    assert "C:/config.toml" in output
+    assert "C:/config.toml.bak-20260625-153000" in output

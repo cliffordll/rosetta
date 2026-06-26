@@ -2,6 +2,8 @@
 import {
   BugIcon,
   CopyIcon,
+  Eye,
+  EyeOff,
   PenBoxIcon,
   SaveIcon,
   Trash2Icon,
@@ -255,14 +257,14 @@ export default function Upstreams() {
   );
 
   async function handleSaveModelDefault(model: string) {
-    const nextName = modelDefaultDrafts[model];
-    if (!nextName) return;
+    const nextUpstreamId = modelDefaultDrafts[model];
+    if (!nextUpstreamId) return;
 
     setInfo(null);
     setLoadErr(null);
     setSavingModel(model);
     try {
-      const updated = await api.setModelDefaultUpstream(nextName, model);
+      const updated = await api.setModelDefaultUpstream(nextUpstreamId, model);
       setInfo(`model default ${model} -> ${updated.name}`);
       await load();
     } catch (e) {
@@ -459,9 +461,9 @@ export default function Upstreams() {
                           {u.base_url}
                         </TableCell>
                         <TableCell className={TABLE_TECH}
-                          title={u.api_key ?? ""}
+                          title={maskApiKey(u.api_key)}
                         >
-                          {u.api_key ?? "-"}
+                          {maskApiKey(u.api_key)}
                         </TableCell>
                         <TableCell className={`${TABLE_CELL} text-center`}>
                           <span className="inline-flex items-center justify-center gap-1.5">
@@ -651,7 +653,7 @@ function ModelDefaultsPanel({
   groups: ModelUpstreamGroup[];
   drafts: Record<string, string>;
   savingModel: string | null;
-  onDraftChange: (model: string, name: string) => void;
+  onDraftChange: (model: string, upstreamId: string) => void;
   onSave: (model: string) => void;
 }) {
   const [mdColWidths, setMdColWidths] = useState<ModelDefaultWidths>(DEFAULT_MODEL_DEFAULT_WIDTHS);
@@ -774,7 +776,7 @@ function ModelDefaultsPanel({
           <TableBody className="[&_tr:last-child]:border-b [&_tr]:h-10">
             {duplicateGroups.map((group) => {
               const draft = drafts[group.model] ?? "";
-              const unchanged = draft === (group.defaultUpstreamName ?? "");
+              const unchanged = draft === (group.defaultUpstreamId ?? "");
               const saving = savingModel === group.model;
               return (
                 <TableRow key={group.model}>
@@ -782,12 +784,12 @@ function ModelDefaultsPanel({
                     {group.model}
                   </TableCell>
                   <TableCell className={TABLE_CELL}>
-                    <Badge variant={group.defaultUpstreamName ? "outline" : "destructive"}>
-                      {group.defaultUpstreamName ? "configured" : "required"}
+                    <Badge variant={group.defaultUpstreamId ? "outline" : "destructive"}>
+                      {group.defaultUpstreamId ? "configured" : "required"}
                     </Badge>
                   </TableCell>
                   <TableCell className={TABLE_TEXT}>
-                    {group.defaultUpstreamName ?? "-"}
+                    {group.upstreams.find((upstream) => upstream.id === group.defaultUpstreamId)?.name ?? "-"}
                   </TableCell>
                   <TableCell className={TABLE_CELL}>
                     <Select
@@ -799,7 +801,7 @@ function ModelDefaultsPanel({
                       </SelectTrigger>
                       <SelectContent>
                         {group.upstreams.map((upstream) => (
-                          <SelectItem key={`${group.model}-${upstream.name}`} value={upstream.name}>
+                          <SelectItem key={`${group.model}-${upstream.id}`} value={upstream.id}>
                             {formatUpstreamOptionLabel(upstream)}
                           </SelectItem>
                         ))}
@@ -901,12 +903,14 @@ function UpstreamFormDialog({
   const [model, setModel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [enabled, setEnabled] = useState(true);
+  const [showApiKey, setShowApiKey] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setErr(null);
+    setShowApiKey(false);
     if ((mode === "edit" || mode === "copy") && initial) {
       setName(mode === "copy" ? `${initial.name}-copy` : initial.name);
       setNativeApi(
@@ -1103,13 +1107,24 @@ function UpstreamFormDialog({
                     : "(可选 · 客户端不传时 server 用此 key 兜底)"}
               </span>
             </Label>
-            <Input
-              id="u-key"
-              type="text"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-..."
-            />
+            <div className="relative">
+              <Input
+                id="u-key"
+                type={showApiKey ? "text" : "password"}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="sk-..."
+                className="pr-10"
+              />
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => setShowApiKey((current) => !current)}
+                aria-label={showApiKey ? "Hide API key" : "Show API key"}
+              >
+                {showApiKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </div>
             {keyStatus && <p className={FORM_LABEL_HINT}>{keyStatus}</p>}
           </div>
           {(isEdit || isCopy) && (
@@ -1150,6 +1165,12 @@ function UpstreamFormDialog({
   );
 }
 
+function maskApiKey(value: string | null | undefined): string {
+  if (!value) return "-";
+  const prefix = value.slice(0, 6);
+  return `${prefix}${"*".repeat(Math.max(6, value.length - prefix.length))}`;
+}
+
 function formatDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -1163,7 +1184,7 @@ function modelDefaultsToDrafts(
   const drafts: Record<string, string> = {};
   for (const group of modelUpstreamGroups(upstreams, defaults)) {
     if (group.upstreams.length <= 1) continue;
-    drafts[group.model] = group.defaultUpstreamName ?? "";
+    drafts[group.model] = group.defaultUpstreamId ?? "";
   }
   return drafts;
 }

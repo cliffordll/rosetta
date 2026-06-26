@@ -63,10 +63,10 @@ class UpstreamRepo:
         setting = await self.session.get(Setting, f"default_model:{model}")
         return setting.value if setting is not None else None
 
-    async def set_model_default(self, name: str, model: str) -> Upstream:
-        target = await self.get_by_name(name)
+    async def set_model_default(self, upstream_id: str, model: str) -> Upstream:
+        target = await self.get_by_id(upstream_id)
         if target is None:
-            raise LookupError(f"upstream name={name!r} 不存在")
+            raise LookupError(f"upstream id={upstream_id!r} 不存在")
         await self.session.merge(Setting(key=f"default_model:{model}", value=target.id))
         await self.session.commit()
         return target
@@ -79,7 +79,7 @@ class UpstreamRepo:
         for setting in result.scalars().all():
             upstream = await self.get_by_id(setting.value)
             if upstream is not None:
-                defaults[setting.key.removeprefix("default_model:")] = upstream.name
+                defaults[setting.key.removeprefix("default_model:")] = upstream.id
         return defaults
 
     async def create(

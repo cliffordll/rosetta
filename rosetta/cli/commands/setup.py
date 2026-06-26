@@ -1,4 +1,4 @@
-"""`rosetta setup` commands: preview and apply local client config files."""
+"""`rosetta setup` commands: preview, apply, and clear local client config files."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ app = typer.Typer(
 @app.command("preview")
 def preview_cmd(
     target: Annotated[str, typer.Argument(help="客户端: codex | claude | opencode")],
-    upstream_id: Annotated[str, typer.Option("--upstream-id", help="用于生成配置的 upstream id")],
+    upstream_id: Annotated[str, typer.Option("--upstream", help="用于生成配置的 upstream id")],
 ) -> None:
     """显示原配置和基于 upstream 生成的新配置。"""
     setup_target = _parse_target(target)
@@ -36,13 +36,31 @@ def preview_cmd(
 @app.command("apply")
 def apply_cmd(
     target: Annotated[str, typer.Argument(help="客户端: codex | claude | opencode")],
-    upstream_id: Annotated[str, typer.Option("--upstream-id", help="用于生成配置的 upstream id")],
+    upstream_id: Annotated[str, typer.Option("--upstream", help="用于生成配置的 upstream id")],
 ) -> None:
     """备份并写入本机客户端配置。"""
     setup_target = _parse_target(target)
     if setup_target is None:
         return
     asyncio.run(_apply(setup_target, upstream_id))
+
+
+@app.command("clear")
+def clear_cmd(
+    target: Annotated[str, typer.Argument(help="客户端: codex | claude | opencode")],
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", "-y", help="确认移除 Rosetta 客户端配置"),
+    ] = False,
+) -> None:
+    """备份并移除本机客户端中的 Rosetta 配置。"""
+    setup_target = _parse_target(target)
+    if setup_target is None:
+        return
+    if not yes:
+        Renderer.die("clear setup config 需要显式传 --yes")
+        return
+    asyncio.run(_clear(setup_target))
 
 
 async def _preview(target: SetupTarget, upstream_id: str) -> None:
@@ -69,6 +87,21 @@ async def _apply(target: SetupTarget, upstream_id: str) -> None:
         Renderer.die(f"setup apply 失败: {e.response.status_code} {e.response.text}")
         return
     Renderer.out(f"wrote {result.path}")
+    if result.backup_path:
+        Renderer.out(f"backup {result.backup_path}")
+
+
+async def _clear(target: SetupTarget) -> None:
+    try:
+        async with ProxyClient.discover_session(spawn_if_missing=False) as client:
+            result = await client.setup_clear(target)
+    except RuntimeError as e:
+        Renderer.die(f"server 未就绪: {e}")
+        return
+    except httpx.HTTPStatusError as e:
+        Renderer.die(f"setup clear 失败: {e.response.status_code} {e.response.text}")
+        return
+    Renderer.out(f"cleared {result.path}")
     if result.backup_path:
         Renderer.out(f"backup {result.backup_path}")
 

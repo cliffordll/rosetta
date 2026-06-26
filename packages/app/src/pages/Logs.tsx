@@ -291,7 +291,7 @@ export default function Logs() {
             <SelectContent>
               <SelectItem value={UPSTREAM_ALL}>all upstreams</SelectItem>
               {upstreams.map((u) => (
-                <SelectItem key={u.id} value={u.name}>
+                <SelectItem key={u.id} value={u.id}>
                   {u.name}
                 </SelectItem>
               ))}

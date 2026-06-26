@@ -220,7 +220,7 @@ async def test_delete_upstream_removes_model_default(client: AsyncClient) -> Non
     )
     pid = create.json()["id"]
     assert (
-        await client.put("/admin/upstreams/defaulted/model-default?model=gpt-4o")
+        await client.put(f"/admin/upstreams/{pid}/model-default?model=gpt-4o")
     ).status_code == 200
 
     r = await client.delete(f"/admin/upstreams/{pid}")
@@ -282,7 +282,7 @@ async def test_restore_mock_force_rebuilds(client: AsyncClient) -> None:
 
 
 async def test_set_model_default_success(client: AsyncClient) -> None:
-    await client.post(
+    create = await client.post(
         "/admin/upstreams",
         json={
             "name": "model-owner",
@@ -292,15 +292,16 @@ async def test_set_model_default_success(client: AsyncClient) -> None:
             "model": "gpt-4o",
         },
     )
+    upstream_id = create.json()["id"]
 
-    r = await client.put("/admin/upstreams/model-owner/model-default?model=gpt-4o")
+    r = await client.put(f"/admin/upstreams/{upstream_id}/model-default?model=gpt-4o")
 
     assert r.status_code == 200
     assert r.json()["name"] == "model-owner"
 
 
 async def test_get_model_defaults(client: AsyncClient) -> None:
-    await client.post(
+    create = await client.post(
         "/admin/upstreams",
         json={
             "name": "model-owner",
@@ -310,14 +311,15 @@ async def test_get_model_defaults(client: AsyncClient) -> None:
             "model": "gpt-4o",
         },
     )
+    upstream_id = create.json()["id"]
     assert (
-        await client.put("/admin/upstreams/model-owner/model-default?model=gpt-4o")
+        await client.put(f"/admin/upstreams/{upstream_id}/model-default?model=gpt-4o")
     ).status_code == 200
 
     r = await client.get("/admin/upstreams/model-defaults")
 
     assert r.status_code == 200
-    assert r.json() == {"gpt-4o": "model-owner"}
+    assert r.json() == {"gpt-4o": upstream_id}
 
 
 async def test_set_model_default_not_found(client: AsyncClient) -> None:
@@ -747,3 +749,58 @@ async def test_setup_preview_unknown_upstream_returns_404(client: AsyncClient) -
     r = await client.get("/admin/setup/codex/preview", params={"upstream_id": "missing"})
 
     assert r.status_code == 404
+
+
+async def test_setup_clear_preview_removes_rosetta_config(
+    client: AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ROSETTA_SETUP_CONFIG_HOME", str(tmp_path))
+    existing = tmp_path / ".codex" / "config.toml"
+    existing.parent.mkdir(parents=True)
+    existing.write_text(
+        "# keep\n"
+        'model = "deepseek"\n'
+        'custom_setting = "keep"\n'
+        "\n"
+        "[model_providers.rosetta]\n"
+        'base_url = "http://localhost:1687"\n',
+        encoding="utf-8",
+    )
+
+    r = await client.get("/admin/setup/codex/clear-preview")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["target"] == "codex"
+    assert body["exists"] is True
+    assert "# keep" in body["generated"]
+    assert 'custom_setting = "keep"' in body["generated"]
+    assert 'model = "deepseek"' not in body["generated"]
+    assert "[model_providers.rosetta]" not in body["generated"]
+
+
+async def test_setup_clear_backs_up_and_writes_config(
+    client: AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ROSETTA_SETUP_CONFIG_HOME", str(tmp_path))
+    existing = tmp_path / ".claude" / "settings.json"
+    existing.parent.mkdir(parents=True)
+    existing.write_text(
+        '{"env": {"ANTHROPIC_BASE_URL": "http://localhost:1687", "MY_VAR": "keep"}}\n',
+        encoding="utf-8",
+    )
+
+    r = await client.post("/admin/setup/claude/clear")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["target"] == "claude"
+    assert body["backup_path"] is not None
+    assert Path(body["backup_path"]).read_text(encoding="utf-8").startswith('{"env"')
+    assert existing.read_text(encoding="utf-8") == body["generated"]
+    assert "ANTHROPIC_BASE_URL" not in body["generated"]
+    assert "MY_VAR" in body["generated"]

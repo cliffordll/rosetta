@@ -172,10 +172,10 @@ class ProxyClient:
         )
         resp.raise_for_status()
 
-    async def set_model_default_upstream(self, name: str, *, model: str) -> UpstreamOut:
+    async def set_model_default_upstream(self, upstream_id: str, *, model: str) -> UpstreamOut:
         self._require_server("set_model_default_upstream")
         resp = await self.http.put(
-            f"{self.base_url}/admin/upstreams/{name}/model-default",
+            f"{self.base_url}/admin/upstreams/{upstream_id}/model-default",
             params={"model": model},
             timeout=_ADMIN_TIMEOUT,
         )
@@ -306,6 +306,15 @@ class ProxyClient:
         resp = await self.http.post(
             f"{self.base_url}/admin/setup/{target}/apply",
             json={"upstream_id": upstream_id},
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return SetupConfigOut.model_validate(resp.json())
+
+    async def setup_clear(self, target: SetupTarget) -> SetupConfigOut:
+        self._require_server("setup_clear")
+        resp = await self.http.post(
+            f"{self.base_url}/admin/setup/{target}/clear",
             timeout=_ADMIN_TIMEOUT,
         )
         resp.raise_for_status()

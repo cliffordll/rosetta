@@ -44,7 +44,7 @@ model_auto_compact_token_limit = 105197
 [model_providers.rosetta]
 name = "Rosetta"
 # 配置 Rosetta API地址
-base_url = "http://localhost:1687"
+base_url = "http://localhost:1687/v1"
 # 指定从哪个环境变量读取 API Key
 env_key = "OPENAI_API_KEY"
 
@@ -58,7 +58,7 @@ allow_insecure = true
 
 这里的关键点：
 
-- `base_url` 指向本地 Rosetta server：`http://localhost:1687`。
+- `base_url` 指向本地 Rosetta OpenAI-compatible 前缀：`http://localhost:1687/v1`。
 - `wire_api = "responses"` 时，Codex 请求 Rosetta `/v1/responses`。
 - `wire_api = "chat"` 时，Codex 请求 Rosetta `/v1/chat/completions`。
 - `model` 要和你希望 Codex 发送的模型名一致；Rosetta 可按该 model 匹配 upstream。
@@ -89,7 +89,7 @@ codex --oss --local-provider rosetta
 
 ## 3. 注意事项
 
-- Codex 连接 Rosetta 时，`base_url` 使用本地 Rosetta server 地址。
+- Codex 连接 Rosetta 时，`base_url` 使用本地 Rosetta OpenAI-compatible 前缀，通常是 `http://localhost:1687/v1`。
 - 不要把 Rosetta 地址填到 upstream 的 `base_url`；upstream 指真实上游 API 前缀。
 - Codex 的 `wire_api` 决定 Rosetta 入口格式；upstream 的 `native_api` 决定 Rosetta 转发到真实上游时使用的格式。
 - Rosetta 会按入口协议读取客户端 API key；如果客户端传入 key，会覆盖 upstream 中保存的 key。

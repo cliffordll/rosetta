@@ -124,11 +124,11 @@ async def test_list_model_defaults(
     echo_client: tuple[ProxyClient, dict[str, Any]],
 ) -> None:
     client, captured = echo_client
-    captured["response"] = httpx.Response(200, json={"gpt-4o": "oai"})
+    captured["response"] = httpx.Response(200, json={"gpt-4o": "u1"})
 
     defaults = await client.list_model_defaults()
 
-    assert defaults == {"gpt-4o": "oai"}
+    assert defaults == {"gpt-4o": "u1"}
     assert captured["request"].method == "GET"
     assert captured["request"].url.path == "/admin/upstreams/model-defaults"
 
@@ -333,12 +333,12 @@ async def test_set_model_default_upstream(
         },
     )
 
-    updated = await client.set_model_default_upstream("p1", model="gpt-4o")
+    updated = await client.set_model_default_upstream("p1-id", model="gpt-4o")
 
     assert updated.name == "p1"
     req = captured["request"]
     assert req.method == "PUT"
-    assert req.url.path == "/admin/upstreams/p1/model-default"
+    assert req.url.path == "/admin/upstreams/p1-id/model-default"
     assert req.url.params["model"] == "gpt-4o"
 
 
@@ -350,13 +350,13 @@ async def test_list_logs_with_filters(
 ) -> None:
     client, captured = echo_client
     captured["response"] = httpx.Response(200, json={"items": [], "total": 0})
-    result = await client.list_logs(limit=5, offset=10, upstream="ant")
+    result = await client.list_logs(limit=5, offset=10, upstream="u1")
     assert result.items == []
     assert result.total == 0
     req = captured["request"]
     assert req.url.params["limit"] == "5"
     assert req.url.params["offset"] == "10"
-    assert req.url.params["upstream"] == "ant"
+    assert req.url.params["upstream"] == "u1"
 
 
 async def test_stats(echo_client: tuple[ProxyClient, dict[str, Any]]) -> None:
@@ -566,3 +566,26 @@ async def test_setup_apply(echo_client: tuple[ProxyClient, dict[str, Any]]) -> N
     assert captured["request"].method == "POST"
     assert captured["request"].url.path == "/admin/setup/claude/apply"
     assert captured["request"].read() == b'{"upstream_id":"u1"}'
+
+
+async def test_setup_clear(echo_client: tuple[ProxyClient, dict[str, Any]]) -> None:
+    client, captured = echo_client
+    captured["response"] = httpx.Response(
+        200,
+        json={
+            "target": "codex",
+            "path": "C:/Users/me/.codex/config.toml",
+            "exists": True,
+            "original": "old",
+            "generated": "new",
+            "language": "toml",
+            "backup_path": "C:/Users/me/.codex/config.toml.bak-20260625-153000",
+        },
+    )
+
+    result = await client.setup_clear("codex")
+
+    assert result.target == "codex"
+    assert result.backup_path == "C:/Users/me/.codex/config.toml.bak-20260625-153000"
+    assert captured["request"].method == "POST"
+    assert captured["request"].url.path == "/admin/setup/codex/clear"

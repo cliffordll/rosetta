@@ -274,6 +274,28 @@ async def test_dataplane_route_does_not_use_fastapi_session_dependency(
     assert response.status_code == 200
 
 
+async def test_responses_route_accepts_legacy_codex_path(session: AsyncSession) -> None:
+    repo = UpstreamRepo(session)
+    mock = await repo.get_by_name("mock")
+    assert mock is not None
+    await repo.update(mock.id, model="gpt-4o-mini")
+
+    app = FastAPI()
+    app.include_router(dataplane_router)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        response = await client.post(
+            "/responses",
+            json={
+                "model": "gpt-4o-mini",
+                "max_output_tokens": 32,
+                "input": "ping",
+            },
+        )
+
+    assert response.status_code == 200
+
+
 async def test_client_api_key_overrides_db(mock_client: dict[str, Any]) -> None:
     mock_client["handler"] = lambda req: httpx.Response(200, json={})
 
