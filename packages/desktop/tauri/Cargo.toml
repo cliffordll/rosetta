@@ -1,6 +1,6 @@
 [package]
 name = "rosetta-desktop"
-version = "0.3.2"
+version = "0.4.0"
 description = "Rosetta 桌面外壳"
 authors = ["lianaipeng"]
 edition = "2021"
