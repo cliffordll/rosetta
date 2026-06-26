@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 
 DEFAULT_DB_PATH = Path.home() / ".rosetta" / "rosetta.db"
-CURRENT_SCHEMA_VERSION = 9
+CURRENT_SCHEMA_VERSION = 10
 
 _log = logging.getLogger("rosetta.server.database.session")
 

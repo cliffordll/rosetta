@@ -49,7 +49,7 @@
 >   - CLI `rosetta logs config [--log-content ...] [--page-size ...]`
 >   - GUI Logs 页同步 `log_content` 与默认每页条数
 > - `logs` 表已补 `request_text` / `response_text`,Logs 页和 CLI 列表都能直接看到问答文本
-> - Setup alias 属于客户端 setup 流程：`setup:<target>` 保存该 target 上次使用的 alias 默认值，`setup:<target>:<alias>` 保存 alias 到 upstream 的路由映射；Web Setup 页按这两者回显 model / Generated config。
+> - 模型别名已迁移到 `models.alias`：Web Upstreams 页模型编辑弹窗和 CLI `rosetta model alias <model> <alias>` 统一维护；Setup 页只选择模型并显示 `model (alias)`，生成配置时写入 alias。旧的 `setup:<target>:<alias>` 路由映射已废弃。
 
 ---
 

@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rosetta.server.controller import admin_router
-from rosetta.server.database.models import Setting, Upstream
+from rosetta.server.database.models import Upstream
 from rosetta.server.database.session import get_session
 from rosetta.server.service.forwarder import forwarder
 
@@ -152,6 +152,7 @@ async def test_update_upstream_rejects_empty_model(client: AsyncClient) -> None:
     assert null_model.status_code == 400
     assert blank_model.status_code == 422
 
+
 async def test_create_upstream_name_conflict(client: AsyncClient) -> None:
     payload = {
         "name": "dup",
@@ -271,6 +272,57 @@ async def test_delete_upstream_removes_model_default(client: AsyncClient) -> Non
     assert defaults.json() == {}
 
 
+async def test_delete_upstream_removes_orphan_model(client: AsyncClient) -> None:
+    create = await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "single-model-owner",
+            "native_api": "messages",
+            "api_key": "sk",
+            "base_url": "https://api.example.com/single-model-owner",
+            "model": "unique-model",
+        },
+    )
+    upstream_id = create.json()["id"]
+    models_before = (await client.get("/admin/models")).json()
+    assert any(item["name"] == "unique-model" for item in models_before)
+
+    r = await client.delete(f"/admin/upstreams/{upstream_id}")
+
+    assert r.status_code == 204
+    models_after = (await client.get("/admin/models")).json()
+    assert all(item["name"] != "unique-model" for item in models_after)
+
+
+async def test_delete_one_upstream_keeps_shared_model(client: AsyncClient) -> None:
+    first = await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "shared-a",
+            "native_api": "messages",
+            "api_key": "sk",
+            "base_url": "https://api.example.com/shared-a",
+            "model": "shared-model",
+        },
+    )
+    await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "shared-b",
+            "native_api": "messages",
+            "api_key": "sk",
+            "base_url": "https://api.example.com/shared-b",
+            "model": "shared-model",
+        },
+    )
+
+    r = await client.delete(f"/admin/upstreams/{first.json()['id']}")
+
+    assert r.status_code == 204
+    models = (await client.get("/admin/models")).json()
+    assert any(item["name"] == "shared-model" for item in models)
+
+
 async def test_delete_upstream_not_found(client: AsyncClient) -> None:
     r = await client.delete("/admin/upstreams/99999")
     assert r.status_code == 404
@@ -369,11 +421,8 @@ async def test_set_model_default_not_found(client: AsyncClient) -> None:
     assert r.status_code == 404
 
 
-async def test_list_and_delete_setup_aliases(
-    client: AsyncClient,
-    session: AsyncSession,
-) -> None:
-    created = await client.post(
+async def test_model_alias_admin_endpoints(client: AsyncClient) -> None:
+    await client.post(
         "/admin/upstreams",
         json={
             "name": "alias-owner",
@@ -383,34 +432,27 @@ async def test_list_and_delete_setup_aliases(
             "model": "deepseek-v4-flash",
         },
     )
-    upstream_id = created.json()["id"]
-    session.add_all(
-        [
-            Setting(key="setup:codex:gpt-5.5", value=upstream_id),
-            Setting(key="setup:codex:gpt-5-codex", value=upstream_id),
-            Setting(key="setup:codex", value="gpt-5.5"),
-        ]
-    )
-    await session.commit()
 
-    listed = await client.get(f"/admin/upstreams/{upstream_id}/setup-aliases")
-
-    assert listed.status_code == 200
-    assert listed.json() == [
-        {"target": "codex", "alias": "gpt-5-codex"},
-        {"target": "codex", "alias": "gpt-5.5"},
-    ]
-
-    deleted = await client.delete(
-        f"/admin/upstreams/{upstream_id}/setup-aliases/codex",
-        params={"alias": "gpt-5.5"},
+    updated = await client.put(
+        "/admin/models/deepseek-v4-flash/alias",
+        json={"alias": "gpt-5-codex"},
     )
 
-    assert deleted.status_code == 204
-    assert await session.get(Setting, "setup:codex:gpt-5.5") is None
-    assert await session.get(Setting, "setup:codex") is None
-    remaining = await client.get(f"/admin/upstreams/{upstream_id}/setup-aliases")
-    assert remaining.json() == [{"target": "codex", "alias": "gpt-5-codex"}]
+    assert updated.status_code == 200
+    assert updated.json()["alias"] == "gpt-5-codex"
+    listed = await client.get("/admin/models")
+    assert any(
+        item["name"] == "deepseek-v4-flash" and item["alias"] == "gpt-5-codex"
+        for item in listed.json()
+    )
+
+    cleared = await client.put(
+        "/admin/models/deepseek-v4-flash/alias",
+        json={"alias": None},
+    )
+
+    assert cleared.status_code == 200
+    assert cleared.json()["alias"] is None
 
 async def test_test_upstream_success(client: AsyncClient) -> None:
     captured: dict[str, httpx.Request | None] = {"request": None}
@@ -815,14 +857,13 @@ async def test_setup_apply_backs_up_and_writes_config(
     assert '"ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4-flash"' in body["generated"]
 
 
-async def test_setup_apply_model_alias_updates_setup_mapping(
+async def test_setup_apply_uses_model_alias(
     client: AsyncClient,
-    session: AsyncSession,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ROSETTA_SETUP_CONFIG_HOME", str(tmp_path))
-    created = await client.post(
+    await client.post(
         "/admin/upstreams",
         json={
             "name": "ds",
@@ -832,32 +873,29 @@ async def test_setup_apply_model_alias_updates_setup_mapping(
             "model": "deepseek-v4-flash",
         },
     )
+    alias = await client.put(
+        "/admin/models/deepseek-v4-flash/alias",
+        json={"alias": "gpt-5-codex"},
+    )
+    assert alias.status_code == 200
 
     r = await client.post(
         "/admin/setup/codex/apply",
-        json={"model": "deepseek-v4-flash", "model_alias": "gpt-5-codex"},
+        json={"model": "deepseek-v4-flash"},
     )
 
     assert r.status_code == 200
+    assert r.json()["alias"] == "gpt-5-codex"
     assert 'model = "gpt-5-codex"' in r.json()["generated"]
 
-    setting = await session.get(Setting, "setup:codex:gpt-5-codex")
-    assert setting is not None
-    assert setting.value == created.json()["id"]
 
-    last_alias = await session.get(Setting, "setup:codex")
-    assert last_alias is not None
-    assert last_alias.value == "gpt-5-codex"
-
-
-async def test_setup_current_returns_last_model_alias_by_target(
+async def test_setup_current_returns_model_alias_from_config(
     client: AsyncClient,
-    session: AsyncSession,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ROSETTA_SETUP_CONFIG_HOME", str(tmp_path))
-    codex_upstream = await client.post(
+    await client.post(
         "/admin/upstreams",
         json={
             "name": "codex-owner",
@@ -867,7 +905,7 @@ async def test_setup_current_returns_last_model_alias_by_target(
             "model": "deepseek-v4-flash",
         },
     )
-    claude_upstream = await client.post(
+    await client.post(
         "/admin/upstreams",
         json={
             "name": "claude-owner",
@@ -877,15 +915,28 @@ async def test_setup_current_returns_last_model_alias_by_target(
             "model": "claude-sonnet-4-5",
         },
     )
-    session.add_all(
-        [
-            Setting(key="setup:codex", value="gpt-5-codex"),
-            Setting(key="setup:codex:gpt-5-codex", value=codex_upstream.json()["id"]),
-            Setting(key="setup:claude", value="claude-sonnet-alias"),
-            Setting(key="setup:claude:claude-sonnet-alias", value=claude_upstream.json()["id"]),
-        ]
+    assert (
+        await client.put(
+            "/admin/models/deepseek-v4-flash/alias",
+            json={"alias": "gpt-5-codex"},
+        )
+    ).status_code == 200
+    assert (
+        await client.put(
+            "/admin/models/claude-sonnet-4-5/alias",
+            json={"alias": "claude-sonnet-alias"},
+        )
+    ).status_code == 200
+
+    codex_config = tmp_path / ".codex" / "config.toml"
+    codex_config.parent.mkdir(parents=True)
+    codex_config.write_text('model = "gpt-5-codex"\n', encoding="utf-8")
+    claude_config = tmp_path / ".claude" / "settings.json"
+    claude_config.parent.mkdir(parents=True)
+    claude_config.write_text(
+        '{"env": {"ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-alias"}}\n',
+        encoding="utf-8",
     )
-    await session.commit()
 
     codex = await client.get("/admin/setup/codex/current")
     claude = await client.get("/admin/setup/claude/current")
@@ -893,15 +944,15 @@ async def test_setup_current_returns_last_model_alias_by_target(
 
     assert codex.status_code == 200
     assert codex.json()["model"] == "deepseek-v4-flash"
-    assert codex.json()["model_alias"] == "gpt-5-codex"
+    assert codex.json()["alias"] == "gpt-5-codex"
     assert 'model = "gpt-5-codex"' in codex.json()["generated"]
     assert claude.status_code == 200
     assert claude.json()["model"] == "claude-sonnet-4-5"
-    assert claude.json()["model_alias"] == "claude-sonnet-alias"
+    assert claude.json()["alias"] == "claude-sonnet-alias"
     assert "claude-sonnet-alias" in claude.json()["generated"]
     assert opencode.status_code == 200
     assert opencode.json()["model"] is None
-    assert opencode.json()["model_alias"] is None
+    assert opencode.json()["alias"] is None
 
 
 async def test_setup_preview_unknown_model_returns_404(client: AsyncClient) -> None:

@@ -79,7 +79,7 @@ rosetta upstream defaults
 
 ```bash
 rosetta setup preview codex --model <model>
-rosetta setup apply codex --model <model> --model-alias <alias>
+rosetta setup apply codex --model <model>
 rosetta setup clear codex --yes
 
 # 输出或复制 Setup 页里的 PowerShell / export / CLI 命令
@@ -88,7 +88,7 @@ rosetta setup command codex --model <model> --kind export --copy
 rosetta setup command codex --kind cli
 ```
 
-`codex` 可替换为 `claude` 或 `opencode`。`--model-alias` 会写入客户端配置里的模型名。Rosetta 同时保存 `setup:<target> = <alias>` 作为下次进入 Setup 页的默认值，并保存 `setup:<target>:<alias> = <upstream-id>` 作为该客户端入口的数据面路由映射。
+`codex` 可替换为 `claude` 或 `opencode`。Setup 使用 `models.alias` 写入客户端配置里的模型名；模型别名通过 Web 的 Upstreams 模型表或 `rosetta model alias <model> <alias>` 设置。旧的 `setup:<target>:<alias>` 路由映射已废弃。
 
 ## 5. CLI 常用命令
 
@@ -107,7 +107,7 @@ rosetta stats month        # 本月用量汇总
 
 # upstream 管理
 rosetta upstream list                               # 列出所有
-rosetta models                                      # 查看当前配置支持的模型
+rosetta model list                                      # 查看当前配置支持的模型
 rosetta upstream add --help                         # 查看添加参数
 rosetta upstream update <id> --name new-name        # 更新
 rosetta upstream remove <id>                        # 删除

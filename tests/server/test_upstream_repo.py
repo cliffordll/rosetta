@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rosetta.server.database.models import Setting, Upstream
+from rosetta.server.database.models import Upstream
 from rosetta.server.repository.upstream import UpstreamRepo
 
 
@@ -31,91 +31,65 @@ async def _insert(
     return u
 
 
-class TestModelDefault:
-    async def test_model_default_missing_returns_none(self, session: AsyncSession) -> None:
-        assert await UpstreamRepo(session).default_model_upstream_id("gpt-4o") is None
-
+class TestModelTables:
     async def test_set_model_default(self, session: AsyncSession) -> None:
         upstream = await _insert(session, name="a", native_api="messages")
         repo = UpstreamRepo(session)
 
-        result = await repo.set_model_default(upstream.id, "gpt-4o")
+        model_id = await repo.get_or_create_model("gpt-4o")
+        await repo.set_upstream_model(upstream.id, model_id, is_default=True)
 
-        assert result.id == upstream.id
-        assert await repo.default_model_upstream_id("gpt-4o") == upstream.id
         assert await repo.list_model_defaults() == {"gpt-4o": upstream.id}
 
-    async def test_set_model_default_unknown_raises(self, session: AsyncSession) -> None:
+    async def test_set_model_alias_and_enabled(self, session: AsyncSession) -> None:
+        upstream = await _insert(session, name="a", native_api="messages")
         repo = UpstreamRepo(session)
-        with pytest.raises(LookupError):
-            await repo.set_model_default("ghost", "gpt-4o")
+        model_id = await repo.get_or_create_model("gpt-4o")
+        await repo.set_upstream_model(upstream.id, model_id, is_default=True)
+
+        await repo.set_model_alias("gpt-4o", "gpt-5-codex")
+        await repo.set_model_enabled("gpt-4o", False)
+
+        models = [m for m in await repo.list_models() if m["name"] == "gpt-4o"]
+        assert models == [
+            {
+                "id": model_id,
+                "name": "gpt-4o",
+                "alias": "gpt-5-codex",
+                "enabled": False,
+                "upstreams": "a",
+                "has_default": True,
+            }
+        ]
 
     async def test_delete_upstream_clears_matching_model_default(
         self, session: AsyncSession
     ) -> None:
         upstream = await _insert(session, name="a", native_api="messages")
         repo = UpstreamRepo(session)
-        await repo.set_model_default(upstream.id, "gpt-4o")
+        model_id = await repo.get_or_create_model("gpt-4o")
+        await repo.set_upstream_model(upstream.id, model_id, is_default=True)
 
         await repo.delete(upstream)
 
-        assert await repo.default_model_upstream_id("gpt-4o") is None
         assert await repo.list_model_defaults() == {}
+        assert all(m["name"] != "gpt-4o" for m in await repo.list_models())
 
-    async def test_delete_upstream_clears_legacy_name_model_default(
-        self, session: AsyncSession
-    ) -> None:
-        from rosetta.server.database.models import Setting
-
-        upstream = await _insert(session, name="legacy", native_api="messages")
-        session.add(Setting(key="default_model:gpt-legacy", value="legacy"))
-        await session.commit()
-
-        await UpstreamRepo(session).delete(upstream)
-
-        assert await session.get(Setting, "default_model:gpt-legacy") is None
-
-
-class TestSetupAliases:
-    async def test_list_and_delete_setup_aliases(self, session: AsyncSession) -> None:
-        upstream = await _insert(session, name="alias-owner")
-        session.add_all(
-            [
-                Setting(key="setup:codex:gpt-5.5", value=upstream.id),
-                Setting(key="setup:claude:sonnet", value=upstream.id),
-                Setting(key="setup:codex", value="gpt-5.5"),
-                Setting(key="setup:codex:other", value="other-upstream"),
-            ]
-        )
-        await session.commit()
-
+    async def test_delete_one_upstream_keeps_shared_model(self, session: AsyncSession) -> None:
+        first = await _insert(session, name="a", native_api="messages")
+        second = await _insert(session, name="b", native_api="messages")
         repo = UpstreamRepo(session)
-        assert await repo.list_setup_model_aliases(upstream.id) == [
-            ("claude", "sonnet"),
-            ("codex", "gpt-5.5"),
-        ]
+        model_id = await repo.get_or_create_model("gpt-4o")
+        await repo.set_upstream_model(first.id, model_id, is_default=False)
+        await repo.set_upstream_model(second.id, model_id, is_default=True)
 
-        assert await repo.delete_setup_model_alias(upstream.id, "codex", "gpt-5.5") is True
-        assert await session.get(Setting, "setup:codex:gpt-5.5") is None
-        assert await session.get(Setting, "setup:codex") is None
-        assert await repo.delete_setup_model_alias(upstream.id, "codex", "missing") is False
+        await repo.delete(first)
 
-    async def test_delete_upstream_clears_last_setup_alias_pointer(
-        self, session: AsyncSession
-    ) -> None:
-        upstream = await _insert(session, name="alias-owner")
-        session.add_all(
-            [
-                Setting(key="setup:codex:gpt-5.5", value=upstream.id),
-                Setting(key="setup:codex", value="gpt-5.5"),
-            ]
-        )
-        await session.commit()
-
-        await UpstreamRepo(session).delete(upstream)
-
-        assert await session.get(Setting, "setup:codex:gpt-5.5") is None
-        assert await session.get(Setting, "setup:codex") is None
+        assert await repo.list_model_defaults() == {"gpt-4o": second.id}
+        models = [m for m in await repo.list_models() if m["name"] == "gpt-4o"]
+        assert len(models) == 1
+        assert models[0]["name"] == "gpt-4o"
+        assert models[0]["upstreams"] == "b"
 
 class TestUpdate:
     async def test_update_single_field(self, session: AsyncSession) -> None:
@@ -164,4 +138,3 @@ class TestUpdate:
         repo = UpstreamRepo(session)
         result = await repo.update(a.id, model="claude-sonnet-4-5")
         assert result.model == "claude-sonnet-4-5"
-

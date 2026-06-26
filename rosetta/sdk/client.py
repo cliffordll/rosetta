@@ -1,110 +1,71 @@
-"""`ProxyClient` — SDK 主入口:封装 `/admin/*` 调用 + 数据面 POST(流/非流)。
-
-两种工厂
---------
-
-- `ProxyClient.discover()`:async context manager;内部走 `discover()`,找到或启动
-  本地 rosetta-server,构 httpx client 指向 server。admin 方法可用。
-- `ProxyClient.direct()`:async context manager;绕过 server,httpx client 直连上游
-  (DESIGN §8.6)。admin 方法不可用(raise);只能调 `send_chat()`。
-
-Pydantic 模型复用
-----------------
-admin 相关的 request / response schema 直接从 `rosetta.server.controller.*` import
-(DESIGN §9 单包结构允许);不在 SDK 这边手写第二份。
-"""
+"""Rosetta SDK: HTTP admin / dataplane client."""
 
 from __future__ import annotations
 
+import socket
+import subprocess
+import sys
+import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Literal, Self, cast
+from typing import Any, Literal, cast
 
 import httpx
 
-from rosetta.sdk.discover import discover
 from rosetta.server.controller.chat import ChatConfigOut
-from rosetta.server.controller.logs import LogListResponse, LogsConfigOut
+from rosetta.server.controller.logs import LogListResponse, LogsClearOut, LogsConfigOut
 from rosetta.server.controller.runtime import StatusResponse
 from rosetta.server.controller.setup import SetupConfigOut, SetupTarget
 from rosetta.server.controller.stats import Period, StatsOut
 from rosetta.server.controller.upstreams import (
     ClientGuideOut,
+    ModelOut,
     RestoreMockOut,
-    SetupAliasOut,
     UpstreamCreate,
     UpstreamOut,
     UpstreamProbeOut,
     UpstreamUpdate,
 )
-from rosetta.shared.server_api import ServerApi, upstream_endpoint_url
+from rosetta.shared.server_api import ServerApi
 
-_DATA_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
-_ADMIN_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+_ADMIN_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
+_STREAM_TIMEOUT = httpx.Timeout(600.0, connect=10.0)
+ClientMode = Literal["server", "direct"]
 
 
-@dataclass
 class ProxyClient:
-    """rosetta SDK 的 HTTP 客户端;admin + data plane 合二为一。"""
-
-    http: httpx.AsyncClient
-    base_url: str
-    mode: Literal["server", "direct"] = "server"
-    token: str | None = None
-
-    # direct 模式专属:
-    _direct_api_key: str | None = field(default=None, repr=False)
-    _direct_server_api: ServerApi | None = None
-    _direct_model: str | None = None
-
-    @classmethod
-    @asynccontextmanager
-    async def discover_session(
-        cls, *, parent_pid: int | None = None, spawn_if_missing: bool = True
-    ) -> AsyncGenerator[Self]:
-        """发现或拉起本地 server,返回连到它的 client。"""
-        ep = await discover(parent_pid=parent_pid, spawn_if_missing=spawn_if_missing)
-        http = httpx.AsyncClient(timeout=_DATA_TIMEOUT)
-        try:
-            yield cls(http=http, base_url=ep.url, mode="server", token=ep.token)
-        finally:
-            await http.aclose()
-
-    @classmethod
-    @asynccontextmanager
-    async def direct_session(
-        cls,
-        *,
+    def __init__(
+        self,
         base_url: str,
-        api_key: str,
-        server_api: ServerApi,
-        model: str,
-    ) -> AsyncGenerator[Self]:
-        """direct 模式(DESIGN §8.6):绕 server 直连上游。"""
-        http = httpx.AsyncClient(timeout=_DATA_TIMEOUT)
-        try:
-            yield cls(
-                http=http,
-                base_url=base_url.rstrip("/"),
-                mode="direct",
-                _direct_api_key=api_key,
-                _direct_server_api=server_api,
-                _direct_model=model,
-            )
-        finally:
-            await http.aclose()
+        *,
+        http: httpx.AsyncClient | None = None,
+        mode: ClientMode = "server",
+        _direct_api_key: str | None = None,
+        direct_server_api: ServerApi | None = None,
+        direct_model: str | None = None,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.http = http or httpx.AsyncClient(timeout=_ADMIN_TIMEOUT)
+        self.mode = mode
+        self._owns_http = http is None
+        self._direct_api_key = _direct_api_key
+        self.direct_server_api = direct_server_api
+        self.direct_model = direct_model
 
-    # ---------- admin(server 模式独占)----------
+    async def close(self) -> None:
+        if self._owns_http:
+            await self.http.aclose()
 
-    def _require_server(self, op: str) -> None:
+    def _require_server(self, method: str) -> None:
         if self.mode != "server":
-            raise RuntimeError(f"direct 模式不支持 admin 操作: {op}")
+            raise RuntimeError(f"direct 模式不支持 admin 操作: {method}")
 
     async def ping(self) -> bool:
         self._require_server("ping")
-        resp = await self.http.get(f"{self.base_url}/admin/ping", timeout=_ADMIN_TIMEOUT)
+        try:
+            resp = await self.http.get(f"{self.base_url}/admin/ping", timeout=_ADMIN_TIMEOUT)
+        except httpx.HTTPError:
+            return False
         return resp.status_code == 200
 
     async def status(self) -> StatusResponse:
@@ -113,6 +74,11 @@ class ProxyClient:
         resp.raise_for_status()
         return StatusResponse.model_validate(resp.json())
 
+    async def shutdown(self) -> None:
+        self._require_server("shutdown")
+        resp = await self.http.post(f"{self.base_url}/admin/shutdown", timeout=_ADMIN_TIMEOUT)
+        resp.raise_for_status()
+
     async def list_upstreams(self) -> list[UpstreamOut]:
         self._require_server("list_upstreams")
         resp = await self.http.get(f"{self.base_url}/admin/upstreams", timeout=_ADMIN_TIMEOUT)
@@ -120,7 +86,7 @@ class ProxyClient:
         items = resp.json()
         if not isinstance(items, list):
             raise RuntimeError("GET /admin/upstreams 返回非 list")
-        return [UpstreamOut.model_validate(item) for item in items]  # pyright: ignore[reportUnknownVariableType]
+        return [UpstreamOut.model_validate(item) for item in cast(list[object], items)]
 
     async def list_model_defaults(self) -> dict[str, str]:
         self._require_server("list_model_defaults")
@@ -129,32 +95,38 @@ class ProxyClient:
             timeout=_ADMIN_TIMEOUT,
         )
         resp.raise_for_status()
-        data = resp.json()
-        if not isinstance(data, dict):
-            raise RuntimeError("GET /admin/upstreams/model-defaults 返回非 dict")
-        items = cast(dict[str, Any], data)
-        return {str(k): str(v) for k, v in items.items()}
+        data = cast(dict[str, Any], resp.json())
+        return {str(k): str(v) for k, v in data.items()}
 
-    async def list_setup_aliases(self, upstream_id: str) -> list[SetupAliasOut]:
-        self._require_server("list_setup_aliases")
-        resp = await self.http.get(
-            f"{self.base_url}/admin/upstreams/{upstream_id}/setup-aliases",
-            timeout=_ADMIN_TIMEOUT,
-        )
+    async def list_models(self) -> list[ModelOut]:
+        self._require_server("list_models")
+        resp = await self.http.get(f"{self.base_url}/admin/models", timeout=_ADMIN_TIMEOUT)
         resp.raise_for_status()
         items = resp.json()
         if not isinstance(items, list):
-            raise RuntimeError("GET /admin/upstreams/{id}/setup-aliases 返回非 list")
-        return [SetupAliasOut.model_validate(item) for item in cast(list[object], items)]
+            raise RuntimeError("GET /admin/models 返回非 list")
+        return [ModelOut.model_validate(item) for item in cast(list[object], items)]
 
-    async def delete_setup_alias(self, upstream_id: str, *, target: str, alias: str) -> None:
-        self._require_server("delete_setup_alias")
-        resp = await self.http.delete(
-            f"{self.base_url}/admin/upstreams/{upstream_id}/setup-aliases/{target}",
-            params={"alias": alias},
+    async def set_model_alias(self, model_name: str, alias: str | None) -> ModelOut:
+        self._require_server("set_model_alias")
+        resp = await self.http.put(
+            f"{self.base_url}/admin/models/{model_name}/alias",
+            json={"alias": alias},
             timeout=_ADMIN_TIMEOUT,
         )
         resp.raise_for_status()
+        return ModelOut.model_validate(resp.json())
+
+    async def set_model_enabled(self, model_name: str, enabled: bool) -> ModelOut:
+        self._require_server("set_model_enabled")
+        resp = await self.http.put(
+            f"{self.base_url}/admin/models/{model_name}/enabled",
+            json={"enabled": enabled},
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return ModelOut.model_validate(resp.json())
+
     async def test_upstream(self, upstream_id: str) -> UpstreamProbeOut:
         self._require_server("test_upstream")
         resp = await self.http.post(
@@ -168,18 +140,7 @@ class ProxyClient:
         self._require_server("create_upstream")
         resp = await self.http.post(
             f"{self.base_url}/admin/upstreams",
-            json=payload.model_dump(),
-            timeout=_ADMIN_TIMEOUT,
-        )
-        resp.raise_for_status()
-        return UpstreamOut.model_validate(resp.json())
-
-    async def update_upstream(self, upstream_id: str, payload: UpstreamUpdate) -> UpstreamOut:
-        """部分更新;只发用户显式设置过的字段(`exclude_unset=True`)。"""
-        self._require_server("update_upstream")
-        resp = await self.http.put(
-            f"{self.base_url}/admin/upstreams/{upstream_id}",
-            json=payload.model_dump(exclude_unset=True),
+            json=payload.model_dump(mode="json"),
             timeout=_ADMIN_TIMEOUT,
         )
         resp.raise_for_status()
@@ -193,6 +154,22 @@ class ProxyClient:
         )
         resp.raise_for_status()
 
+    async def update_upstream(
+        self,
+        upstream_id: str,
+        payload: UpstreamUpdate | None = None,
+        **fields: Any,
+    ) -> UpstreamOut:
+        self._require_server("update_upstream")
+        body = payload.model_dump(exclude_unset=True, mode="json") if payload else fields
+        resp = await self.http.put(
+            f"{self.base_url}/admin/upstreams/{upstream_id}",
+            json={k: v for k, v in body.items() if v is not None},
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return UpstreamOut.model_validate(resp.json())
+
     async def set_model_default_upstream(self, upstream_id: str, *, model: str) -> UpstreamOut:
         self._require_server("set_model_default_upstream")
         resp = await self.http.put(
@@ -204,7 +181,6 @@ class ProxyClient:
         return UpstreamOut.model_validate(resp.json())
 
     async def restore_mock_upstream(self, *, force: bool = False) -> RestoreMockOut:
-        """幂等恢复内置 mock upstream;`force=True` 则先删后建。"""
         self._require_server("restore_mock_upstream")
         resp = await self.http.post(
             f"{self.base_url}/admin/upstreams/restore-mock",
@@ -214,131 +190,104 @@ class ProxyClient:
         resp.raise_for_status()
         return RestoreMockOut.model_validate(resp.json())
 
-    async def list_logs(
-        self,
-        *,
-        limit: int = 50,
-        offset: int = 0,
-        upstream: str | None = None,
-        since: datetime | None = None,
-    ) -> LogListResponse:
-        """拉请求流水。返回 `{items, total}`:`total` 是同条件下的全表计数(分页器用),
-        不受 `limit`/`offset` 影响。`since` 作 polling 游标:只返 `created_at > since` 的记录。
-        """
-        self._require_server("list_logs")
-        params: dict[str, str | int] = {"limit": limit, "offset": offset}
-        if upstream:
-            params["upstream"] = upstream
-        if since is not None:
-            params["since"] = since.isoformat()
+    async def get_client_guide(self, client: str) -> ClientGuideOut:
+        self._require_server("get_client_guide")
         resp = await self.http.get(
-            f"{self.base_url}/admin/logs", params=params, timeout=_ADMIN_TIMEOUT
+            f"{self.base_url}/admin/upstreams/guide/{client}",
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return ClientGuideOut.model_validate(resp.json())
+
+    async def list_logs(self, **params: Any) -> LogListResponse:
+        self._require_server("list_logs")
+        resp = await self.http.get(
+            f"{self.base_url}/admin/logs",
+            params={k: v for k, v in params.items() if v is not None},
+            timeout=_ADMIN_TIMEOUT,
         )
         resp.raise_for_status()
         return LogListResponse.model_validate(resp.json())
 
     async def logs_config(self) -> LogsConfigOut:
         self._require_server("logs_config")
-        resp = await self.http.get(
-            f"{self.base_url}/admin/logs/config",
-            timeout=_ADMIN_TIMEOUT,
-        )
+        resp = await self.http.get(f"{self.base_url}/admin/logs/config", timeout=_ADMIN_TIMEOUT)
         resp.raise_for_status()
         return LogsConfigOut.model_validate(resp.json())
 
     async def update_logs_config(
-        self,
-        *,
-        log_content: str | None = None,
-        page_size: int | None = None,
+        self, *, log_content: str | None = None, page_size: int | None = None
     ) -> LogsConfigOut:
         self._require_server("update_logs_config")
-        payload: dict[str, str | int] = {}
-        if log_content is not None:
-            payload["log_content"] = log_content
-        if page_size is not None:
-            payload["page_size"] = page_size
         resp = await self.http.put(
             f"{self.base_url}/admin/logs/config",
-            json=payload,
+            json={
+                k: v
+                for k, v in {"log_content": log_content, "page_size": page_size}.items()
+                if v is not None
+            },
             timeout=_ADMIN_TIMEOUT,
         )
         resp.raise_for_status()
         return LogsConfigOut.model_validate(resp.json())
-
-    async def chat_config(self) -> ChatConfigOut:
-        self._require_server("chat_config")
-        resp = await self.http.get(
-            f"{self.base_url}/admin/chat/config",
-            timeout=_ADMIN_TIMEOUT,
-        )
-        resp.raise_for_status()
-        return ChatConfigOut.model_validate(resp.json())
-
-    async def update_chat_config(
-        self,
-        *,
-        max_tokens: int | None = None,
-        stream: bool | None = None,
-    ) -> ChatConfigOut:
-        self._require_server("update_chat_config")
-        payload: dict[str, int | bool] = {}
-        if max_tokens is not None:
-            payload["max_tokens"] = max_tokens
-        if stream is not None:
-            payload["stream"] = stream
-        resp = await self.http.put(
-            f"{self.base_url}/admin/chat/config",
-            json=payload,
-            timeout=_ADMIN_TIMEOUT,
-        )
-        resp.raise_for_status()
-        return ChatConfigOut.model_validate(resp.json())
 
     async def clear_logs(self) -> int:
         self._require_server("clear_logs")
         resp = await self.http.delete(f"{self.base_url}/admin/logs", timeout=_ADMIN_TIMEOUT)
         resp.raise_for_status()
-        data = resp.json()
-        return int(data.get("deleted", 0))
+        return LogsClearOut.model_validate(resp.json()).deleted
 
-    async def stats(self, *, period: Period = "today") -> StatsOut:
+    async def stats(self, period: Period | None = None) -> StatsOut:
         self._require_server("stats")
+        params = {"period": period} if period else {}
         resp = await self.http.get(
             f"{self.base_url}/admin/stats",
-            params={"period": period},
+            params=params,
             timeout=_ADMIN_TIMEOUT,
         )
         resp.raise_for_status()
         return StatsOut.model_validate(resp.json())
 
-    async def setup_preview(
-        self, target: SetupTarget, *, model: str, model_alias: str | None = None
-    ) -> SetupConfigOut:
-        self._require_server("setup_preview")
-        resp = await self.http.get(
-            f"{self.base_url}/admin/setup/{target}/preview",
-            params={
+    async def get_stats(self, period: Period | None = None) -> StatsOut:
+        return await self.stats(period)
+
+    async def chat_config(self) -> ChatConfigOut:
+        self._require_server("chat_config")
+        resp = await self.http.get(f"{self.base_url}/admin/chat/config", timeout=_ADMIN_TIMEOUT)
+        resp.raise_for_status()
+        return ChatConfigOut.model_validate(resp.json())
+
+    async def update_chat_config(
+        self, *, max_tokens: int | None = None, stream: bool | None = None
+    ) -> ChatConfigOut:
+        self._require_server("update_chat_config")
+        resp = await self.http.put(
+            f"{self.base_url}/admin/chat/config",
+            json={
                 k: v
-                for k, v in {"model": model, "model_alias": model_alias}.items()
+                for k, v in {"max_tokens": max_tokens, "stream": stream}.items()
                 if v is not None
             },
             timeout=_ADMIN_TIMEOUT,
         )
         resp.raise_for_status()
+        return ChatConfigOut.model_validate(resp.json())
+
+    async def setup_preview(self, target: SetupTarget, *, model: str) -> SetupConfigOut:
+        self._require_server("setup_preview")
+        resp = await self.http.get(
+            f"{self.base_url}/admin/setup/{target}/preview",
+            params={"model": model},
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
         return SetupConfigOut.model_validate(resp.json())
 
-    async def setup_apply(
-        self, target: SetupTarget, *, model: str, model_alias: str | None = None
-    ) -> SetupConfigOut:
+    async def setup_apply(self, target: SetupTarget, *, model: str) -> SetupConfigOut:
         self._require_server("setup_apply")
         resp = await self.http.post(
             f"{self.base_url}/admin/setup/{target}/apply",
-            json={
-                k: v
-                for k, v in {"model": model, "model_alias": model_alias}.items()
-                if v is not None
-            },
+            json={"model": model},
             timeout=_ADMIN_TIMEOUT,
         )
         resp.raise_for_status()
@@ -353,50 +302,6 @@ class ProxyClient:
         resp.raise_for_status()
         return SetupConfigOut.model_validate(resp.json())
 
-    async def shutdown(self) -> None:
-        """请求 server 优雅关闭;response 返回后不等待实际退出。"""
-        self._require_server("shutdown")
-        resp = await self.http.post(f"{self.base_url}/admin/shutdown", timeout=_ADMIN_TIMEOUT)
-        resp.raise_for_status()
-
-    # ---------- data plane ----------
-
-    def _data_url_and_headers(
-        self,
-        server_api: ServerApi,
-        *,
-        override_api_key: str | None,
-        upstream_header: str | None,
-    ) -> tuple[str, dict[str, str]]:
-        """按 mode 拼数据面 URL + header。"""
-        if self.mode == "server":
-            url = upstream_endpoint_url(self.base_url, server_api)
-            headers: dict[str, str] = {"content-type": "application/json"}
-            if override_api_key:
-                # server 模式:override key 作为客户端真实上游 key 发给 server,
-                # server 再透传给上游;按入口 server_api 写对应标准 header。
-                if server_api is ServerApi.MESSAGES:
-                    headers["x-api-key"] = override_api_key
-                else:
-                    headers["authorization"] = f"Bearer {override_api_key}"
-            if upstream_header:
-                headers["r-upstream"] = upstream_header
-            return url, headers
-
-        # direct:自填上游鉴权 header
-        if self._direct_api_key is None:
-            raise RuntimeError("direct 模式未设置 api_key")
-        if upstream_header:
-            raise RuntimeError("direct 模式不支持 upstream_header(DESIGN §8.6 互斥)")
-        url = upstream_endpoint_url(self.base_url, server_api)
-        headers = {"content-type": "application/json"}
-        if server_api is ServerApi.MESSAGES:
-            headers["x-api-key"] = self._direct_api_key
-            headers["anthropic-version"] = "2023-06-01"
-        else:
-            headers["authorization"] = f"Bearer {self._direct_api_key}"
-        return url, headers
-
     def data_url_and_headers(
         self,
         server_api: ServerApi,
@@ -404,12 +309,16 @@ class ProxyClient:
         override_api_key: str | None = None,
         upstream_header: str | None = None,
     ) -> tuple[str, dict[str, str]]:
-        """Return the data-plane URL and headers that chat requests will use."""
-        return self._data_url_and_headers(
-            server_api,
-            override_api_key=override_api_key,
-            upstream_header=upstream_header,
-        )
+        headers: dict[str, str] = {"content-type": "application/json"}
+        if self.mode == "server" and upstream_header:
+            headers["r-upstream"] = upstream_header
+        key = override_api_key or self._direct_api_key
+        if key:
+            if server_api is ServerApi.MESSAGES:
+                headers["x-api-key"] = key
+            else:
+                headers["authorization"] = f"Bearer {key}"
+        return (self._data_url(server_api), headers)
 
     async def post_chat(
         self,
@@ -419,11 +328,12 @@ class ProxyClient:
         override_api_key: str | None = None,
         upstream_header: str | None = None,
     ) -> httpx.Response:
-        """非流式数据面 POST;调用方拿到 Response 自己 `.json()`。"""
-        url, headers = self._data_url_and_headers(
-            server_api, override_api_key=override_api_key, upstream_header=upstream_header
+        url, headers = self.data_url_and_headers(
+            server_api,
+            override_api_key=override_api_key,
+            upstream_header=upstream_header,
         )
-        return await self.http.post(url, json=body, headers=headers)
+        return await self.http.post(url, json=body, headers=headers, timeout=_STREAM_TIMEOUT)
 
     @asynccontextmanager
     async def stream_chat(
@@ -434,32 +344,98 @@ class ProxyClient:
         override_api_key: str | None = None,
         upstream_header: str | None = None,
     ) -> AsyncGenerator[httpx.Response]:
-        """流式数据面 POST;返回 async context,`resp.aiter_bytes()` 读流。"""
-        url, headers = self._data_url_and_headers(
-            server_api, override_api_key=override_api_key, upstream_header=upstream_header
+        url, headers = self.data_url_and_headers(
+            server_api,
+            override_api_key=override_api_key,
+            upstream_header=upstream_header,
         )
-        req = self.http.build_request("POST", url, json=body, headers=headers)
-        resp = await self.http.send(req, stream=True)
-        try:
+        async with self.http.stream(
+            "POST",
+            url,
+            json=body,
+            headers=headers,
+            timeout=_STREAM_TIMEOUT,
+        ) as resp:
             yield resp
-        finally:
-            await resp.aclose()
 
-    @property
-    def direct_server_api(self) -> ServerApi | None:
-        return self._direct_server_api
+    def _data_url(self, server_api: ServerApi) -> str:
+        path_map = {
+            ServerApi.MESSAGES: "/v1/messages",
+            ServerApi.CHAT_COMPLETIONS: "/v1/chat/completions",
+            ServerApi.RESPONSES: "/v1/responses",
+        }
+        return f"{self.base_url}{path_map[server_api]}"
 
-    @property
-    def direct_model(self) -> str | None:
-        return self._direct_model
+    @staticmethod
+    def force_stop() -> None:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/f", "/im", "rosetta.exe"], capture_output=True)
+        else:
+            subprocess.run(["pkill", "-9", "rosetta"], capture_output=True)
 
-    async def get_client_guide(self, client: str) -> ClientGuideOut:
-        """Fetch client guide doc content from backend API."""
-        self._require_server("get_client_guide")
-        resp = await self.http.get(
-            f"{self.base_url}/admin/upstreams/guide/{client}",
-            timeout=_ADMIN_TIMEOUT,
+    @staticmethod
+    @asynccontextmanager
+    async def direct_session(
+        *,
+        base_url: str,
+        api_key: str,
+        server_api: ServerApi,
+        model: str,
+    ) -> AsyncGenerator[ProxyClient]:
+        client = ProxyClient(
+            base_url,
+            mode="direct",
+            _direct_api_key=api_key,
+            direct_server_api=server_api,
+            direct_model=model,
         )
-        resp.raise_for_status()
-        return ClientGuideOut.model_validate_json(resp.text)
+        try:
+            yield client
+        finally:
+            await client.close()
 
+    @staticmethod
+    @asynccontextmanager
+    async def discover_session(
+        *,
+        spawn_if_missing: bool = True,
+        port: int = 1687,
+        wait_seconds: int = 10,
+    ) -> AsyncGenerator[ProxyClient]:
+        if not _port_open(port):
+            if not spawn_if_missing:
+                raise RuntimeError(f"port {port} 上没有 Rosetta server")
+            _spawn(port)
+            _wait_for_port(port, wait_seconds=wait_seconds)
+
+        client = ProxyClient(f"http://127.0.0.1:{port}", mode="server")
+        try:
+            yield client
+        finally:
+            await client.close()
+
+
+def _port_open(port: int) -> bool:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.settimeout(1.0)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
+    finally:
+        sock.close()
+
+
+def _spawn(port: int) -> None:
+    subprocess.Popen(
+        [sys.executable, "-m", "rosetta.cli", "start", "--port", str(port)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def _wait_for_port(port: int, *, wait_seconds: int) -> None:
+    deadline = time.monotonic() + wait_seconds
+    while time.monotonic() < deadline:
+        if _port_open(port):
+            return
+        time.sleep(0.3)
+    raise RuntimeError(f"Rosetta server 未在 {wait_seconds}s 内启动")

@@ -849,7 +849,7 @@ interface Platform {
 
 - **状态**：当前会话的 `messages[]` 用 `useState` 存在 Chat 页组件里，**不入 DB、不入全局 store**、切页或刷新即清。想要多会话 / 历史翻阅请用外部 chat 客户端连 rosetta（见 §1 定位）。
 - **Upstream 下拉**:可选,挂载时拉 `GET /admin/upstreams` 填充选项。选了具体 upstream → 发送时带 `r-upstream: <name>` header;留空 → 不带 header,此时 Model 必填,server 按 `body.model` 匹配 upstream。重复 model 需要在 Upstreams 页配置 model default。
-- **Setup alias**:Setup 页按客户端 target 管理模型别名。`setup:<target>` 是该 target 上次配置的 alias 默认值；`setup:<target>:<alias>` 是 target-scoped alias 到 upstream 的路由映射。进入 Setup 页时先读 `setup:<target>`，再通过 `setup:<target>:<alias>` 反查 upstream model 并生成预览。
+- **Model alias**:模型别名归属 `models.alias`，由 Upstreams 页的模型编辑弹窗或 CLI `rosetta model alias <model> <alias>` 统一维护。Setup 页不再维护 alias 输入框，只从 `GET /admin/models` 选择模型并显示 `model (alias)`，生成配置时把 alias 写入客户端 model 字段。旧的 `setup:<target>:<alias>` target-scoped 路由映射已废弃。
 - **Server API 下拉**:三选一 `messages | completions | responses`(对应 `/v1/messages` / `/v1/chat/completions` / `/v1/responses`),默认 `messages`。切换后下次发送用新 API 格式的请求体构造;已渲染的历史消息不回放。已知局限和 CLI 相同——切 `server_api` 后前文的 tool_use / thinking / image 块丢弃并给 toast 提示。
 - **Model 下拉**:来源 `GET /v1/models?server_api=<当前>&upstream=<Upstream 下拉值>`,随 `server_api` / upstream 联动。
 - **流式**：浏览器 `fetch` + `ReadableStream` 读 SSE，按当前 `server_api` 解码后逐 token 追加到 assistant 气泡；`Stop` 按钮 `AbortController.abort()`。

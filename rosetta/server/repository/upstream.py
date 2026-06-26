@@ -10,18 +10,27 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from types import EllipsisType
-from typing import Any
+from typing import Any, TypedDict
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, select
+from sqlalchemy import update as _update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rosetta.server.database.models import Setting, Upstream
+from rosetta.server.database.models import Model, Upstream, UpstreamModel
 
+
+class ModelListRow(TypedDict):
+    id: str
+    name: str
+    alias: str | None
+    enabled: bool
+    upstreams: str
+    has_default: bool
 MOCK_UPSTREAM_FIELDS: dict[str, Any] = {
     "id": "0" * 32,
     "name": "mock",
-    "native_api": "any",  # mock 不发 HTTP,native_api 字段语义不适用
+    "native_api": "any",
     "provider": "mock",
     "base_url": "mock://",
     "api_key": None,
@@ -59,82 +68,130 @@ class UpstreamRepo:
         result = await self.session.execute(select(func.count()).select_from(Upstream))
         return int(result.scalar_one())
 
-    async def default_model_upstream_id(self, model: str) -> str | None:
-        setting = await self.session.get(Setting, f"default_model:{model}")
-        return setting.value if setting is not None else None
+    async def select_upstream_by_model(
+        self, model: str
+    ) -> tuple[Upstream | None, str | None, str | None]:
+        """Find enabled upstream for a canonical model name or public alias.
 
-    async def setup_model_alias_upstream_id(self, target: str, model: str) -> str | None:
-        setting = await self.session.get(Setting, f"setup:{target}:{model}")
-        return setting.value if setting is not None else None
-
-    async def setup_last_model_alias(self, target: str) -> str | None:
-        setting = await self.session.get(Setting, f"setup:{target}")
-        return setting.value if setting is not None else None
-
-    async def set_setup_last_model_alias(self, target: str, model_alias: str) -> None:
-        await self.session.merge(Setting(key=f"setup:{target}", value=model_alias))
-        await self.session.commit()
-
-    async def set_setup_model_alias(
-        self, target: str, upstream_id: str, model_alias: str
-    ) -> Upstream:
-        target_upstream = await self.get_by_id(upstream_id)
-        if target_upstream is None:
-            raise LookupError(f"upstream id={upstream_id!r} 不存在")
-        await self.session.merge(
-            Setting(key=f"setup:{target}:{model_alias}", value=target_upstream.id)
+        Returns (upstream, public_alias, rewrite_model_to). rewrite_model_to is set
+        only when the input matched Model.alias, so the upstream receives its real model.
+        """
+        stmt = (
+            select(Upstream, Model.name, Model.alias)
+            .join(UpstreamModel, UpstreamModel.upstream_id == Upstream.id)
+            .join(Model, Model.id == UpstreamModel.model_id)
+            .where((Model.name == model) | (Model.alias == model))
+            .where(Model.enabled.is_(True))
+            .where(Upstream.enabled.is_(True))
+            .order_by((Model.alias == model).desc(), UpstreamModel.is_default.desc())
+            .limit(1)
         )
-        await self.session.commit()
-        return target_upstream
-
-    async def list_setup_model_aliases(self, upstream_id: str) -> list[tuple[str, str]]:
-        result = await self.session.execute(
-            select(Setting).where(Setting.key.like("setup:%"), Setting.value == upstream_id)
+        result = await self.session.execute(stmt)
+        row = result.one_or_none()
+        if row is None:
+            return (None, None, None)
+        rewrite_model_to = (
+            row.Upstream.model if row.alias == model and row.name != model else None
         )
-        aliases: list[tuple[str, str]] = []
-        for setting in result.scalars().all():
-            parts = setting.key.split(":", 2)
-            if len(parts) != 3 or parts[2] == "alias":
-                continue
-            _, target, alias = parts
-            if target not in {"codex", "claude", "opencode"}:
-                continue
-            aliases.append((target, alias))
-        return sorted(aliases)
+        return (row.Upstream, row.alias, rewrite_model_to)
 
-    async def delete_setup_model_alias(
-        self, upstream_id: str, target: str, model_alias: str
-    ) -> bool:
-        key = f"setup:{target}:{model_alias}"
-        setting = await self.session.get(Setting, key)
-        if setting is None or setting.value != upstream_id:
-            return False
-        await self.session.delete(setting)
+    async def list_models(self) -> list[ModelListRow]:
+        """List all models with alias, enabled, and upstream info."""
+        from sqlalchemy import func as _func
 
-        last_alias = await self.session.get(Setting, f"setup:{target}")
-        if last_alias is not None and last_alias.value == model_alias:
-            await self.session.delete(last_alias)
-        await self.session.commit()
-        return True
-
-    async def set_model_default(self, upstream_id: str, model: str) -> Upstream:
-        target = await self.get_by_id(upstream_id)
-        if target is None:
-            raise LookupError(f"upstream id={upstream_id!r} 不存在")
-        await self.session.merge(Setting(key=f"default_model:{model}", value=target.id))
-        await self.session.commit()
-        return target
+        stmt = (
+            select(
+                Model.id,
+                Model.name,
+                Model.alias,
+                Model.enabled,
+                _func.group_concat(Upstream.name, ", ").label("upstreams"),
+                _func.sum(UpstreamModel.is_default).label("has_default"),
+            )
+            .outerjoin(UpstreamModel, UpstreamModel.model_id == Model.id)
+            .outerjoin(Upstream, Upstream.id == UpstreamModel.upstream_id)
+            .group_by(Model.id)
+            .order_by(Model.name)
+        )
+        result = await self.session.execute(stmt)
+        rows: list[ModelListRow] = []
+        for row in result.all():
+            rows.append(
+                {
+                    "id": str(row.id),
+                    "name": str(row.name),
+                    "alias": row.alias if isinstance(row.alias, str) else None,
+                    "enabled": bool(row.enabled),
+                    "upstreams": str(row.upstreams or ""),
+                    "has_default": bool(row.has_default),
+                }
+            )
+        return rows
 
     async def list_model_defaults(self) -> dict[str, str]:
-        result = await self.session.execute(
-            select(Setting).where(Setting.key.like("default_model:%")).order_by(Setting.key)
+        stmt = (
+            select(Model.name, UpstreamModel.upstream_id)
+            .join(UpstreamModel, UpstreamModel.model_id == Model.id)
+            .where(UpstreamModel.is_default.is_(True))
+            .order_by(Model.name)
         )
-        defaults: dict[str, str] = {}
-        for setting in result.scalars().all():
-            upstream = await self.get_by_id(setting.value)
-            if upstream is not None:
-                defaults[setting.key.removeprefix("default_model:")] = upstream.id
-        return defaults
+        result = await self.session.execute(stmt)
+        return {str(row.name): str(row.upstream_id) for row in result.all()}
+
+    async def set_model_alias(self, model_name: str, alias: str | None) -> None:
+        """Set or clear the alias for a model name."""
+        result = await self.session.execute(select(Model).where(Model.name == model_name))
+        model = result.scalar_one_or_none()
+        if model is None:
+            raise LookupError(f"model={model_name!r} does not exist")
+        model.alias = alias
+        await self.session.commit()
+
+    async def set_model_enabled(self, model_name: str, enabled: bool) -> None:
+        """Enable or disable a model."""
+        result = await self.session.execute(select(Model).where(Model.name == model_name))
+        model = result.scalar_one_or_none()
+        if model is None:
+            raise LookupError(f"model={model_name!r} does not exist")
+        model.enabled = enabled
+        await self.session.commit()
+
+    async def get_or_create_model(self, name: str, alias: str | None = None) -> str:
+        """Get existing model id or create one. Returns model id."""
+        result = await self.session.execute(select(Model).where(Model.name == name))
+        model = result.scalar_one_or_none()
+        if model is not None:
+            return model.id
+        model = Model(name=name, alias=alias)
+        self.session.add(model)
+        await self.session.commit()
+        await self.session.refresh(model)
+        return model.id
+
+    async def set_upstream_model(
+        self, upstream_id: str, model_id: str, is_default: bool = True
+    ) -> None:
+        """Link upstream to a model, optionally as default."""
+        existing = await self.session.get(UpstreamModel, (upstream_id, model_id))
+        if existing is None:
+            self.session.add(
+                UpstreamModel(upstream_id=upstream_id, model_id=model_id, is_default=is_default)
+            )
+        elif is_default:
+            existing.is_default = True
+        await self.session.commit()
+
+    async def unset_other_defaults(self, model_name: str, keep_upstream_id: str) -> None:
+        """Remove is_default from other upstreams linked to this model."""
+        subq = select(Model.id).where(Model.name == model_name).scalar_subquery()
+        stmt = (
+            _update(UpstreamModel)
+            .where(UpstreamModel.model_id == subq)
+            .where(UpstreamModel.upstream_id != keep_upstream_id)
+            .values(is_default=False)
+        )
+        await self.session.execute(stmt)
+        await self.session.commit()
 
     async def create(
         self,
@@ -195,10 +252,12 @@ class UpstreamRepo:
             target.provider = provider
         if base_url is not None:
             target.base_url = base_url
+        next_model: str | None = None
         if api_key is not ...:
             target.api_key = api_key
         if model is not ...:
             target.model = model
+            next_model = model
         if enabled is not None:
             target.enabled = enabled
         if native_api is not None and native_api != target.native_api:
@@ -210,20 +269,29 @@ class UpstreamRepo:
             await self.session.rollback()
             raise
         await self.session.refresh(target)
+        if next_model is not None:
+            model_id = await self.get_or_create_model(next_model)
+            await self.session.execute(
+                delete(UpstreamModel)
+                .where(UpstreamModel.upstream_id == upstream_id)
+                .where(UpstreamModel.model_id != model_id)
+            )
+            await self.set_upstream_model(upstream_id, model_id, is_default=True)
+            await self.unset_other_defaults(next_model, upstream_id)
+            await self.session.refresh(target)
         return target
 
     async def delete(self, upstream: Upstream) -> None:
-        setup_aliases = await self.list_setup_model_aliases(upstream.id)
-        for target, alias in setup_aliases:
-            last_alias = await self.session.get(Setting, f"setup:{target}")
-            if last_alias is not None and last_alias.value == alias:
-                await self.session.delete(last_alias)
         await self.session.execute(
-            delete(Setting).where(
-                or_(Setting.key.like("default_model:%"), Setting.key.like("setup:%")),
-                or_(Setting.value == upstream.id, Setting.value == upstream.name),
-            )
+            delete(UpstreamModel).where(UpstreamModel.upstream_id == upstream.id)
         )
+        orphan_model_ids = (
+            select(Model.id)
+            .outerjoin(UpstreamModel, UpstreamModel.model_id == Model.id)
+            .group_by(Model.id)
+            .having(func.count(UpstreamModel.upstream_id) == 0)
+        )
+        await self.session.execute(delete(Model).where(Model.id.in_(orphan_model_ids)))
         await self.session.delete(upstream)
         await self.session.commit()
 

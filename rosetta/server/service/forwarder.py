@@ -311,6 +311,8 @@ class Forwarder:
         extra_response_headers: dict[str, str] | None = None,
         client_api_key: str | None = None,
         client_addr: str | None = None,
+        alias: str | None = None,
+        rewrite_model_to: str | None = None,
         rewrite_model_to_upstream: bool = False,
     ) -> Response:
         """把请求按格式翻译(必要时)+ 转发到上游。
@@ -340,20 +342,24 @@ class Forwarder:
             ) and upstream.model
             max_tokens_field = self._max_tokens_field_for(server_api)
             needs_max_tokens_fallback = body_dict.get(max_tokens_field) is None
-            rewrite_model = (
-                rewrite_model_to_upstream
-                and isinstance(raw_model, str)
-                and raw_model.strip()
-                and upstream.model
-                and raw_model != upstream.model
+            rewrite_target = rewrite_model_to
+            if rewrite_model_to_upstream:
+                rewrite_target = upstream.model
+            alias_model = (
+                isinstance(rewrite_target, str)
+                and rewrite_target.strip()
+                and raw_model != rewrite_target
             )
-            if needs_model_fallback or rewrite_model:
+            if alias_model:
+                body_dict["model"] = rewrite_target
+                raw_model = rewrite_target
+            elif needs_model_fallback:
                 body_dict["model"] = upstream.model
                 raw_model = upstream.model
             if needs_max_tokens_fallback:
                 body_dict[max_tokens_field] = _DEFAULT_MAX_TOKENS
 
-            if needs_model_fallback or needs_max_tokens_fallback or rewrite_model:
+            if alias_model or needs_model_fallback or needs_max_tokens_fallback:
                 body = json.dumps(body_dict, ensure_ascii=False).encode("utf-8")
 
             if isinstance(raw_model, str):

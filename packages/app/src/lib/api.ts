@@ -82,6 +82,15 @@ export interface UpstreamOut {
 
 export type ModelDefaultsOut = Record<string, string>;
 
+export interface ModelOut {
+  id: string;
+  name: string;
+  alias: string | null;
+  enabled: boolean;
+  upstreams: string;
+  has_default: boolean;
+}
+
 export interface UpstreamProbeOut {
   ok: boolean;
   upstream_id: string;
@@ -131,11 +140,7 @@ export interface SetupConfigOut {
   language: "toml" | "json";
   backup_path: string | null;
   model: string | null;
-  model_alias: string | null;
-}
-export interface SetupAliasOut {
-  target: SetupTarget;
-  alias: string;
+  alias: string | null;
 }
 export interface RestoreMockResult {
   created: boolean;
@@ -263,16 +268,22 @@ export const api = {
   listModelDefaults(): Promise<ModelDefaultsOut> {
     return request("/admin/upstreams/model-defaults");
   },
-  listSetupAliases(id: string): Promise<SetupAliasOut[]> {
-    return request(`/admin/upstreams/${encodeURIComponent(id)}/setup-aliases`);
+  listModels(): Promise<ModelOut[]> {
+    return request("/admin/models");
   },
-  deleteSetupAlias(id: string, target: SetupTarget, alias: string): Promise<void> {
-    const q = new URLSearchParams({ alias });
-    return request(
-      `/admin/upstreams/${encodeURIComponent(id)}/setup-aliases/${target}?${q.toString()}`,
-      { method: "DELETE" },
-    );
-  },  testUpstream(id: string): Promise<UpstreamProbeOut> {
+  setModelAlias(modelName: string, alias: string | null): Promise<ModelOut> {
+    return request(`/admin/models/${encodeURIComponent(modelName)}/alias`, {
+      method: "PUT",
+      body: JSON.stringify({ alias }),
+    });
+  },
+  setModelEnabled(modelName: string, enabled: boolean): Promise<ModelOut> {
+    return request(`/admin/models/${encodeURIComponent(modelName)}/enabled`, {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    });
+  },
+  testUpstream(id: string): Promise<UpstreamProbeOut> {
     return request(`/admin/upstreams/${id}/test`, {
       method: "POST",
     });
@@ -334,17 +345,14 @@ export const api = {
   setupClear(target: SetupTarget): Promise<SetupConfigOut> {
     return request(`/admin/setup/${target}/clear`, { method: "POST" });
   },
-  setupPreview(target: SetupTarget, model: string, modelAlias?: string): Promise<SetupConfigOut> {
+  setupPreview(target: SetupTarget, model: string): Promise<SetupConfigOut> {
     const q = new URLSearchParams({ model });
-    if (modelAlias?.trim()) q.set("model_alias", modelAlias.trim());
     return request(`/admin/setup/${target}/preview?${q.toString()}`);
   },
-  setupApply(target: SetupTarget, model: string, modelAlias?: string): Promise<SetupConfigOut> {
-    const payload: { model: string; model_alias?: string } = { model };
-    if (modelAlias?.trim()) payload.model_alias = modelAlias.trim();
+  setupApply(target: SetupTarget, model: string): Promise<SetupConfigOut> {
     return request(`/admin/setup/${target}/apply`, {
       method: "POST",
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ model }),
     });
   },
   stats(period = "today"): Promise<StatsOut> {
@@ -357,4 +365,3 @@ export const api = {
     );
   },
 };
-

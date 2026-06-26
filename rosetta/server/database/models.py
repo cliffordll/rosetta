@@ -72,6 +72,28 @@ class Setting(Base):
     value: Mapped[str]
 
 
+class Model(Base):
+    __tablename__ = "models"
+
+    id: Mapped[str] = mapped_column(primary_key=True, default=_new_id)
+    name: Mapped[str] = mapped_column(unique=True)
+    alias: Mapped[str | None] = mapped_column(default=None)
+    enabled: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
+class UpstreamModel(Base):
+    __tablename__ = "upstream_models"
+
+    upstream_id: Mapped[str] = mapped_column(
+        ForeignKey("upstreams.id", ondelete="CASCADE"), primary_key=True
+    )
+    model_id: Mapped[str] = mapped_column(
+        ForeignKey("models.id", ondelete="CASCADE"), primary_key=True
+    )
+    is_default: Mapped[bool] = mapped_column(default=False)
+
+
 class LogEntry(Base):
     __tablename__ = "logs"
 

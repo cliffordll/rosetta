@@ -165,7 +165,7 @@ REPL 支持 slash 命令自动补全，输入 `/` 或命令参数时可用上下
 uv run rosetta upstream add --name anthropic-main --native-api messages --api-key sk-ant-XXX --base-url https://api.anthropic.com --model claude-haiku-4-5  # --model 必填
 uv run rosetta upstream update <id> --model claude-sonnet-4-5
 uv run rosetta upstream test <id>
-uv run rosetta models
+uv run rosetta model list
 uv run rosetta upstream default <upstream-id>
 uv run rosetta upstream defaults
 ```
@@ -176,7 +176,7 @@ uv run rosetta upstream defaults
 
 ```bash
 uv run rosetta setup preview codex --model <model>
-uv run rosetta setup apply codex --model <model> --model-alias <alias>
+uv run rosetta setup apply codex --model <model>
 uv run rosetta setup clear codex --yes
 ```
 
@@ -188,7 +188,7 @@ uv run rosetta setup command codex --model <model> --kind export --copy
 uv run rosetta setup command codex --kind cli
 ```
 
-`codex` 可替换为 `claude` 或 `opencode`。`--model-alias` 会写入客户端配置里的模型名；Rosetta 保存 `setup:<target> = <alias>` 作为下次进入 Setup 页的默认值，并保存 `setup:<target>:<alias> = <upstream-id>` 作为该客户端入口的数据面路由映射。
+`codex` 可替换为 `claude` 或 `opencode`。Setup 使用 `models.alias` 写入客户端配置里的模型名；模型别名通过 Web 的 Upstreams 模型表或 `rosetta model alias <model> <alias>` 设置。旧的 `setup:<target>:<alias>` 路由映射已废弃。
 
 ### 4.4 Logs
 

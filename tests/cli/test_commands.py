@@ -20,7 +20,7 @@ from typer.testing import CliRunner
 from rosetta.cli.__main__ import app
 from rosetta.cli.commands import chat as chat_mod
 from rosetta.cli.commands import logs as logs_mod
-from rosetta.cli.commands import models as models_mod
+from rosetta.cli.commands import model as model_mod
 from rosetta.cli.commands import upstream as upstream_mod
 
 runner = CliRunner()
@@ -54,13 +54,13 @@ def test_root_help() -> None:
     assert result.exit_code == 0
     # 关键子命令名都出现
     out = _plain(result.output)
-    for sub in ("status", "start", "stop", "upstream", "models", "logs", "stats", "chat"):
+    for sub in ("status", "start", "stop", "upstream", "model", "logs", "stats", "chat"):
         assert sub in out, f"--help 输出里缺少子命令 {sub!r}"
 
 
 @pytest.mark.parametrize(
     "sub",
-    ["status", "start", "stop", "upstream", "models", "logs", "stats", "chat"],
+    ["status", "start", "stop", "upstream", "model", "logs", "stats", "chat"],
 )
 @pytest.mark.parametrize("flag", ["--help", "-h"])
 def test_subcommand_help(sub: str, flag: str) -> None:
@@ -77,6 +77,11 @@ def test_root_help_accepts_short_and_long(flag: str) -> None:
 
 def test_unknown_subcommand_fails() -> None:
     result = runner.invoke(app, ["ghost-cmd"])
+    assert result.exit_code != 0
+
+
+def test_plural_models_subcommand_removed() -> None:
+    result = runner.invoke(app, ["models", "--help"])
     assert result.exit_code != 0
 
 
@@ -223,6 +228,8 @@ def test_upstream_default_uses_upstream_model(monkeypatch: pytest.MonkeyPatch) -
     assert captured["upstream_id"] == "u1"
     assert captured["model"] == "gpt-4o"
     assert captured["out"] == "model gpt-4o -> main"
+
+
 def test_upstream_model_defaults_renders_model_table(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
@@ -247,7 +254,8 @@ def test_upstream_model_defaults_renders_model_table(monkeypatch: pytest.MonkeyP
     assert captured["columns"] == ["model", "upstream"]
     assert captured["rows"] == [["gpt-4o", "oai"]]
 
-def test_models_renders_configured_models(monkeypatch: pytest.MonkeyPatch) -> None:
+
+def test_model_renders_configured_models(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
     class _FakeClient:
@@ -297,17 +305,16 @@ def test_models_renders_configured_models(monkeypatch: pytest.MonkeyPatch) -> No
         captured["rows"] = rows
         captured["kwargs"] = kwargs
 
-    monkeypatch.setattr(models_mod.ProxyClient, "discover_session", _discover_session)
-    monkeypatch.setattr(models_mod.Renderer, "table", _capture_table)
+    monkeypatch.setattr(model_mod.ProxyClient, "discover_session", _discover_session)
+    monkeypatch.setattr(model_mod.Renderer, "table", _capture_table)
 
-    asyncio.run(models_mod._models())
+    asyncio.run(model_mod._list_models())
 
-    assert captured["columns"] == ["model", "status", "default_upstream", "upstreams"]
+    assert captured["columns"] == ["model", "alias", "enabled", "upstreams", "default"]
     assert captured["rows"] == [
-        ["gpt-4o", "configured", "backup", "backup, primary"],
-        ["claude-haiku-4-5", "unique", "-", "solo"],
+        ["claude-haiku-4-5", "-", True, "solo", ""],
+        ["gpt-4o", "-", True, "backup, primary", "☆"],
     ]
-
 
 
 def test_upstream_test_renders_success(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -343,6 +350,8 @@ def test_upstream_test_renders_success(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "OK" in str(captured["msg"])
     assert "oai" in str(captured["msg"])
     assert "completions (/v1/chat/completions)" in str(captured["msg"])
+
+
 def test_logs_config_help_exists() -> None:
     result = runner.invoke(app, ["logs", "config", "--help"])
     assert result.exit_code == 0
@@ -797,18 +806,15 @@ def test_setup_preview_prints_original_and_generated(monkeypatch: pytest.MonkeyP
     assert "http://new" in raw_output
 
 
-def test_setup_preview_passes_model_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_setup_preview_passes_model(monkeypatch: pytest.MonkeyPatch) -> None:
     from rosetta.cli.commands import setup as setup_mod
 
     captured: dict[str, object] = {"out": [], "raw": []}
 
     class _FakeClient:
-        async def setup_preview(
-            self, target: str, *, model: str, model_alias: str | None = None
-        ) -> SimpleNamespace:
+        async def setup_preview(self, target: str, *, model: str) -> SimpleNamespace:
             captured["target"] = target
             captured["model"] = model
-            captured["model_alias"] = model_alias
             return SimpleNamespace(
                 target=target,
                 path="C:/config.toml",
@@ -817,6 +823,8 @@ def test_setup_preview_passes_model_alias(monkeypatch: pytest.MonkeyPatch) -> No
                 generated='model = "gpt-5-codex"\n',
                 language="toml",
                 backup_path=None,
+                model=model,
+                alias="gpt-5-codex",
             )
 
     @asynccontextmanager
@@ -827,15 +835,12 @@ def test_setup_preview_passes_model_alias(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(setup_mod.Renderer, "out", lambda value: captured["out"].append(str(value)))
     monkeypatch.setattr(setup_mod.Renderer, "raw", lambda value: captured["raw"].append(value))
 
-    result = runner.invoke(
-        app,
-        ["setup", "preview", "codex", "--model", "gpt-5", "--model-alias", "gpt-5-codex"],
-    )
+    result = runner.invoke(app, ["setup", "preview", "codex", "--model", "gpt-5"])
 
     assert result.exit_code == 0
     assert captured["target"] == "codex"
     assert captured["model"] == "gpt-5"
-    assert captured["model_alias"] == "gpt-5-codex"
+    assert "model_alias: gpt-5-codex" in captured["out"]
 
 
 def test_setup_apply_prints_backup_path(monkeypatch: pytest.MonkeyPatch) -> None:

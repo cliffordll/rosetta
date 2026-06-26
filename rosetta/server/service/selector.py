@@ -9,30 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from rosetta.server.database.models import Upstream
 from rosetta.server.repository import UpstreamRepo
 from rosetta.server.service.exceptions import ServiceError
-from rosetta.shared.server_api import ServerApi
 
 
 @dataclass(frozen=True)
 class UpstreamSelection:
     upstream: Upstream
-    rewrite_model_to_upstream: bool = False
-
-
-async def pick_upstream(
-    session: AsyncSession,
-    *,
-    header_upstream: str | None,
-    model: str | None,
-    setup_scope: str | None = None,
-) -> Upstream:
-    return (
-        await select_upstream(
-            session,
-            header_upstream=header_upstream,
-            model=model,
-            setup_scope=setup_scope,
-        )
-    ).upstream
+    alias: str | None = None
+    rewrite_model_to: str | None = None
 
 
 async def select_upstream(
@@ -40,9 +23,13 @@ async def select_upstream(
     *,
     header_upstream: str | None,
     model: str | None,
-    setup_scope: str | None = None,
 ) -> UpstreamSelection:
-    """按 r-upstream / model 三阶段选择 upstream。"""
+    """按 r-upstream header / model 选择 upstream。
+
+    路由优先级:
+    1. r-upstream header (精确指定 upstream id)
+    2. models JOIN upstream_models (取 is_default 排序的第一个 enabled upstream)
+    """
     repo = UpstreamRepo(session)
 
     if header_upstream:
@@ -62,49 +49,17 @@ async def select_upstream(
         return UpstreamSelection(upstream)
 
     if model:
-        default_id = await repo.default_model_upstream_id(model)
-        if default_id is not None:
-            upstream = await repo.get_by_id(default_id)
-            if upstream is not None and upstream.enabled:
-                rewrite = bool(upstream.model and upstream.model.strip() != model)
-                return UpstreamSelection(upstream, rewrite_model_to_upstream=rewrite)
-
-        setup_alias_id = (
-            await repo.setup_model_alias_upstream_id(setup_scope, model)
-            if setup_scope is not None
-            else None
-        )
-        if setup_alias_id is not None:
-            upstream = await repo.get_by_id(setup_alias_id)
-            if upstream is not None and upstream.enabled:
-                rewrite = bool(upstream.model and upstream.model.strip() != model)
-                return UpstreamSelection(upstream, rewrite_model_to_upstream=rewrite)
-
-        upstreams = await repo.get_by_model(model)
-        if len(upstreams) == 1:
-            return UpstreamSelection(upstreams[0])
-        if not upstreams:
+        upstream, alias, rewrite_model_to = await repo.select_upstream_by_model(model)
+        if upstream is None:
             raise ServiceError(
                 status=400,
                 code="no_upstream_for_model",
-                message=f"未找到 model='{model}' 对应的 upstream",
+                message=f"未找到 model='{model}' 对应的 upstream(模型可能被禁用)",
             )
-        raise ServiceError(
-            status=400,
-            code="model_ambiguous",
-            message=f"model='{model}' 匹配到多个 upstream,请配置 model 默认或传 r-upstream",
-        )
+        return UpstreamSelection(upstream, alias=alias, rewrite_model_to=rewrite_model_to)
 
     raise ServiceError(
         status=400,
         code="missing_routing_info",
         message="未传 r-upstream header 且请求 body 缺少 model,无法选择 upstream",
     )
-
-
-def setup_scope_for_server_api(server_api: ServerApi) -> str:
-    if server_api is ServerApi.RESPONSES:
-        return "codex"
-    if server_api is ServerApi.MESSAGES:
-        return "claude"
-    return "opencode"

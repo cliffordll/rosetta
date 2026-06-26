@@ -5,7 +5,8 @@
 - `rosetta status`
 - `rosetta start`
 - `rosetta stop`
-- `rosetta upstream {list,add,remove}`
+- `rosetta upstream {list,add,remove,default,defaults}`
+- `rosetta model {list,alias,enable,disable}`
 - `rosetta logs [-n N]`
 - `rosetta stats [period]`
 - `rosetta chat [text]`  # 一次性 / REPL
@@ -27,7 +28,7 @@ from rosetta.cli.commands import (
     logs as logs_mod,
 )
 from rosetta.cli.commands import (
-    models as models_mod,
+    model as model_mod,
 )
 from rosetta.cli.commands import (
     setup as setup_mod,
@@ -79,7 +80,7 @@ for mod in (
     status_mod,
     guide_mod,
     upstream_mod,
-    models_mod,
+    model_mod,
     chat_mod,
     setup_mod,
     stats_mod,

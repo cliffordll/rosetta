@@ -13,7 +13,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -29,13 +28,13 @@ import {
   clientConfigTargetLanguage,
   type ClientConfigTarget,
 } from "@/lib/client-config-snippets";
-import { api, type SetupConfigOut, type UpstreamOut } from "@/lib/api";
+import { api, type ModelOut, type SetupConfigOut, type UpstreamOut } from "@/lib/api";
 
 export default function Setup() {
   const [items, setItems] = useState<UpstreamOut[] | null>(null);
+  const [models, setModels] = useState<ModelOut[] | null>(null);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [configTarget, setConfigTarget] = useState<ClientConfigTarget>("codex");
-  const [modelAlias, setModelAlias] = useState("");
   const [localConfig, setLocalConfig] = useState<SetupConfigOut | null>(null);
   const [preview, setPreview] = useState<SetupConfigOut | null>(null);
   const [loadingLocal, setLoadingLocal] = useState(false);
@@ -52,12 +51,14 @@ export default function Setup() {
   const load = useCallback(async () => {
     setLoadErr(null);
     try {
-      const list = await api.listUpstreams();
+      const [list, modelList] = await Promise.all([api.listUpstreams(), api.listModels()]);
       const ordered = [...list].reverse();
       setItems(ordered);
+      setModels(modelList);
     } catch (e) {
       setLoadErr(e instanceof Error ? e.message : String(e));
       setItems([]);
+      setModels([]);
     }
   }, []);
 
@@ -72,7 +73,6 @@ export default function Setup() {
         const result = await api.setupCurrent(target);
         setLocalConfig(result);
         setSelectedModel(result.model ?? null);
-        setModelAlias(result.model_alias ?? "");
         setPreview(result.generated ? result : null);
       } catch (e) {
         // 左侧面板只是辅助信息，读本地文件失败不阻断整个页面
@@ -85,7 +85,7 @@ export default function Setup() {
   );
 
   const loadPreviewConfig = useCallback(
-    async (target: ClientConfigTarget, modelValue: string | null, modelAliasValue: string) => {
+    async (target: ClientConfigTarget, modelValue: string | null) => {
       if (!modelValue) {
         setPreview(null);
         return;
@@ -93,7 +93,7 @@ export default function Setup() {
       setInfo(null);
       setLoadErr(null);
       try {
-        const result = await api.setupPreview(target, modelValue, modelAliasValue);
+        const result = await api.setupPreview(target, modelValue);
         setPreview(result);
       } catch (e) {
         setPreview(null);
@@ -109,8 +109,8 @@ export default function Setup() {
   }, [configTarget, loadLocalConfig]);
 
   useEffect(() => {
-    void loadPreviewConfig(configTarget, selectedModel, modelAlias);
-  }, [modelAlias, configTarget, loadPreviewConfig, selectedModel]);
+    void loadPreviewConfig(configTarget, selectedModel);
+  }, [configTarget, loadPreviewConfig, selectedModel]);
 
   function syncConfigScroll(
     source: HTMLPreElement,
@@ -170,17 +170,10 @@ export default function Setup() {
     setLoadErr(null);
     setApplying(true);
     try {
-      const trimmedModelAlias = modelAlias.trim();
-      const result = await api.setupApply(configTarget, selectedModel, trimmedModelAlias || undefined);
+      const result = await api.setupApply(configTarget, selectedModel);
       setPreview(result);
       setLocalConfig({ ...result, exists: true, original: result.generated });
-      setInfo(
-        result.backup_path
-          ? `Applied. Backup: ${result.backup_path}`
-          : trimmedModelAlias
-            ? `Applied. Alias ${trimmedModelAlias} updated`
-            : "Applied",
-      );
+      setInfo(result.backup_path ? `Applied. Backup: ${result.backup_path}` : "Applied");
     } catch (e) {
       setLoadErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -194,14 +187,14 @@ export default function Setup() {
   );
   const modelOptions = useMemo(() => {
     const seen = new Set<string>();
-    const models: string[] = [];
-    for (const item of items ?? []) {
-      if (!item.model || seen.has(item.model)) continue;
-      seen.add(item.model);
-      models.push(item.model);
+    const options: ModelOut[] = [];
+    for (const item of models ?? []) {
+      if (!item.enabled || seen.has(item.name)) continue;
+      seen.add(item.name);
+      options.push(item);
     }
-    return models;
-  }, [items]);
+    return options;
+  }, [models]);
   const selectedUpstream = useMemo(
     () => items?.find((item) => item.model === selectedModel) ?? null,
     [items, selectedModel],
@@ -287,37 +280,26 @@ export default function Setup() {
             </div>
           </div>
 
-          {/* 右侧：upstream 选择器 + Generated config */}
+          {/* 右侧：model 选择器 + Generated config */}
           <div className="flex flex-col gap-3 min-h-0">
-            <div className="grid gap-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="shrink-0 whitespace-nowrap text-sm text-muted-foreground">model</span>
-                <div className="min-w-0 flex-1">
-                  <Select
-                    value={selectedModel ?? ""}
-                    onValueChange={(value) => setSelectedModel(value || null)}
-                  >
-                    <SelectTrigger size="sm" className="h-8 w-full text-xs">
-                      <SelectValue placeholder="Select model" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {modelOptions.map((model) => (
-                        <SelectItem key={model} value={model}>
-                          {model}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="shrink-0 whitespace-nowrap text-sm text-muted-foreground">model alias</span>
-                <Input
-                  value={modelAlias}
-                  onChange={(event) => setModelAlias(event.target.value)}
-                  placeholder={selectedUpstream?.model || "same as upstream"}
-                  className="h-8 min-w-0 text-xs"
-                />
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="shrink-0 whitespace-nowrap text-sm text-muted-foreground">model</span>
+              <div className="min-w-0 flex-1">
+                <Select
+                  value={selectedModel ?? ""}
+                  onValueChange={(value) => setSelectedModel(value || null)}
+                >
+                  <SelectTrigger size="sm" className="h-8 w-full text-xs">
+                    <SelectValue placeholder="Select model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {modelOptions.map((model) => (
+                      <SelectItem key={model.id} value={model.name}>
+                        {formatModelOption(model)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="flex-1 flex flex-col min-h-0">
@@ -518,6 +500,9 @@ interface SetupCommandOption {
   label: string;
   display: string;
   command: string;
+}
+function formatModelOption(model: ModelOut): string {
+  return model.alias ? `${model.name} (${model.alias})` : model.name;
 }
 function maskApiKeyValue(value: string): string {
   if (!value || value === "rosetta-local") return value || "-";

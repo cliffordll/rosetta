@@ -133,34 +133,76 @@ async def test_list_model_defaults(
     assert captured["request"].url.path == "/admin/upstreams/model-defaults"
 
 
-async def test_list_setup_aliases(
+async def test_list_models(
     echo_client: tuple[ProxyClient, dict[str, Any]],
 ) -> None:
     client, captured = echo_client
     captured["response"] = httpx.Response(
         200,
-        json=[{"target": "codex", "alias": "gpt-5.5"}],
+        json=[
+            {
+                "id": "m1",
+                "name": "gpt-5",
+                "alias": "gpt-5-codex",
+                "enabled": True,
+                "upstreams": "u1",
+                "has_default": True,
+            }
+        ],
     )
 
-    aliases = await client.list_setup_aliases("u1")
+    models = await client.list_models()
 
-    assert aliases[0].target == "codex"
-    assert aliases[0].alias == "gpt-5.5"
+    assert models[0].name == "gpt-5"
+    assert models[0].alias == "gpt-5-codex"
     assert captured["request"].method == "GET"
-    assert captured["request"].url.path == "/admin/upstreams/u1/setup-aliases"
+    assert captured["request"].url.path == "/admin/models"
 
 
-async def test_delete_setup_alias(
+async def test_set_model_alias(
     echo_client: tuple[ProxyClient, dict[str, Any]],
 ) -> None:
     client, captured = echo_client
-    captured["response"] = httpx.Response(204)
+    captured["response"] = httpx.Response(
+        200,
+        json={
+            "id": "m1",
+            "name": "gpt-5",
+            "alias": "gpt-5-codex",
+            "enabled": True,
+            "upstreams": "u1",
+            "has_default": True,
+        },
+    )
 
-    await client.delete_setup_alias("u1", target="codex", alias="gpt-5.5")
+    updated = await client.set_model_alias("gpt-5", "gpt-5-codex")
 
-    assert captured["request"].method == "DELETE"
-    assert captured["request"].url.path == "/admin/upstreams/u1/setup-aliases/codex"
-    assert captured["request"].url.params["alias"] == "gpt-5.5"
+    assert updated.alias == "gpt-5-codex"
+    assert captured["request"].method == "PUT"
+    assert captured["request"].url.path == "/admin/models/gpt-5/alias"
+
+
+async def test_set_model_enabled(
+    echo_client: tuple[ProxyClient, dict[str, Any]],
+) -> None:
+    client, captured = echo_client
+    captured["response"] = httpx.Response(
+        200,
+        json={
+            "id": "m1",
+            "name": "gpt-5",
+            "alias": None,
+            "enabled": False,
+            "upstreams": "u1",
+            "has_default": True,
+        },
+    )
+
+    updated = await client.set_model_enabled("gpt-5", False)
+
+    assert updated.enabled is False
+    assert captured["request"].method == "PUT"
+    assert captured["request"].url.path == "/admin/models/gpt-5/enabled"
 
 async def test_test_upstream(
     echo_client: tuple[ProxyClient, dict[str, Any]],
@@ -619,4 +661,3 @@ async def test_setup_clear(echo_client: tuple[ProxyClient, dict[str, Any]]) -> N
     assert result.backup_path == "C:/Users/me/.codex/config.toml.bak-20260625-153000"
     assert captured["request"].method == "POST"
     assert captured["request"].url.path == "/admin/setup/codex/clear"
-

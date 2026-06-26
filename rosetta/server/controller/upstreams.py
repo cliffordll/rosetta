@@ -1,4 +1,4 @@
-"""/admin/upstreams 管理端点:list / create / update / delete / model-default / restore-mock。"""
+"""/admin/upstreams 管理端点。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import sys
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Literal, cast
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -18,17 +18,12 @@ from rosetta.server.service.forwarder import forwarder
 
 router = APIRouter()
 
-# 测试结果缓存: upstream_id → "ok" | "fail"
 _test_results: dict[str, str] = {}
 
-# 用户可创建的 native_api 值域:不含 `any`(any 专供 mock 占位,DB seed / restore-mock 才写)
 UpstreamNativeApiCreatable = Literal["messages", "completions", "responses"]
-SetupAliasTarget = Literal["codex", "claude", "opencode"]
 
 
 class UpstreamCreate(BaseModel):
-    # `model` 字段名与 Pydantic v2 内部 `model_*` 命名空间无前缀冲突,
-    # 但要显式关掉 protected_namespaces 抑制 warning
     model_config = ConfigDict(protected_namespaces=())
 
     name: str
@@ -78,7 +73,6 @@ class UpstreamUpdate(BaseModel):
 
 
 class UpstreamOut(BaseModel):
-    # 不暴露 api_key 字段
     model_config = ConfigDict(from_attributes=True, protected_namespaces=())
 
     id: str
@@ -93,13 +87,24 @@ class UpstreamOut(BaseModel):
     test_result: str | None = None
 
 
-class SetupAliasOut(BaseModel):
-    target: SetupAliasTarget
-    alias: str
+class ModelOut(BaseModel):
+    id: str
+    name: str
+    alias: str | None = None
+    enabled: bool = True
+    upstreams: str = ""
+    has_default: bool = False
+
+
+class ModelAliasIn(BaseModel):
+    alias: str | None = None
+
+
+class ModelEnabledIn(BaseModel):
+    enabled: bool
+
 
 class RestoreMockOut(BaseModel):
-    """restore-mock 结果:`created` 表"本次是否真的插入";幂等场景可能为 False。"""
-
     created: bool
     upstream: UpstreamOut
 
@@ -143,6 +148,42 @@ async def get_model_defaults(repo: UpstreamRepoDep) -> dict[str, str]:
     return await repo.list_model_defaults()
 
 
+@router.get("/models", response_model=list[ModelOut])
+async def list_models(repo: UpstreamRepoDep) -> list[ModelOut]:
+    models = await repo.list_models()
+    return [ModelOut.model_validate(m) for m in models]
+
+
+@router.put("/models/{model_name}/alias", response_model=ModelOut)
+async def set_model_alias(
+    model_name: str, payload: ModelAliasIn, repo: UpstreamRepoDep
+) -> ModelOut:
+    try:
+        await repo.set_model_alias(model_name, payload.alias)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    models = await repo.list_models()
+    for m in models:
+        if m["name"] == model_name:
+            return ModelOut.model_validate(m)
+    raise HTTPException(status_code=404, detail=f"model={model_name!r} not found after update")
+
+
+@router.put("/models/{model_name}/enabled", response_model=ModelOut)
+async def set_model_enabled(
+    model_name: str, payload: ModelEnabledIn, repo: UpstreamRepoDep
+) -> ModelOut:
+    try:
+        await repo.set_model_enabled(model_name, payload.enabled)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    models = await repo.list_models()
+    for m in models:
+        if m["name"] == model_name:
+            return ModelOut.model_validate(m)
+    raise HTTPException(status_code=404, detail=f"model={model_name!r} not found after update")
+
+
 @router.post("/upstreams", response_model=UpstreamOut, status_code=status.HTTP_201_CREATED)
 async def create_upstream(
     payload: UpstreamCreate,
@@ -163,6 +204,10 @@ async def create_upstream(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"upstream name '{payload.name}' 已存在",
         ) from e
+    # Auto-create model and link
+    model_id = await repo.get_or_create_model(payload.model)
+    await repo.set_upstream_model(upstream.id, model_id, is_default=True)
+    await repo.unset_other_defaults(payload.model, upstream.id)
     return UpstreamOut.model_validate(upstream)
 
 
@@ -172,14 +217,12 @@ async def update_upstream(
     payload: UpstreamUpdate,
     repo: UpstreamRepoDep,
 ) -> UpstreamOut:
-    """部分更新 upstream;未传字段不动,`api_key` 可传 null 清空,`model` 不能清空。"""
     fields = payload.model_dump(exclude_unset=True)
     if not fields:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="UpstreamUpdate 必须至少提供一个字段",
         )
-    # api_key 要区分"未传(保留)"和"传 null(清空)";model 只允许更新为非空字符串。
     api_key_arg = fields.get("api_key", ...)
     model_arg = fields.get("model", ...)
     if model_arg is None:
@@ -194,8 +237,8 @@ async def update_upstream(
             native_api=fields.get("native_api"),
             provider=fields.get("provider"),
             base_url=fields.get("base_url"),
-            api_key=api_key_arg,  # type: ignore[arg-type]
-            model=model_arg,  # type: ignore[arg-type]
+            api_key=api_key_arg,
+            model=model_arg,
             enabled=fields.get("enabled"),
         )
     except LookupError as e:
@@ -208,6 +251,13 @@ async def update_upstream(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"upstream name '{fields.get('name')}' 已存在",
         ) from e
+
+    # If model was updated, sync upstream_models
+    if model_arg is not ... and model_arg is not None:
+        model_id = await repo.get_or_create_model(model_arg)
+        await repo.set_upstream_model(upstream_id, model_id, is_default=True)
+        await repo.unset_other_defaults(model_arg, upstream_id)
+
     return UpstreamOut.model_validate(upstream)
 
 
@@ -216,11 +266,6 @@ async def restore_mock_upstream(
     repo: UpstreamRepoDep,
     force: bool = False,
 ) -> RestoreMockOut:
-    """恢复内置 mock upstream。幂等;`?force=true` 则先删除再重建。
-
-    用途:开发时误删 mock / 想把它恢复到出厂配置。路由不在 `/{upstream_id}` 之前
-    注册,避免被通配路径吞掉。
-    """
     created, upstream = await repo.restore_mock(force=force)
     return RestoreMockOut(
         created=created,
@@ -234,54 +279,17 @@ async def set_model_default_upstream(
     repo: UpstreamRepoDep,
     model: Annotated[str, Query(min_length=1)],
 ) -> UpstreamOut:
-    """把 `upstream_id` 设为指定 model 的默认 upstream。"""
-    try:
-        upstream = await repo.set_model_default(upstream_id, model)
-    except LookupError as e:
+    upstream = await repo.get_by_id(upstream_id)
+    if upstream is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"upstream id={upstream_id} 不存在",
-        ) from e
+        )
+    model_id = await repo.get_or_create_model(model)
+    await repo.set_upstream_model(upstream_id, model_id, is_default=True)
+    await repo.unset_other_defaults(model, upstream_id)
     return UpstreamOut.model_validate(upstream)
 
-
-@router.get("/upstreams/{upstream_id}/setup-aliases", response_model=list[SetupAliasOut])
-async def list_setup_aliases(upstream_id: str, repo: UpstreamRepoDep) -> list[SetupAliasOut]:
-    upstream = await repo.get_by_id(upstream_id)
-    if upstream is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"upstream id={upstream_id} 不存在",
-        )
-    return [
-        SetupAliasOut(target=cast(SetupAliasTarget, target), alias=alias)
-        for target, alias in await repo.list_setup_model_aliases(upstream_id)
-    ]
-
-
-@router.delete(
-    "/upstreams/{upstream_id}/setup-aliases/{target}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-async def delete_setup_alias(
-    upstream_id: str,
-    target: SetupAliasTarget,
-    repo: UpstreamRepoDep,
-    alias: Annotated[str, Query(min_length=1)],
-) -> Response:
-    upstream = await repo.get_by_id(upstream_id)
-    if upstream is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"upstream id={upstream_id} 不存在",
-        )
-    deleted = await repo.delete_setup_model_alias(upstream_id, target, alias)
-    if not deleted:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"setup alias {target}:{alias} 不存在",
-        )
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @router.post("/upstreams/{upstream_id}/test", response_model=UpstreamProbeOut)
 async def test_upstream(upstream_id: str, repo: UpstreamRepoDep) -> UpstreamProbeOut:
@@ -298,10 +306,6 @@ async def test_upstream(upstream_id: str, repo: UpstreamRepoDep) -> UpstreamProb
 
 @router.delete("/upstreams/{upstream_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_upstream(upstream_id: str, repo: UpstreamRepoDep) -> Response:
-    """删 upstream(logs.upstream_id 保留,字段 nullable)。
-
-    历史 logs 保留 upstream_id 作为死引用(FK 未强制),Logs 页显示时兜底。
-    """
     upstream = await repo.get_by_id(upstream_id)
     if upstream is None:
         raise HTTPException(
@@ -341,7 +345,6 @@ def _client_guide_path(filename: str) -> Path | None:
 
 @router.get("/upstreams/guide/{client}")
 async def get_client_guide(client: str) -> ClientGuideOut:
-    """Return client guide doc content for supported clients."""
     filename = _CLIENT_GUIDES.get(client.lower())
     if filename is None:
         raise HTTPException(status_code=404, detail=f"unknown client: {client}")

@@ -5,7 +5,6 @@ import {
   Eye,
   EyeOff,
   PenBoxIcon,
-  SaveIcon,
   Trash2Icon,
 } from "lucide-react";
 import {
@@ -59,6 +58,7 @@ import {
   api,
   serverApiLabel,
   type ModelDefaultsOut,
+  type ModelOut,
   type UpstreamCreate,
   type UpstreamOut,
   type UpstreamNativeApi,
@@ -119,20 +119,22 @@ const MIN_UPSTREAM_COLUMN_WIDTHS: UpstreamColumnWidths = {
   actions: 13,
 };
 
-const MODEL_DEFAULT_COLUMNS = ["model", "status", "current_default", "upstream", "action"] as const;
+const MODEL_DEFAULT_COLUMNS = ["model", "alias", "status", "current_default", "upstream", "action"] as const;
 type ModelDefaultColumn = (typeof MODEL_DEFAULT_COLUMNS)[number];
 type ModelDefaultWidths = Record<ModelDefaultColumn, number>;
 
 const DEFAULT_MODEL_DEFAULT_WIDTHS: ModelDefaultWidths = {
-  model: 22,
-  status: 12,
-  current_default: 22,
-  upstream: 30,
+  model: 18,
+  alias: 18,
+  status: 10,
+  current_default: 18,
+  upstream: 28,
   action: 8,
 };
 
 const MIN_MODEL_DEFAULT_WIDTHS: ModelDefaultWidths = {
   model: 10,
+  alias: 10,
   status: 8,
   current_default: 10,
   upstream: 15,
@@ -142,13 +144,14 @@ const MIN_MODEL_DEFAULT_WIDTHS: ModelDefaultWidths = {
 export default function Upstreams() {
   const [items, setItems] = useState<UpstreamOut[] | null>(null);
   const [modelDefaults, setModelDefaults] = useState<ModelDefaultsOut | null>(null);
-  const [modelDefaultDrafts, setModelDefaultDrafts] = useState<Record<string, string>>({});
+  const [models, setModels] = useState<ModelOut[] | null>(null);
   const [savingModel, setSavingModel] = useState<string | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [openAdd, setOpenAdd] = useState(false);
   const [toEdit, setToEdit] = useState<UpstreamOut | null>(null);
   const [toCopy, setToCopy] = useState<UpstreamOut | null>(null);
   const [toDelete, setToDelete] = useState<UpstreamOut | null>(null);
+  const [modelToEdit, setModelToEdit] = useState<ModelUpstreamGroup | null>(null);
   const [restoringMock, setRestoringMock] = useState(false);
   const [testingUpstreamId, setTestingUpstreamId] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -170,19 +173,20 @@ export default function Upstreams() {
   const load = useCallback(async () => {
     setLoadErr(null);
     try {
-      const [list, bindings] = await Promise.all([
+      const [list, bindings, modelList] = await Promise.all([
         api.listUpstreams(),
         api.listModelDefaults(),
+        api.listModels(),
       ]);
       const ordered = [...list].reverse();
       setItems(ordered);
       setModelDefaults(bindings);
-      setModelDefaultDrafts(modelDefaultsToDrafts(ordered, bindings));
+      setModels(modelList);
     } catch (e) {
       setLoadErr(e instanceof Error ? e.message : String(e));
       setItems([]);
       setModelDefaults(null);
-      setModelDefaultDrafts({});
+      setModels(null);
     }
   }, []);
 
@@ -256,16 +260,25 @@ export default function Upstreams() {
     [items, modelDefaults],
   );
 
-  async function handleSaveModelDefault(model: string) {
-    const nextUpstreamId = modelDefaultDrafts[model];
-    if (!nextUpstreamId) return;
+  async function handleSaveModelConfig(model: string, upstreamId: string | null, alias: string) {
+    const current = models?.find((item) => item.name === model);
+    const currentAlias = current?.alias ?? "";
+    const nextAlias = alias.trim();
+    const currentDefault = modelDefaults?.[model] ?? "";
+    const nextDefault = upstreamId ?? "";
 
     setInfo(null);
     setLoadErr(null);
     setSavingModel(model);
     try {
-      const updated = await api.setModelDefaultUpstream(nextUpstreamId, model);
-      setInfo(`model default ${model} -> ${updated.name}`);
+      if (nextAlias !== currentAlias) {
+        await api.setModelAlias(model, nextAlias || null);
+      }
+      if (nextDefault && nextDefault !== currentDefault) {
+        await api.setModelDefaultUpstream(nextDefault, model);
+      }
+      setInfo(`model ${model} updated`);
+      setModelToEdit(null);
       await load();
     } catch (e) {
       setLoadErr(e instanceof Error ? e.message : String(e));
@@ -273,7 +286,6 @@ export default function Upstreams() {
       setSavingModel(null);
     }
   }
-
   async function handleRestoreMock() {
     setInfo(null);
     setLoadErr(null);
@@ -348,12 +360,9 @@ export default function Upstreams() {
               {modelDefaults && (
                 <ModelDefaultsPanel
                   groups={modelGroups}
-                  drafts={modelDefaultDrafts}
+                  models={models ?? []}
                   savingModel={savingModel}
-                  onDraftChange={(model, name) =>
-                    setModelDefaultDrafts((current) => ({ ...current, [model]: name }))
-                  }
-                  onSave={(model) => void handleSaveModelDefault(model)}
+                  onEdit={setModelToEdit}
                 />
               )}
             </div>
@@ -562,6 +571,16 @@ export default function Upstreams() {
           await load();
         }}
       />
+      <ModelConfigDialog
+        group={modelToEdit}
+        model={models?.find((item) => item.name === modelToEdit?.model) ?? null}
+        open={modelToEdit !== null}
+        saving={savingModel === modelToEdit?.model}
+        onOpenChange={(open) => !open && setModelToEdit(null)}
+        onSubmit={(model, upstreamId, alias) =>
+          void handleSaveModelConfig(model, upstreamId, alias)
+        }
+      />
 
       <UpstreamFormDialog
         mode="edit"
@@ -644,16 +663,14 @@ function ResizableUpstreamHead({
 
 function ModelDefaultsPanel({
   groups,
-  drafts,
+  models,
   savingModel,
-  onDraftChange,
-  onSave,
+  onEdit,
 }: {
   groups: ModelUpstreamGroup[];
-  drafts: Record<string, string>;
+  models: ModelOut[];
   savingModel: string | null;
-  onDraftChange: (model: string, upstreamId: string) => void;
-  onSave: (model: string) => void;
+  onEdit: (group: ModelUpstreamGroup) => void;
 }) {
   const [mdColWidths, setMdColWidths] = useState<ModelDefaultWidths>(DEFAULT_MODEL_DEFAULT_WIDTHS);
   const mdResizeRef = useRef<{
@@ -736,8 +753,55 @@ function ModelDefaultsPanel({
     );
   }
 
+  const modelByName = new Map(models.map((model) => [model.name, model]));
   const duplicateGroups = groups.filter((group) => group.upstreams.length > 1);
   const singleGroups = groups.filter((group) => group.upstreams.length === 1);
+  const orderedGroups = [...duplicateGroups, ...singleGroups];
+
+  function renderRow(group: ModelUpstreamGroup) {
+    const model = modelByName.get(group.model);
+    const defaultUpstream = group.upstreams.find(
+      (upstream) => upstream.id === group.defaultUpstreamId,
+    );
+    const uniqueUpstream = group.upstreams.length === 1 ? group.upstreams[0] : null;
+    const currentUpstream = defaultUpstream ?? uniqueUpstream;
+    const needsDefault = group.upstreams.length > 1 && !group.defaultUpstreamId;
+    const saving = savingModel === group.model;
+
+    return (
+      <TableRow key={group.model}>
+        <TableCell className={TABLE_TECH} title={group.model}>
+          {group.model}
+        </TableCell>
+        <TableCell className={TABLE_TEXT} title={model?.alias ?? ""}>
+          {model?.alias || "-"}
+        </TableCell>
+        <TableCell className={TABLE_CELL}>
+          <Badge variant={needsDefault ? "destructive" : "outline"}>
+            {needsDefault ? "required" : group.upstreams.length > 1 ? "configured" : "unique"}
+          </Badge>
+        </TableCell>
+        <TableCell className={TABLE_TEXT} title={currentUpstream?.name ?? ""}>
+          {currentUpstream?.name ?? "-"}
+        </TableCell>
+        <TableCell className={TABLE_TEXT} title={group.upstreams.map(formatUpstreamOptionLabel).join("\n")}>
+          {group.upstreams.map((upstream) => upstream.name).join(", ")}
+        </TableCell>
+        <TableCell className={`${TABLE_CELL} text-right`}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="hover:bg-muted-foreground/15"
+            title={saving ? "Saving..." : `Edit ${group.model}`}
+            disabled={saving}
+            onClick={() => onEdit(group)}
+          >
+            <PenBoxIcon />
+          </Button>
+        </TableCell>
+      </TableRow>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -746,7 +810,7 @@ function ModelDefaultsPanel({
           Model defaults
         </h2>
         <p className={FORM_LABEL_HINT}>
-          无 r-upstream 时按 body.model 匹配 upstream；同一个 model 对应多个 upstream 时，必须在这里指定默认 upstream。
+          无 r-upstream 时按 body.model 匹配 upstream；同一个 model 对应多个 upstream 时，必须设置默认 upstream。
         </p>
       </div>
       <div className="relative min-h-0 flex-1 overflow-auto rounded-lg border border-border">
@@ -763,85 +827,18 @@ function ModelDefaultsPanel({
           </colgroup>
           <TableHeader className="sticky top-0 z-20">
             <TableRow className="bg-muted/45 hover:bg-muted/45">
-              <MdResizableHead label="model" left="model" right="status" />
+              <MdResizableHead label="model" left="model" right="alias" />
+              <MdResizableHead label="alias" left="alias" right="status" />
               <MdResizableHead label="status" left="status" right="current_default" />
               <MdResizableHead label="current default" left="current_default" right="upstream" />
-              <MdResizableHead label="upstream" left="upstream" right="action" />
+              <MdResizableHead label="upstreams" left="upstream" right="action" />
               <TableHead className="bg-muted text-right select-none" style={{ width: `${mdColWidths["action"]}%` }}>
                 action
               </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody className="[&_tr:last-child]:border-b [&_tr]:h-10">
-            {duplicateGroups.map((group) => {
-              const draft = drafts[group.model] ?? "";
-              const unchanged = draft === (group.defaultUpstreamId ?? "");
-              const saving = savingModel === group.model;
-              return (
-                <TableRow key={group.model}>
-                  <TableCell className={TABLE_TECH} title={group.model}>
-                    {group.model}
-                  </TableCell>
-                  <TableCell className={TABLE_CELL}>
-                    <Badge variant={group.defaultUpstreamId ? "outline" : "destructive"}>
-                      {group.defaultUpstreamId ? "configured" : "required"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className={TABLE_TEXT}>
-                    {group.upstreams.find((upstream) => upstream.id === group.defaultUpstreamId)?.name ?? "-"}
-                  </TableCell>
-                  <TableCell className={TABLE_CELL}>
-                    <Select
-                      value={draft || undefined}
-                      onValueChange={(value) => onDraftChange(group.model, value)}
-                    >
-                      <SelectTrigger size="sm" className="h-7 text-xs w-full">
-                        <SelectValue placeholder="Select upstream" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {group.upstreams.map((upstream) => (
-                          <SelectItem key={`${group.model}-${upstream.id}`} value={upstream.id}>
-                            {formatUpstreamOptionLabel(upstream)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                  <TableCell className={`${TABLE_CELL} text-right`}>
-                    <Button
-                      variant="outline"
-                      size="icon-sm"
-                      className="hover:bg-muted-foreground/15"
-                      title={saving ? "Saving…" : `Save ${group.model} default`}
-                      disabled={!draft || unchanged || saving}
-                      onClick={() => onSave(group.model)}
-                    >
-                      <SaveIcon />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-            {singleGroups.map((group) => {
-              const upstream = group.upstreams[0];
-              return (
-                <TableRow key={group.model}>
-                  <TableCell className={TABLE_TECH} title={group.model}>
-                    {group.model}
-                  </TableCell>
-                  <TableCell className={TABLE_CELL}>
-                    <Badge variant="outline">unique</Badge>
-                  </TableCell>
-                  <TableCell className={TABLE_TEXT}>
-                    {upstream.name}
-                  </TableCell>
-                  <TableCell className={TABLE_TEXT}>
-                    {formatUpstreamOptionLabel(upstream)}
-                  </TableCell>
-                  <TableCell className={`${TABLE_CELL} text-right`}>auto</TableCell>
-                </TableRow>
-              );
-            })}
+            {orderedGroups.map(renderRow)}
           </TableBody>
         </table>
       )}
@@ -850,6 +847,99 @@ function ModelDefaultsPanel({
   );
 }
 
+function ModelConfigDialog({
+  group,
+  model,
+  open,
+  saving,
+  onOpenChange,
+  onSubmit,
+}: {
+  group: ModelUpstreamGroup | null;
+  model: ModelOut | null;
+  open: boolean;
+  saving: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (model: string, upstreamId: string | null, alias: string) => void;
+}) {
+  const [alias, setAlias] = useState("");
+  const [defaultUpstreamId, setDefaultUpstreamId] = useState("");
+
+  useEffect(() => {
+    if (!open || !group) return;
+    setAlias(model?.alias ?? "");
+    setDefaultUpstreamId(group.defaultUpstreamId ?? (group.upstreams.length === 1 ? group.upstreams[0].id : ""));
+  }, [open, group, model]);
+
+  const canChooseDefault = (group?.upstreams.length ?? 0) > 1;
+  const selectedUpstream = group?.upstreams.find((upstream) => upstream.id === defaultUpstreamId);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit model</DialogTitle>
+          <DialogDescription>
+            {group?.model ?? ""}
+          </DialogDescription>
+        </DialogHeader>
+        {group && (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="model-alias" className={FORM_LABEL}>
+                alias <span className={FORM_LABEL_HINT}>(写入 Setup 生成的客户端 model)</span>
+              </Label>
+              <Input
+                id="model-alias"
+                value={alias}
+                onChange={(event) => setAlias(event.target.value)}
+                placeholder="same as model"
+                autoFocus
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="model-default-upstream" className={FORM_LABEL}>
+                default upstream <span className={FORM_LABEL_HINT}>(多个 upstream 共享 model 时生效)</span>
+              </Label>
+              {canChooseDefault ? (
+                <Select value={defaultUpstreamId || undefined} onValueChange={setDefaultUpstreamId}>
+                  <SelectTrigger id="model-default-upstream" className="w-full">
+                    <SelectValue placeholder="Select upstream" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {group.upstreams.map((upstream) => (
+                      <SelectItem key={`${group.model}-${upstream.id}`} value={upstream.id}>
+                        {formatUpstreamOptionLabel(upstream)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  id="model-default-upstream"
+                  value={selectedUpstream ? formatUpstreamOptionLabel(selectedUpstream) : "-"}
+                  readOnly
+                />
+              )}
+            </div>
+          </div>
+        )}
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={saving || !group || (canChooseDefault && !defaultUpstreamId)}
+            onClick={() => group && onSubmit(group.model, defaultUpstreamId || null, alias)}
+          >
+            {saving ? "Saving..." : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 function EmptyState({
   onAdd,
   onRestoreMock,
@@ -1174,16 +1264,4 @@ function formatDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString();
-}
-
-function modelDefaultsToDrafts(
-  upstreams: UpstreamOut[],
-  defaults: ModelDefaultsOut,
-): Record<string, string> {
-  const drafts: Record<string, string> = {};
-  for (const group of modelUpstreamGroups(upstreams, defaults)) {
-    if (group.upstreams.length <= 1) continue;
-    drafts[group.model] = group.defaultUpstreamId ?? "";
-  }
-  return drafts;
 }
