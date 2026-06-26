@@ -4,7 +4,7 @@
 ------------
 - server 模式(默认):通过本地 rosetta-server 转发;`--upstream` 指定上游,
   未给则不传 `r-upstream` header,server 按 body.model 匹配 upstream;同 model
-  多 upstream 时用 `rosetta upstream default --model ...` 指定默认。
+  多 upstream 时用 `rosetta upstream default <upstream-id>` 指定默认。
   `--model` 同样可选,留空时不发 `body.model`,server forwarder 用 `upstream.model`
   兜底(与 `--api-key` 行为对称)。
 - direct 模式:`--base-url` 给上游 API 前缀,绕过 server 直连;必须同时传

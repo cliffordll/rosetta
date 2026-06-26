@@ -29,25 +29,39 @@ app = typer.Typer(
 @app.command("preview")
 def preview_cmd(
     target: Annotated[str, typer.Argument(help="客户端: codex | claude | opencode")],
-    upstream_id: Annotated[str, typer.Option("--upstream", help="用于生成配置的 upstream id")],
+    model: Annotated[str, typer.Option("--model", help="用于生成配置的 model")],
+    model_alias: Annotated[
+        str | None,
+        typer.Option(
+            "--model-alias",
+            help="写入客户端配置的模型别名;保存为 setup 默认 alias 并建立 target-scoped 路由",
+        ),
+    ] = None,
 ) -> None:
     """显示原配置和基于 upstream 生成的新配置。"""
     setup_target = _parse_target(target)
     if setup_target is None:
         return
-    asyncio.run(_preview(setup_target, upstream_id))
+    asyncio.run(_preview(setup_target, model, model_alias=model_alias))
 
 
 @app.command("apply")
 def apply_cmd(
     target: Annotated[str, typer.Argument(help="客户端: codex | claude | opencode")],
-    upstream_id: Annotated[str, typer.Option("--upstream", help="用于生成配置的 upstream id")],
+    model: Annotated[str, typer.Option("--model", help="用于生成配置的 model")],
+    model_alias: Annotated[
+        str | None,
+        typer.Option(
+            "--model-alias",
+            help="写入客户端配置的模型别名;保存为 setup 默认 alias 并建立 target-scoped 路由",
+        ),
+    ] = None,
 ) -> None:
     """备份并写入本机客户端配置。"""
     setup_target = _parse_target(target)
     if setup_target is None:
         return
-    asyncio.run(_apply(setup_target, upstream_id))
+    asyncio.run(_apply(setup_target, model, model_alias=model_alias))
 
 
 @app.command("clear")
@@ -71,9 +85,9 @@ def clear_cmd(
 @app.command("command")
 def command_cmd(
     target: Annotated[str, typer.Argument(help="客户端: codex | claude | opencode")],
-    upstream_id: Annotated[
+    model: Annotated[
         str | None,
-        typer.Option("--upstream", help="用于读取 api_key 的 upstream id;省略则使用 rosetta-local"),
+        typer.Option("--model", help="用于读取 api_key 的 model;省略则使用 rosetta-local"),
     ] = None,
     kind: Annotated[
         str,
@@ -88,18 +102,18 @@ def command_cmd(
     command_kind = _parse_command_kind(kind)
     if command_kind is None:
         return
-    asyncio.run(_command(setup_target, upstream_id=upstream_id, kind=command_kind, copy=copy))
+    asyncio.run(_command(setup_target, model=model, kind=command_kind, copy=copy))
 
 
 async def _command(
     target: SetupTarget,
     *,
-    upstream_id: str | None,
+    model: str | None,
     kind: str,
     copy: bool,
 ) -> None:
     api_key = "rosetta-local"
-    if upstream_id:
+    if model:
         try:
             async with ProxyClient.discover_session(spawn_if_missing=False) as client:
                 upstreams = await client.list_upstreams()
@@ -109,9 +123,9 @@ async def _command(
         except httpx.HTTPStatusError as e:
             Renderer.die(f"upstream 列表读取失败: {e.response.status_code} {e.response.text}")
             return
-        upstream = _find_upstream(upstreams, upstream_id)
+        upstream = _find_upstream_by_model(upstreams, model)
         if upstream is None:
-            Renderer.die(f"upstream id={upstream_id} 不存在")
+            Renderer.die(f"model={model!r} 没有唯一可用 upstream")
             return
         api_key = upstream.api_key or "rosetta-local"
 
@@ -127,10 +141,12 @@ async def _command(
         Renderer.out(command)
 
 
-async def _preview(target: SetupTarget, upstream_id: str) -> None:
+async def _preview(target: SetupTarget, model: str, *, model_alias: str | None) -> None:
     try:
         async with ProxyClient.discover_session(spawn_if_missing=False) as client:
-            result = await client.setup_preview(target, upstream_id=upstream_id)
+            result = await client.setup_preview(
+                target, model=model, model_alias=model_alias
+            )
     except RuntimeError as e:
         Renderer.die(f"server 未就绪: {e}")
         return
@@ -140,10 +156,12 @@ async def _preview(target: SetupTarget, upstream_id: str) -> None:
     _render_preview(result)
 
 
-async def _apply(target: SetupTarget, upstream_id: str) -> None:
+async def _apply(target: SetupTarget, model: str, *, model_alias: str | None) -> None:
     try:
         async with ProxyClient.discover_session(spawn_if_missing=False) as client:
-            result = await client.setup_apply(target, upstream_id=upstream_id)
+            result = await client.setup_apply(
+                target, model=model, model_alias=model_alias
+            )
     except RuntimeError as e:
         Renderer.die(f"server 未就绪: {e}")
         return
@@ -200,8 +218,9 @@ def _shell_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
-def _find_upstream(upstreams: list[UpstreamOut], upstream_id: str) -> UpstreamOut | None:
-    return next((item for item in upstreams if item.id == upstream_id), None)
+def _find_upstream_by_model(upstreams: list[UpstreamOut], model: str) -> UpstreamOut | None:
+    matches = [item for item in upstreams if item.enabled and item.model == model]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _copy_to_clipboard(text: str) -> None:
@@ -232,6 +251,12 @@ def _run_clipboard_command(command: list[str], text: str) -> None:
 def _render_preview(result: SetupConfigOut) -> None:
     Renderer.out(f"target: {result.target}")
     Renderer.out(f"path: {result.path}")
+    model = getattr(result, "model", None)
+    model_alias = getattr(result, "model_alias", None)
+    if model:
+        Renderer.out(f"model: {model}")
+    if model_alias:
+        Renderer.out(f"model_alias: {model_alias}")
     Renderer.out("\n--- original ---")
     Renderer.raw(result.original or "(empty)")
     Renderer.out("\n--- generated ---")

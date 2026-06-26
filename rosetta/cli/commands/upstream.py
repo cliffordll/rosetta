@@ -82,6 +82,10 @@ def add_cmd(
     base_url: Annotated[
         str, typer.Option("--base-url", help="上游 API 前缀(必填;可含 /v1,不要填完整 endpoint)")
     ],
+    model: Annotated[
+        str,
+        typer.Option("--model", help="该 upstream 的真实模型名(必填)"),
+    ],
     native_api: Annotated[
         str,
         typer.Option(
@@ -93,13 +97,6 @@ def add_cmd(
         ),
     ] = "messages",
     api_key: Annotated[str | None, typer.Option("--api-key", help="上游 api key(可选)")] = None,
-    model: Annotated[
-        str | None,
-        typer.Option(
-            "--model",
-            help="该 upstream 的默认模型(可选);body 不传 model 时 server fallback 到这个",
-        ),
-    ] = None,
     provider: Annotated[
         str,
         typer.Option(
@@ -163,7 +160,7 @@ def update_cmd(
     ] = None,
     model: Annotated[
         str | None,
-        typer.Option("--model", help="新 default model(传值更新,留空不动)"),
+        typer.Option("--model", help="新 model(传值更新,不能清空)"),
     ] = None,
     enabled: Annotated[
         bool | None, typer.Option("--enabled/--disabled", help="启用 / 禁用 upstream")
@@ -237,24 +234,32 @@ async def _remove(upstream_id: str) -> None:
 
 @app.command("default")
 def default_cmd(
-    upstream_id: Annotated[str, typer.Argument(help="要设为 model 默认的 upstream id")],
-    model: Annotated[str, typer.Option("--model", help="模型名称")],
+    upstream_id: Annotated[str, typer.Argument(help="要设为其 model 默认路由的 upstream id")],
 ) -> None:
-    """把 upstream 设为某个 model 的默认路由。"""
-    asyncio.run(_model_default(upstream_id, model))
+    """把 upstream 设为其 model 的默认路由。"""
+    asyncio.run(_model_default(upstream_id))
 
 
-async def _model_default(upstream_id: str, model: str) -> None:
+async def _model_default(upstream_id: str) -> None:
     try:
         async with ProxyClient.discover_session(spawn_if_missing=False) as client:
-            updated = await client.set_model_default_upstream(upstream_id, model=model)
+            upstreams = await client.list_upstreams()
+            target = next((upstream for upstream in upstreams if upstream.id == upstream_id), None)
+            if target is None:
+                Renderer.die(f"upstream id={upstream_id} 不存在")
+                return
+            model = (target.model or "").strip()
+            if not model:
+                Renderer.die(f"upstream '{target.name}' 未配置 model")
+                return
+            upstream = await client.set_model_default_upstream(upstream_id, model=model)
     except httpx.HTTPStatusError as e:
-        Renderer.die(f"设置 model 默认失败: {e.response.status_code} {e.response.text}")
+        Renderer.die(f"设置 model 默认路由失败: {e.response.status_code} {e.response.text}")
         return
     except RuntimeError as e:
         Renderer.die(f"server 未就绪: {e}")
         return
-    Renderer.out(f"upstream '{updated.name}' is now default for model '{model}'")
+    Renderer.out(f"model {model} -> {upstream.name}")
 
 
 @app.command("defaults")

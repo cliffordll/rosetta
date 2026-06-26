@@ -33,6 +33,7 @@ from rosetta.server.controller.stats import Period, StatsOut
 from rosetta.server.controller.upstreams import (
     ClientGuideOut,
     RestoreMockOut,
+    SetupAliasOut,
     UpstreamCreate,
     UpstreamOut,
     UpstreamProbeOut,
@@ -134,6 +135,26 @@ class ProxyClient:
         items = cast(dict[str, Any], data)
         return {str(k): str(v) for k, v in items.items()}
 
+    async def list_setup_aliases(self, upstream_id: str) -> list[SetupAliasOut]:
+        self._require_server("list_setup_aliases")
+        resp = await self.http.get(
+            f"{self.base_url}/admin/upstreams/{upstream_id}/setup-aliases",
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
+        items = resp.json()
+        if not isinstance(items, list):
+            raise RuntimeError("GET /admin/upstreams/{id}/setup-aliases 返回非 list")
+        return [SetupAliasOut.model_validate(item) for item in cast(list[object], items)]
+
+    async def delete_setup_alias(self, upstream_id: str, *, target: str, alias: str) -> None:
+        self._require_server("delete_setup_alias")
+        resp = await self.http.delete(
+            f"{self.base_url}/admin/upstreams/{upstream_id}/setup-aliases/{target}",
+            params={"alias": alias},
+            timeout=_ADMIN_TIMEOUT,
+        )
+        resp.raise_for_status()
     async def test_upstream(self, upstream_id: str) -> UpstreamProbeOut:
         self._require_server("test_upstream")
         resp = await self.http.post(
@@ -291,21 +312,33 @@ class ProxyClient:
         resp.raise_for_status()
         return StatsOut.model_validate(resp.json())
 
-    async def setup_preview(self, target: SetupTarget, *, upstream_id: str) -> SetupConfigOut:
+    async def setup_preview(
+        self, target: SetupTarget, *, model: str, model_alias: str | None = None
+    ) -> SetupConfigOut:
         self._require_server("setup_preview")
         resp = await self.http.get(
             f"{self.base_url}/admin/setup/{target}/preview",
-            params={"upstream_id": upstream_id},
+            params={
+                k: v
+                for k, v in {"model": model, "model_alias": model_alias}.items()
+                if v is not None
+            },
             timeout=_ADMIN_TIMEOUT,
         )
         resp.raise_for_status()
         return SetupConfigOut.model_validate(resp.json())
 
-    async def setup_apply(self, target: SetupTarget, *, upstream_id: str) -> SetupConfigOut:
+    async def setup_apply(
+        self, target: SetupTarget, *, model: str, model_alias: str | None = None
+    ) -> SetupConfigOut:
         self._require_server("setup_apply")
         resp = await self.http.post(
             f"{self.base_url}/admin/setup/{target}/apply",
-            json={"upstream_id": upstream_id},
+            json={
+                k: v
+                for k, v in {"model": model, "model_alias": model_alias}.items()
+                if v is not None
+            },
             timeout=_ADMIN_TIMEOUT,
         )
         resp.raise_for_status()
@@ -429,3 +462,4 @@ class ProxyClient:
         )
         resp.raise_for_status()
         return ClientGuideOut.model_validate_json(resp.text)
+

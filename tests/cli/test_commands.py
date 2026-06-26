@@ -20,6 +20,7 @@ from typer.testing import CliRunner
 from rosetta.cli.__main__ import app
 from rosetta.cli.commands import chat as chat_mod
 from rosetta.cli.commands import logs as logs_mod
+from rosetta.cli.commands import models as models_mod
 from rosetta.cli.commands import upstream as upstream_mod
 
 runner = CliRunner()
@@ -53,13 +54,13 @@ def test_root_help() -> None:
     assert result.exit_code == 0
     # 关键子命令名都出现
     out = _plain(result.output)
-    for sub in ("status", "start", "stop", "upstream", "logs", "stats", "chat"):
+    for sub in ("status", "start", "stop", "upstream", "models", "logs", "stats", "chat"):
         assert sub in out, f"--help 输出里缺少子命令 {sub!r}"
 
 
 @pytest.mark.parametrize(
     "sub",
-    ["status", "start", "stop", "upstream", "logs", "stats", "chat"],
+    ["status", "start", "stop", "upstream", "models", "logs", "stats", "chat"],
 )
 @pytest.mark.parametrize("flag", ["--help", "-h"])
 def test_subcommand_help(sub: str, flag: str) -> None:
@@ -89,7 +90,8 @@ def test_upstream_default_help_exists() -> None:
     result = runner.invoke(app, ["upstream", "default", "--help"])
     assert result.exit_code == 0
     out = _plain(result.output)
-    assert "--model" in out
+    assert "--model" not in out
+    assert "--model-alias" not in out
     assert "default" in out
 
 
@@ -182,6 +184,45 @@ def test_upstream_list_table_omits_default_column(monkeypatch: pytest.MonkeyPatc
     }
 
 
+def test_upstream_default_uses_upstream_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeClient:
+        async def list_upstreams(self) -> list[SimpleNamespace]:
+            return [
+                SimpleNamespace(
+                    id="u1",
+                    name="main",
+                    native_api="responses",
+                    provider="openai",
+                    model="gpt-4o",
+                    base_url="https://api.example.com",
+                    enabled=True,
+                    test_result=None,
+                )
+            ]
+
+        async def set_model_default_upstream(
+            self, upstream_id: str, *, model: str
+        ) -> SimpleNamespace:
+            captured["upstream_id"] = upstream_id
+            captured["model"] = model
+            return SimpleNamespace(name="main")
+
+    @asynccontextmanager
+    async def _discover_session(**_: object):
+        yield _FakeClient()
+
+    monkeypatch.setattr(upstream_mod.ProxyClient, "discover_session", _discover_session)
+    monkeypatch.setattr(
+        upstream_mod.Renderer, "out", lambda value: captured.setdefault("out", str(value))
+    )
+
+    asyncio.run(upstream_mod._model_default("u1"))
+
+    assert captured["upstream_id"] == "u1"
+    assert captured["model"] == "gpt-4o"
+    assert captured["out"] == "model gpt-4o -> main"
 def test_upstream_model_defaults_renders_model_table(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
@@ -205,6 +246,68 @@ def test_upstream_model_defaults_renders_model_table(monkeypatch: pytest.MonkeyP
 
     assert captured["columns"] == ["model", "upstream"]
     assert captured["rows"] == [["gpt-4o", "oai"]]
+
+def test_models_renders_configured_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeClient:
+        async def list_upstreams(self) -> list[SimpleNamespace]:
+            return [
+                SimpleNamespace(
+                    id="u1",
+                    name="primary",
+                    native_api="responses",
+                    provider="openai",
+                    model="gpt-4o",
+                    base_url="https://api.example.com",
+                    enabled=True,
+                    test_result=None,
+                ),
+                SimpleNamespace(
+                    id="u2",
+                    name="backup",
+                    native_api="responses",
+                    provider="openai",
+                    model="gpt-4o",
+                    base_url="https://api.example.com",
+                    enabled=True,
+                    test_result=None,
+                ),
+                SimpleNamespace(
+                    id="u3",
+                    name="solo",
+                    native_api="messages",
+                    provider="anthropic",
+                    model="claude-haiku-4-5",
+                    base_url="https://api.example.com",
+                    enabled=True,
+                    test_result=None,
+                ),
+            ]
+
+        async def list_model_defaults(self) -> dict[str, str]:
+            return {"gpt-4o": "u2"}
+
+    @asynccontextmanager
+    async def _discover_session(**_: object):
+        yield _FakeClient()
+
+    def _capture_table(columns: list[str], rows: list[list[object]], **kwargs: object) -> None:
+        captured["columns"] = columns
+        captured["rows"] = rows
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(models_mod.ProxyClient, "discover_session", _discover_session)
+    monkeypatch.setattr(models_mod.Renderer, "table", _capture_table)
+
+    asyncio.run(models_mod._models())
+
+    assert captured["columns"] == ["model", "status", "default_upstream", "upstreams"]
+    assert captured["rows"] == [
+        ["gpt-4o", "configured", "backup", "backup, primary"],
+        ["claude-haiku-4-5", "unique", "-", "solo"],
+    ]
+
 
 
 def test_upstream_test_renders_success(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -240,8 +343,6 @@ def test_upstream_test_renders_success(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "OK" in str(captured["msg"])
     assert "oai" in str(captured["msg"])
     assert "completions (/v1/chat/completions)" in str(captured["msg"])
-
-
 def test_logs_config_help_exists() -> None:
     result = runner.invoke(app, ["logs", "config", "--help"])
     assert result.exit_code == 0
@@ -654,9 +755,11 @@ def test_setup_preview_prints_original_and_generated(monkeypatch: pytest.MonkeyP
     captured: dict[str, object] = {"out": [], "raw": []}
 
     class _FakeClient:
-        async def setup_preview(self, target: str, *, upstream_id: str) -> SimpleNamespace:
+        async def setup_preview(
+            self, target: str, *, model: str, model_alias: str | None = None
+        ) -> SimpleNamespace:
             captured["target"] = target
-            captured["upstream_id"] = upstream_id
+            captured["model"] = model
             return SimpleNamespace(
                 target=target,
                 path="C:/config.toml",
@@ -681,11 +784,11 @@ def test_setup_preview_prints_original_and_generated(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(setup_mod.Renderer, "out", _capture_out)
     monkeypatch.setattr(setup_mod.Renderer, "raw", _capture_raw)
 
-    result = runner.invoke(app, ["setup", "preview", "codex", "--upstream", "u1"])
+    result = runner.invoke(app, ["setup", "preview", "codex", "--model", "gpt-5"])
 
     assert result.exit_code == 0
     assert captured["target"] == "codex"
-    assert captured["upstream_id"] == "u1"
+    assert captured["model"] == "gpt-5"
     output = "\n".join(captured["out"])
     raw_output = "\n".join(captured["raw"])
     assert "C:/config.toml" in output
@@ -694,15 +797,58 @@ def test_setup_preview_prints_original_and_generated(monkeypatch: pytest.MonkeyP
     assert "http://new" in raw_output
 
 
+def test_setup_preview_passes_model_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    from rosetta.cli.commands import setup as setup_mod
+
+    captured: dict[str, object] = {"out": [], "raw": []}
+
+    class _FakeClient:
+        async def setup_preview(
+            self, target: str, *, model: str, model_alias: str | None = None
+        ) -> SimpleNamespace:
+            captured["target"] = target
+            captured["model"] = model
+            captured["model_alias"] = model_alias
+            return SimpleNamespace(
+                target=target,
+                path="C:/config.toml",
+                exists=True,
+                original="",
+                generated='model = "gpt-5-codex"\n',
+                language="toml",
+                backup_path=None,
+            )
+
+    @asynccontextmanager
+    async def _discover_session(**_: object):
+        yield _FakeClient()
+
+    monkeypatch.setattr(setup_mod.ProxyClient, "discover_session", _discover_session)
+    monkeypatch.setattr(setup_mod.Renderer, "out", lambda value: captured["out"].append(str(value)))
+    monkeypatch.setattr(setup_mod.Renderer, "raw", lambda value: captured["raw"].append(value))
+
+    result = runner.invoke(
+        app,
+        ["setup", "preview", "codex", "--model", "gpt-5", "--model-alias", "gpt-5-codex"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["target"] == "codex"
+    assert captured["model"] == "gpt-5"
+    assert captured["model_alias"] == "gpt-5-codex"
+
+
 def test_setup_apply_prints_backup_path(monkeypatch: pytest.MonkeyPatch) -> None:
     from rosetta.cli.commands import setup as setup_mod
 
     captured: dict[str, object] = {"out": []}
 
     class _FakeClient:
-        async def setup_apply(self, target: str, *, upstream_id: str) -> SimpleNamespace:
+        async def setup_apply(
+            self, target: str, *, model: str, model_alias: str | None = None
+        ) -> SimpleNamespace:
             captured["target"] = target
-            captured["upstream_id"] = upstream_id
+            captured["model"] = model
             return SimpleNamespace(
                 target=target,
                 path="C:/settings.json",
@@ -723,11 +869,11 @@ def test_setup_apply_prints_backup_path(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(setup_mod.ProxyClient, "discover_session", _discover_session)
     monkeypatch.setattr(setup_mod.Renderer, "out", _capture_out)
 
-    result = runner.invoke(app, ["setup", "apply", "claude", "--upstream", "u1"])
+    result = runner.invoke(app, ["setup", "apply", "claude", "--model", "claude-sonnet"])
 
     assert result.exit_code == 0
     assert captured["target"] == "claude"
-    assert captured["upstream_id"] == "u1"
+    assert captured["model"] == "claude-sonnet"
     output = "\n".join(captured["out"])
     assert "C:/settings.json" in output
     assert "C:/settings.json.bak-20260625-153000" in output
@@ -740,7 +886,7 @@ def test_setup_command_prints_powershell_api_key_command(monkeypatch: pytest.Mon
 
     class _FakeClient:
         async def list_upstreams(self) -> list[SimpleNamespace]:
-            return [SimpleNamespace(id="u1", api_key="sk-real")]
+            return [SimpleNamespace(id="u1", model="gpt-5", enabled=True, api_key="sk-real")]
 
     @asynccontextmanager
     async def _discover_session(**_: object):
@@ -753,7 +899,7 @@ def test_setup_command_prints_powershell_api_key_command(monkeypatch: pytest.Mon
     monkeypatch.setattr(setup_mod.Renderer, "out", _capture_out)
 
     result = runner.invoke(
-        app, ["setup", "command", "codex", "--upstream", "u1", "--kind", "powershell"]
+        app, ["setup", "command", "codex", "--model", "gpt-5", "--kind", "powershell"]
     )
 
     assert result.exit_code == 0
@@ -767,7 +913,14 @@ def test_setup_command_copy_uses_clipboard(monkeypatch: pytest.MonkeyPatch) -> N
 
     class _FakeClient:
         async def list_upstreams(self) -> list[SimpleNamespace]:
-            return [SimpleNamespace(id="u1", api_key="sk-ant-real")]
+            return [
+                SimpleNamespace(
+                    id="u1",
+                    model="claude-sonnet",
+                    enabled=True,
+                    api_key="sk-ant-real",
+                )
+            ]
 
     @asynccontextmanager
     async def _discover_session(**_: object):
@@ -784,7 +937,17 @@ def test_setup_command_copy_uses_clipboard(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(setup_mod, "_copy_to_clipboard", _capture_copy)
 
     result = runner.invoke(
-        app, ["setup", "command", "claude", "--upstream", "u1", "--kind", "export", "--copy"]
+        app,
+        [
+            "setup",
+            "command",
+            "claude",
+            "--model",
+            "claude-sonnet",
+            "--kind",
+            "export",
+            "--copy",
+        ],
     )
 
     assert result.exit_code == 0

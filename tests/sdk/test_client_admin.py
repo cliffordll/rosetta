@@ -108,7 +108,7 @@ async def test_list_upstreams(echo_client: tuple[ProxyClient, dict[str, Any]]) -
                 "provider": "anthropic",
                 "base_url": "https://api.anthropic.com",
                 "enabled": True,
-                "model": None,
+                "model": "claude-haiku-4-5",
                 "created_at": datetime(2026, 4, 22, 10, 0, 0).isoformat(),
             }
         ],
@@ -132,6 +132,35 @@ async def test_list_model_defaults(
     assert captured["request"].method == "GET"
     assert captured["request"].url.path == "/admin/upstreams/model-defaults"
 
+
+async def test_list_setup_aliases(
+    echo_client: tuple[ProxyClient, dict[str, Any]],
+) -> None:
+    client, captured = echo_client
+    captured["response"] = httpx.Response(
+        200,
+        json=[{"target": "codex", "alias": "gpt-5.5"}],
+    )
+
+    aliases = await client.list_setup_aliases("u1")
+
+    assert aliases[0].target == "codex"
+    assert aliases[0].alias == "gpt-5.5"
+    assert captured["request"].method == "GET"
+    assert captured["request"].url.path == "/admin/upstreams/u1/setup-aliases"
+
+
+async def test_delete_setup_alias(
+    echo_client: tuple[ProxyClient, dict[str, Any]],
+) -> None:
+    client, captured = echo_client
+    captured["response"] = httpx.Response(204)
+
+    await client.delete_setup_alias("u1", target="codex", alias="gpt-5.5")
+
+    assert captured["request"].method == "DELETE"
+    assert captured["request"].url.path == "/admin/upstreams/u1/setup-aliases/codex"
+    assert captured["request"].url.params["alias"] == "gpt-5.5"
 
 async def test_test_upstream(
     echo_client: tuple[ProxyClient, dict[str, Any]],
@@ -244,7 +273,7 @@ async def test_create_upstream(echo_client: tuple[ProxyClient, dict[str, Any]]) 
             "provider": "anthropic",
             "base_url": "https://api.anthropic.com",
             "enabled": True,
-            "model": None,
+            "model": "claude-haiku-4-5",
             "created_at": "2026-04-22T10:00:00",
         },
     )
@@ -254,6 +283,7 @@ async def test_create_upstream(echo_client: tuple[ProxyClient, dict[str, Any]]) 
         provider="anthropic",
         api_key="sk-xxx",
         base_url="https://api.anthropic.com",
+        model="claude-haiku-4-5",
     )
     created = await client.create_upstream(payload)
     assert created.id == "new-id"
@@ -534,14 +564,14 @@ async def test_setup_preview(echo_client: tuple[ProxyClient, dict[str, Any]]) ->
         },
     )
 
-    result = await client.setup_preview("codex", upstream_id="u1")
+    result = await client.setup_preview("codex", model="gpt-5")
 
     assert result.target == "codex"
     assert result.original == "old"
     assert result.generated == "new"
     assert captured["request"].method == "GET"
     assert captured["request"].url.path == "/admin/setup/codex/preview"
-    assert captured["request"].url.params["upstream_id"] == "u1"
+    assert captured["request"].url.params["model"] == "gpt-5"
 
 
 async def test_setup_apply(echo_client: tuple[ProxyClient, dict[str, Any]]) -> None:
@@ -559,13 +589,13 @@ async def test_setup_apply(echo_client: tuple[ProxyClient, dict[str, Any]]) -> N
         },
     )
 
-    result = await client.setup_apply("claude", upstream_id="u1")
+    result = await client.setup_apply("claude", model="claude-sonnet")
 
     assert result.target == "claude"
     assert result.backup_path == "C:/Users/me/.claude/settings.json.bak-20260625-153000"
     assert captured["request"].method == "POST"
     assert captured["request"].url.path == "/admin/setup/claude/apply"
-    assert captured["request"].read() == b'{"upstream_id":"u1"}'
+    assert captured["request"].read() == b'{"model":"claude-sonnet"}'
 
 
 async def test_setup_clear(echo_client: tuple[ProxyClient, dict[str, Any]]) -> None:
@@ -589,3 +619,4 @@ async def test_setup_clear(echo_client: tuple[ProxyClient, dict[str, Any]]) -> N
     assert result.backup_path == "C:/Users/me/.codex/config.toml.bak-20260625-153000"
     assert captured["request"].method == "POST"
     assert captured["request"].url.path == "/admin/setup/codex/clear"
+

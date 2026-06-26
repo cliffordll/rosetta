@@ -27,6 +27,9 @@ from rosetta.cli.commands import (
     logs as logs_mod,
 )
 from rosetta.cli.commands import (
+    models as models_mod,
+)
+from rosetta.cli.commands import (
     setup as setup_mod,
 )
 from rosetta.cli.commands import (
@@ -71,15 +74,16 @@ def _root(  # pyright: ignore[reportUnusedFunction] â€” typer @app.callback() è£
 
 
 for mod in (
-    status_mod,
     start_mod,
     stop_mod,
-    upstream_mod,
+    status_mod,
     guide_mod,
-    logs_mod,
+    upstream_mod,
+    models_mod,
+    chat_mod,
     setup_mod,
     stats_mod,
-    chat_mod,
+    logs_mod,
 ):
     mod.register(app)
 
