@@ -71,7 +71,7 @@ def _anthropic_upstream(**overrides: Any) -> Upstream:
         "provider": "anthropic",
         "api_key": "sk-ant-dbkey",
         "base_url": "https://api.anthropic.com",
-        "model": None,
+        "model": "claude-haiku-4-5",
         "enabled": True,
     }
     base.update(overrides)
@@ -86,7 +86,7 @@ def _openai_upstream(**overrides: Any) -> Upstream:
         "provider": "openai",
         "api_key": "sk-oai-dbkey",
         "base_url": "https://api.openai.com",
-        "model": None,
+        "model": "claude-haiku-4-5",
         "enabled": True,
     }
     base.update(overrides)
@@ -476,21 +476,37 @@ async def test_model_explicit_overrides_upstream_default(
     assert sent["model"] == "claude-opus-4-5"
 
 
-async def test_model_no_fallback_when_upstream_has_no_model(
+async def test_model_alias_rewrites_to_upstream_model(mock_client: dict[str, Any]) -> None:
+    """model alias 路由命中后,发给真实上游的是 upstream.model。"""
+    mock_client["handler"] = lambda req: httpx.Response(200, json={})
+
+    body = json.dumps({"model": "gpt-5-codex", "messages": []}).encode("utf-8")
+    await forwarder.forward(
+        upstream=_openai_upstream(model="deepseek-v4-flash"),
+        server_api=ServerApi.CHAT_COMPLETIONS,
+        body=body,
+        content_type="application/json",
+        rewrite_model_to_upstream=True,
+    )
+    sent = json.loads(mock_client["request"].content)
+    assert sent["model"] == "deepseek-v4-flash"
+
+
+async def test_model_fallback_uses_required_upstream_model(
     mock_client: dict[str, Any],
 ) -> None:
-    """body 无 model + upstream 也无 model → 维持原样(让上游自己 4xx)。"""
+    """body 无 model 时使用 upstream.model 兜底。"""
     mock_client["handler"] = lambda req: httpx.Response(200, json={})
 
     body = json.dumps({"messages": []}).encode("utf-8")
     await forwarder.forward(
-        upstream=_anthropic_upstream(model=None),
+        upstream=_anthropic_upstream(),
         server_api=ServerApi.MESSAGES,
         body=body,
         content_type="application/json",
     )
     sent = json.loads(mock_client["request"].content)
-    assert "model" not in sent
+    assert sent["model"] == "claude-haiku-4-5"
 
 
 async def test_default_max_tokens_added_when_missing_for_responses_to_completions(

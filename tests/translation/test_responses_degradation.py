@@ -104,6 +104,7 @@ def test_store_false_stripped_no_warning() -> None:
         "parallel_tool_calls",
         "prompt_cache_key",
         "reasoning",
+        "text",
     ],
 )
 @pytest.mark.parametrize("target", [ServerApi.MESSAGES, ServerApi.CHAT_COMPLETIONS])
@@ -228,3 +229,18 @@ def test_responses_developer_message_translates_to_completions_system() -> None:
         {"role": "system", "content": "Use terse answers."},
         {"role": "user", "content": "ping"},
     ]
+
+
+def test_responses_text_config_stripped_before_completions_translation() -> None:
+    body = _base() | {"text": {"format": {"type": "text"}, "verbosity": "low"}}
+
+    translated = translate_request(
+        body,
+        source=ServerApi.RESPONSES,
+        target=ServerApi.CHAT_COMPLETIONS,
+    )
+
+    assert translated == {
+        "model": "gpt-4.1-mini",
+        "messages": [{"role": "user", "content": "hello"}],
+    }

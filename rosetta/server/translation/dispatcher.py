@@ -39,6 +39,7 @@ from rosetta.server.translation.completions.response import (
     ir_to_completions_response,
     ir_to_completions_stream,
 )
+from rosetta.server.translation.degradation import degrade_responses_request
 from rosetta.server.translation.ir import StreamEvent
 from rosetta.server.translation.messages.request import (
     ir_to_messages,
@@ -107,6 +108,8 @@ def translate_request(
 
     `source == target` 时仍走 IR,作为统一校验通道。
     """
+    if source is ServerApi.RESPONSES:
+        body = degrade_responses_request(body, target_api=target).body
     ir = _REQ_TO_IR[source](body)
     return _IR_TO_REQ[target](ir)
 

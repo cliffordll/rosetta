@@ -55,6 +55,7 @@ _STRIPPED_WITH_WARNING: frozenset[str] = frozenset(
         "parallel_tool_calls",
         "prompt_cache_key",
         "reasoning",
+        "text",
     }
 )
 

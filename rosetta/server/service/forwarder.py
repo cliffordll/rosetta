@@ -199,7 +199,7 @@ class Forwarder:
                 native_api=upstream.native_api,
                 status_code=None,
                 category="config",
-                summary="缺少 model;先为该 upstream 配一个默认模型再测试",
+                summary="缺少 model;先为该 upstream 配置真实模型再测试",
             )
 
         native_api = ServerApi(upstream.native_api)
@@ -311,6 +311,7 @@ class Forwarder:
         extra_response_headers: dict[str, str] | None = None,
         client_api_key: str | None = None,
         client_addr: str | None = None,
+        rewrite_model_to_upstream: bool = False,
     ) -> Response:
         """把请求按格式翻译(必要时)+ 转发到上游。
 
@@ -339,13 +340,20 @@ class Forwarder:
             ) and upstream.model
             max_tokens_field = self._max_tokens_field_for(server_api)
             needs_max_tokens_fallback = body_dict.get(max_tokens_field) is None
-            if needs_model_fallback:
+            rewrite_model = (
+                rewrite_model_to_upstream
+                and isinstance(raw_model, str)
+                and raw_model.strip()
+                and upstream.model
+                and raw_model != upstream.model
+            )
+            if needs_model_fallback or rewrite_model:
                 body_dict["model"] = upstream.model
                 raw_model = upstream.model
             if needs_max_tokens_fallback:
                 body_dict[max_tokens_field] = _DEFAULT_MAX_TOKENS
 
-            if needs_model_fallback or needs_max_tokens_fallback:
+            if needs_model_fallback or needs_max_tokens_fallback or rewrite_model:
                 body = json.dumps(body_dict, ensure_ascii=False).encode("utf-8")
 
             if isinstance(raw_model, str):

@@ -26,7 +26,7 @@ from fastapi.responses import Response
 from rosetta.server.database.models import Upstream
 from rosetta.server.database.session import close_session_safely, get_session_maker
 from rosetta.server.service.forwarder import forwarder
-from rosetta.server.service.selector import pick_upstream
+from rosetta.server.service.selector import select_upstream, setup_scope_for_server_api
 from rosetta.shared.server_api import ServerApi
 
 router = APIRouter()
@@ -52,6 +52,12 @@ def _extract_client_api_key(request: Request, server_api: ServerApi) -> str | No
 
 
 @dataclass(frozen=True)
+class DataplaneConfig:
+    upstream: Upstream
+    rewrite_model_to_upstream: bool = False
+
+
+@dataclass(frozen=True)
 class RequestCtx:
     """dataplane 端点的请求门面:原始 body + 需要的 headers + 客户端地址。
 
@@ -65,6 +71,7 @@ class RequestCtx:
     client_api_key: str | None
     client_addr: str | None
     model: str | None
+    server_api: ServerApi
 
 
 def _extract_client_addr(request: Request) -> str | None:
@@ -85,6 +92,7 @@ async def parse_request(request: Request, server_api: ServerApi) -> RequestCtx:
         client_api_key=_extract_client_api_key(request, server_api),
         client_addr=_extract_client_addr(request),
         model=_model_from_body(body),
+        server_api=server_api,
     )
 
 
@@ -101,36 +109,40 @@ def _model_from_body(body: bytes) -> str | None:
     return model
 
 
-async def load_dataplane_config(ctx: RequestCtx) -> Upstream:
+async def load_dataplane_config(ctx: RequestCtx) -> DataplaneConfig:
     """短生命周期读取数据面配置,避免 DB session 跨越流式转发阶段。"""
     session_maker = get_session_maker()
     if session_maker is None:
         raise RuntimeError("DB 未初始化,先调 init_db()")
     session = session_maker()
     try:
-        upstream = await pick_upstream(
+        selection = await select_upstream(
             session,
             header_upstream=ctx.rosetta_upstream,
             model=ctx.model,
+            setup_scope=setup_scope_for_server_api(ctx.server_api),
         )
+        upstream = selection.upstream
+        rewrite_model_to_upstream = selection.rewrite_model_to_upstream
         await session.commit()
     finally:
         await close_session_safely(session)
-    return upstream
+    return DataplaneConfig(upstream, rewrite_model_to_upstream=rewrite_model_to_upstream)
 
 
 @router.post("/v1/messages")
 async def messages(request: Request) -> Response:
     server_api = ServerApi.MESSAGES
     ctx = await parse_request(request, server_api)
-    upstream = await load_dataplane_config(ctx)
+    config = await load_dataplane_config(ctx)
     return await forwarder.forward(
-        upstream=upstream,
+        upstream=config.upstream,
         server_api=server_api,
         body=ctx.body,
         content_type=ctx.content_type,
         client_api_key=ctx.client_api_key,
         client_addr=ctx.client_addr,
+        rewrite_model_to_upstream=config.rewrite_model_to_upstream,
     )
 
 
@@ -138,14 +150,15 @@ async def messages(request: Request) -> Response:
 async def chat_completions(request: Request) -> Response:
     server_api = ServerApi.CHAT_COMPLETIONS
     ctx = await parse_request(request, server_api)
-    upstream = await load_dataplane_config(ctx)
+    config = await load_dataplane_config(ctx)
     return await forwarder.forward(
-        upstream=upstream,
+        upstream=config.upstream,
         server_api=server_api,
         body=ctx.body,
         content_type=ctx.content_type,
         client_api_key=ctx.client_api_key,
         client_addr=ctx.client_addr,
+        rewrite_model_to_upstream=config.rewrite_model_to_upstream,
     )
 
 
@@ -154,12 +167,13 @@ async def chat_completions(request: Request) -> Response:
 async def responses_endpoint(request: Request) -> Response:
     server_api = ServerApi.RESPONSES
     ctx = await parse_request(request, server_api)
-    upstream = await load_dataplane_config(ctx)
+    config = await load_dataplane_config(ctx)
     return await forwarder.forward(
-        upstream=upstream,
+        upstream=config.upstream,
         server_api=server_api,
         body=ctx.body,
         content_type=ctx.content_type,
         client_api_key=ctx.client_api_key,
         client_addr=ctx.client_addr,
+        rewrite_model_to_upstream=config.rewrite_model_to_upstream,
     )
