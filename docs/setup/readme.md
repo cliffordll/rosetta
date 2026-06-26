@@ -60,7 +60,7 @@ rosetta upstream restore-mock
 
 ```bash
 # 设置某个 model 的默认 upstream
-rosetta upstream default gpt4o-upstream --model gpt-4o
+rosetta upstream default <upstream-id> --model gpt-4o
 
 # 查看所有默认映射
 rosetta upstream defaults
@@ -81,6 +81,11 @@ rosetta upstream defaults
 rosetta setup preview codex --upstream <upstream-id>
 rosetta setup apply codex --upstream <upstream-id>
 rosetta setup clear codex --yes
+
+# 输出或复制 Setup 页里的 PowerShell / export / CLI 命令
+rosetta setup command codex --upstream <upstream-id> --kind powershell
+rosetta setup command codex --upstream <upstream-id> --kind export --copy
+rosetta setup command codex --kind cli
 ```
 
 `codex` 可替换为 `claude` 或 `opencode`。
@@ -105,14 +110,15 @@ rosetta upstream list                               # 列出所有
 rosetta upstream add --help                         # 查看添加参数
 rosetta upstream update <id> --name new-name        # 更新
 rosetta upstream remove <id>                        # 删除
-rosetta upstream default <name> --model <model>     # 设为默认
+rosetta upstream default <upstream-id> --model <model>  # 设为 model 默认路由
 rosetta upstream defaults                           # 查看默认模型映射
 rosetta upstream test <id>                          # 测试连通性
 rosetta upstream restore-mock                       # 恢复内置 mock
 
 # 聊天
-rosetta chat --upstream <name> "你好"                # 一次性对话，指定 upstream
-rosetta chat --model <name> --api-key sk-xxx "你好"  # 一次性对话，指定 model 和 api-key 
+rosetta chat --upstream <upstream-id> "你好"         # 一次性对话，指定 upstream
+rosetta chat --model <model> "你好"                  # 不传 upstream 时按 model 匹配 upstream
+rosetta chat --upstream <upstream-id> --api-key sk-xxx "你好"  # 临时覆盖 upstream api-key
 rosetta chat                                         # 进入 REPL 交互模式
 
 # 日志
@@ -136,5 +142,6 @@ rosetta guide readme                        # 本说明
 - 客户端连接 Rosetta 时，base_url 设为 `http://localhost:1687`。
 - 客户端传入 api-key 时会覆盖 upstream 中保存的 key。
 - `rosetta start` 默认绑定 `127.0.0.1:1687`，暴露到局域网需显式 `--host 0.0.0.0`（无 auth 层，请在受信任网络下使用）。
-- server 模式下 `--model` 和 `--api-key` 均可留空——留空 = 用 upstream 配置兜底；传 `none` 或 `""` 也等价于留空。
+- server 模式下指定 `--upstream` 时，`--model` 和 `--api-key` 均可留空——留空 = 用该 upstream 的配置兜底；传 `none` 或 `""` 也等价于留空。
+- 不传 `--upstream` 时必须传 `--model`，server 会按 model 匹配 upstream；两者都不传会返回 `missing_routing_info`。
 - direct 模式（`--base-url`）下 `--model` 和 `--api-key` 必填，`--upstream` 自动失效。

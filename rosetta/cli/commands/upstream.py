@@ -349,7 +349,7 @@ def guide_cmd(
     if filename is None:
         Renderer.die("--client 必须是 codex/claude/opencode/readme")
         return
-    Renderer.out(str(_repo_root() / "docs" / "clients" / filename))
+    Renderer.out(str(_repo_root() / "docs" / "setup" / filename))
 
 
 def register(app_root: typer.Typer) -> None:

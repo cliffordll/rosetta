@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState, type Ref, type UIEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Ref, type UIEvent } from "react";
 
 import {
   AlertDialog,
@@ -306,27 +306,27 @@ export default function Setup() {
         </div>
 
         <div className="flex min-w-0 shrink-0 items-center justify-between gap-3">
-          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border bg-muted/30 px-2 py-1 text-[11px] leading-tight text-muted-foreground whitespace-nowrap">
-            <div className="flex shrink-0 items-center rounded-md border bg-background p-0.5">
-              {setupCommands.map((item) => (
-                <button
-                  key={item.kind}
-                  type="button"
-                  className={`h-5 rounded px-1.5 text-[11px] ${activeCommand === item.kind ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/70 hover:text-foreground"}`}
-                  onClick={() => setActiveCommand(item.kind)}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-            <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-foreground">
+          <div className="flex h-9 min-w-0 flex-1 items-center gap-0.5 rounded-md border border-border bg-muted/45 p-0.5 text-xs leading-tight text-muted-foreground whitespace-nowrap">
+            {setupCommands.map((item) => (
+              <Button
+                key={item.kind}
+                type="button"
+                variant="ghost"
+                size="xs"
+                className={`${SETUP_COMMAND_TOGGLE_BASE} ${activeCommand === item.kind ? SETUP_COMMAND_TOGGLE_ACTIVE : SETUP_COMMAND_TOGGLE_INACTIVE}`}
+                onClick={() => setActiveCommand(item.kind)}
+              >
+                {item.label}
+              </Button>
+            ))}
+            <code className="mx-1 flex h-7 min-w-0 flex-1 items-center overflow-x-auto whitespace-nowrap rounded-sm border-x border-border bg-muted/70 px-2 font-mono text-foreground shadow-inner outline outline-1 outline-border/80 outline-offset-[-1px]">
               {selectedSetupCommand.display}
             </code>
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               size="xs"
-              className="h-5 px-1.5 text-[11px]"
+              className="h-7 px-2 text-xs text-muted-foreground hover:bg-background/70 hover:text-foreground"
               onClick={() => void handleCopyCommand(selectedSetupCommand.command)}
             >
               Copy
@@ -476,6 +476,13 @@ function ConfigPanel({
 }
 
 type SetupCommandKind = "powershell" | "export" | "cli";
+
+const SETUP_COMMAND_TOGGLE_BASE =
+  "h-7 min-w-12 rounded-sm px-2.5 text-xs transition-colors";
+const SETUP_COMMAND_TOGGLE_ACTIVE =
+  "border border-border/70 bg-background text-foreground shadow-sm hover:bg-background";
+const SETUP_COMMAND_TOGGLE_INACTIVE =
+  "text-muted-foreground hover:bg-background/70 hover:text-foreground";
 
 interface SetupCommandOption {
   kind: SetupCommandKind;

@@ -263,8 +263,8 @@ def _client_guide_path(filename: str) -> Path | None:
     candidates: list[Path] = []
     bundle_root = getattr(sys, "_MEIPASS", None)
     if isinstance(bundle_root, str):
-        candidates.append(Path(bundle_root) / "docs" / "clients" / filename)
-    candidates.append(Path(__file__).resolve().parents[3] / "docs" / "clients" / filename)
+        candidates.append(Path(bundle_root) / "docs" / "setup" / filename)
+    candidates.append(Path(__file__).resolve().parents[3] / "docs" / "setup" / filename)
 
     for path in candidates:
         if path.is_file():

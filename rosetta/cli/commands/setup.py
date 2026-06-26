@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
+import subprocess
+import sys
 from typing import Annotated, cast
 
 import httpx
@@ -11,8 +14,10 @@ import typer
 from rosetta.cli.core.render import Renderer
 from rosetta.sdk.client import ProxyClient
 from rosetta.server.controller.setup import SetupConfigOut, SetupTarget
+from rosetta.server.controller.upstreams import UpstreamOut
 
 _ALLOWED_TARGETS = {"codex", "claude", "opencode"}
+_ALLOWED_COMMAND_KINDS = {"powershell", "export", "cli"}
 
 app = typer.Typer(
     help="客户端本机配置预览和写入",
@@ -63,6 +68,65 @@ def clear_cmd(
     asyncio.run(_clear(setup_target))
 
 
+@app.command("command")
+def command_cmd(
+    target: Annotated[str, typer.Argument(help="客户端: codex | claude | opencode")],
+    upstream_id: Annotated[
+        str | None,
+        typer.Option("--upstream", help="用于读取 api_key 的 upstream id;省略则使用 rosetta-local"),
+    ] = None,
+    kind: Annotated[
+        str,
+        typer.Option("--kind", help="命令类型: powershell | export | cli"),
+    ] = "powershell",
+    copy: Annotated[bool, typer.Option("--copy", help="复制到系统剪贴板")] = False,
+) -> None:
+    """输出或复制 Setup 页底部的 PowerShell/export/CLI 命令。"""
+    setup_target = _parse_target(target)
+    if setup_target is None:
+        return
+    command_kind = _parse_command_kind(kind)
+    if command_kind is None:
+        return
+    asyncio.run(_command(setup_target, upstream_id=upstream_id, kind=command_kind, copy=copy))
+
+
+async def _command(
+    target: SetupTarget,
+    *,
+    upstream_id: str | None,
+    kind: str,
+    copy: bool,
+) -> None:
+    api_key = "rosetta-local"
+    if upstream_id:
+        try:
+            async with ProxyClient.discover_session(spawn_if_missing=False) as client:
+                upstreams = await client.list_upstreams()
+        except RuntimeError as e:
+            Renderer.die(f"server 未就绪: {e}")
+            return
+        except httpx.HTTPStatusError as e:
+            Renderer.die(f"upstream 列表读取失败: {e.response.status_code} {e.response.text}")
+            return
+        upstream = _find_upstream(upstreams, upstream_id)
+        if upstream is None:
+            Renderer.die(f"upstream id={upstream_id} 不存在")
+            return
+        api_key = upstream.api_key or "rosetta-local"
+
+    command = _setup_command(target, kind=kind, api_key=api_key)
+    if copy:
+        try:
+            _copy_to_clipboard(command)
+        except RuntimeError as e:
+            Renderer.die(str(e))
+            return
+        Renderer.out("copied command")
+    else:
+        Renderer.out(command)
+
+
 async def _preview(target: SetupTarget, upstream_id: str) -> None:
     try:
         async with ProxyClient.discover_session(spawn_if_missing=False) as client:
@@ -106,13 +170,72 @@ async def _clear(target: SetupTarget) -> None:
         Renderer.out(f"backup {result.backup_path}")
 
 
+def _setup_command(target: SetupTarget, *, kind: str, api_key: str) -> str:
+    if kind == "powershell":
+        return f'$env:{_api_key_env(target)}="{api_key}"'
+    if kind == "export":
+        return f"export {_api_key_env(target)}={_shell_quote(api_key)}"
+    if kind == "cli":
+        return _cli_command(target)
+    raise ValueError(f"unsupported setup command kind: {kind}")
+
+
+def _api_key_env(target: SetupTarget) -> str:
+    if target == "claude":
+        return "ANTHROPIC_API_KEY"
+    return "OPENAI_API_KEY"
+
+
+def _cli_command(target: SetupTarget) -> str:
+    if target == "codex":
+        return "codex --oss --local-provider rosetta"
+    if target == "claude":
+        return "claude"
+    if target == "opencode":
+        return "opencode"
+    raise ValueError(f"unsupported setup target: {target}")
+
+
+def _shell_quote(value: str) -> str:
+    return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+def _find_upstream(upstreams: list[UpstreamOut], upstream_id: str) -> UpstreamOut | None:
+    return next((item for item in upstreams if item.id == upstream_id), None)
+
+
+def _copy_to_clipboard(text: str) -> None:
+    if sys.platform == "win32":
+        _run_clipboard_command(["clip"], text)
+        return
+    if sys.platform == "darwin" and shutil.which("pbcopy"):
+        _run_clipboard_command(["pbcopy"], text)
+        return
+    for command in (
+        ["wl-copy"],
+        ["xclip", "-selection", "clipboard"],
+        ["xsel", "--clipboard", "--input"],
+    ):
+        if shutil.which(command[0]):
+            _run_clipboard_command(command, text)
+            return
+    raise RuntimeError("找不到可用的剪贴板命令")
+
+
+def _run_clipboard_command(command: list[str], text: str) -> None:
+    try:
+        subprocess.run(command, input=text, text=True, check=True)
+    except (OSError, subprocess.CalledProcessError) as e:
+        raise RuntimeError(f"复制到剪贴板失败: {e}") from e
+
+
 def _render_preview(result: SetupConfigOut) -> None:
     Renderer.out(f"target: {result.target}")
     Renderer.out(f"path: {result.path}")
     Renderer.out("\n--- original ---")
-    Renderer.out(result.original or "(empty)")
+    Renderer.raw(result.original or "(empty)")
     Renderer.out("\n--- generated ---")
-    Renderer.out(result.generated)
+    Renderer.raw(result.generated)
 
 
 def _parse_target(value: str) -> SetupTarget | None:
@@ -121,6 +244,14 @@ def _parse_target(value: str) -> SetupTarget | None:
         Renderer.die("target 必须是 codex / claude / opencode")
         return None
     return cast(SetupTarget, normalized)
+
+
+def _parse_command_kind(value: str) -> str | None:
+    normalized = value.lower()
+    if normalized not in _ALLOWED_COMMAND_KINDS:
+        Renderer.die("kind 必须是 powershell / export / cli")
+        return None
+    return normalized
 
 
 def register(app_root: typer.Typer) -> None:

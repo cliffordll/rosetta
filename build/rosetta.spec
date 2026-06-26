@@ -25,7 +25,7 @@ _HIDDEN = [
 
 _DATAS = [
     ("../rosetta/server/database/migrations", "rosetta/server/database/migrations"),
-    ("../docs/clients", "docs/clients"),
+    ("../docs/setup", "docs/setup"),
 ]
 _DATAS += collect_data_files("certifi")
 _DATAS += copy_metadata("certifi")

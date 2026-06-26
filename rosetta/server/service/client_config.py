@@ -9,9 +9,10 @@ import tomllib as _toml
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 
 ClientConfigTarget = Literal["codex", "claude", "opencode"]
+JsonObject = dict[str, Any]
 
 # Rosetta 在 codex TOML 配置中控制的顶层 key, merge 时只覆盖这些。
 _ROSETTA_CODEX_KEYS: frozenset[str] = frozenset(
@@ -209,10 +210,13 @@ def _clear_claude_config(original: str) -> str:
     if not isinstance(data, dict):
         return original
 
-    cleaned = dict(data)
+    cleaned: JsonObject = dict(cast(JsonObject, data))
     env = cleaned.get("env")
     if isinstance(env, dict):
-        next_env = {k: v for k, v in env.items() if k not in _ROSETTA_CLAUDE_ENV_KEYS}
+        env_obj = cast(JsonObject, env)
+        next_env: JsonObject = {
+            k: v for k, v in env_obj.items() if k not in _ROSETTA_CLAUDE_ENV_KEYS
+        }
         if next_env:
             cleaned["env"] = next_env
         else:
@@ -228,17 +232,18 @@ def _clear_opencode_config(original: str) -> str:
     if not isinstance(data, dict):
         return original
 
-    cleaned = dict(data)
+    cleaned: JsonObject = dict(cast(JsonObject, data))
     provider = cleaned.get("provider")
     if isinstance(provider, dict):
-        next_provider = dict(provider)
+        next_provider: JsonObject = dict(cast(JsonObject, provider))
         next_provider.pop("rosetta", None)
         if next_provider:
             cleaned["provider"] = next_provider
         else:
             cleaned.pop("provider", None)
 
-    if isinstance(cleaned.get("model"), str) and cleaned["model"].startswith("rosetta/"):
+    cleaned_model = cleaned.get("model")
+    if isinstance(cleaned_model, str) and cleaned_model.startswith("rosetta/"):
         cleaned.pop("model", None)
     return _json_dumps(cleaned)
 
@@ -249,11 +254,8 @@ def _build_codex_config(model: str, root_base_url: str, *, original: str = "") -
         return _toml_dumps(rosetta)
 
     try:
-        base = _toml.loads(original)
+        _toml.loads(original)
     except _toml.TOMLDecodeError:
-        return _toml_dumps(rosetta)
-
-    if not isinstance(base, dict):
         return _toml_dumps(rosetta)
 
     return _patch_codex_toml(original, rosetta)
@@ -359,10 +361,8 @@ def _compact_toml_blank_lines(text: str) -> str:
 def _patch_codex_toml(original: str, rosetta: dict[str, object]) -> str:
     text = original.replace("\r\n", "\n")
     text = _patch_top_level_toml_keys(text, {k: rosetta[k] for k in _ROSETTA_CODEX_KEYS})
-    provider = rosetta["model_providers"]
-    assert isinstance(provider, dict)
-    rosetta_provider = provider["rosetta"]
-    assert isinstance(rosetta_provider, dict)
+    provider = cast(dict[str, object], rosetta["model_providers"])
+    rosetta_provider = cast(dict[str, object], provider["rosetta"])
     return _patch_toml_table(text, "model_providers.rosetta", rosetta_provider)
 
 
@@ -465,10 +465,14 @@ def _build_claude_config(model: str, root_base_url: str, *, original: str = "") 
     if not isinstance(base, dict):
         return _json_dumps({"env": rosetta_env})
 
-    merged = dict(base)
-    user_env = base.get("env", {})
+    base_obj = cast(JsonObject, base)
+    merged: JsonObject = dict(base_obj)
+    user_env = base_obj.get("env", {})
     if isinstance(user_env, dict):
-        merged_env = {k: v for k, v in user_env.items() if k not in _ROSETTA_CLAUDE_ENV_KEYS}
+        user_env_obj = cast(JsonObject, user_env)
+        merged_env: JsonObject = {
+            k: v for k, v in user_env_obj.items() if k not in _ROSETTA_CLAUDE_ENV_KEYS
+        }
         merged_env.update(rosetta_env)
         merged["env"] = merged_env
     else:
@@ -478,7 +482,8 @@ def _build_claude_config(model: str, root_base_url: str, *, original: str = "") 
 
 
 def _build_opencode_config(model: str, openai_base_url: str, *, original: str = "") -> str:
-    rosetta_provider = {
+    empty_model_config: JsonObject = {}
+    rosetta_provider: JsonObject = {
         "rosetta": {
             "npm": "@ai-sdk/openai-compatible",
             "name": "Rosetta",
@@ -486,7 +491,7 @@ def _build_opencode_config(model: str, openai_base_url: str, *, original: str = 
                 "baseURL": openai_base_url,
                 "apiKey": "{env:OPENAI_API_KEY}",
             },
-            "models": {model: {}},
+            "models": {model: empty_model_config},
         },
     }
     rosetta_model = f"rosetta/{model}"
@@ -520,13 +525,14 @@ def _build_opencode_config(model: str, openai_base_url: str, *, original: str = 
             }
         )
 
-    merged = dict(base)
+    base_obj = cast(JsonObject, base)
+    merged: JsonObject = dict(base_obj)
     merged["$schema"] = "https://opencode.ai/config.json"
     merged["model"] = rosetta_model
 
-    user_providers = base.get("provider", {})
+    user_providers = base_obj.get("provider", {})
     if isinstance(user_providers, dict):
-        merged_providers = dict(user_providers)
+        merged_providers: JsonObject = dict(cast(JsonObject, user_providers))
         merged_providers["rosetta"] = rosetta_provider["rosetta"]
         merged["provider"] = merged_providers
     else:
@@ -559,17 +565,19 @@ def _toml_value(val: object) -> str:
     if isinstance(val, str):
         return f'"{_escape_toml(val)}"'
     if isinstance(val, list):
-        return "[" + ", ".join(_toml_value(v) for v in val) + "]"
+        items = cast(list[object], val)
+        return "[" + ", ".join(_toml_value(v) for v in items) + "]"
     if isinstance(val, dict):
         # inline table: 只处理 scalar 值 (TOML inline-table 语法)
-        if not val:
+        obj = cast(dict[str, object], val)
+        if not obj:
             return "{}"
-        items = ", ".join(f"{k} = {_toml_value(v)}" for k, v in sorted(val.items()))
+        items = ", ".join(f"{k} = {_toml_value(v)}" for k, v in sorted(obj.items()))
         return f"{{ {items} }}"
     raise ValueError(f"unsupported TOML type: {type(val).__name__}")
 
 
-def _toml_dumps(data: dict) -> str:
+def _toml_dumps(data: dict[str, object]) -> str:
     """dict -> TOML 序列化, 只处理标量 + table 两层嵌套。"""
     lines: list[str] = []
     _toml_emit(data, lines)
@@ -577,12 +585,12 @@ def _toml_dumps(data: dict) -> str:
     return "\n".join(lines)
 
 
-def _toml_emit(data: dict, lines: list[str], *, prefix: str | None = None) -> None:
+def _toml_emit(data: dict[str, object], lines: list[str], *, prefix: str | None = None) -> None:
     scalars: dict[str, object] = {}
     tables: dict[str, dict[str, object]] = {}
     for k, v in data.items():
         if isinstance(v, dict) and v:
-            tables[k] = v
+            tables[k] = cast(dict[str, object], v)
         else:
             scalars[k] = v
 

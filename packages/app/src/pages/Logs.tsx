@@ -460,10 +460,10 @@ export default function Logs() {
           </span>
           <span className="text-xs">·</span>
           <Select value={String(pageSize)} onValueChange={onPageSizeChange}>
-            <SelectTrigger className="h-8 w-28">
+            <SelectTrigger className="h-8 w-32">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent position="popper" side="top" align="start" sideOffset={4} className="w-32">
               {PAGE_SIZE_OPTIONS.map((n) => (
                 <SelectItem key={n} value={String(n)}>
                   {n} / page

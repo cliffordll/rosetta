@@ -118,7 +118,7 @@ def test_upstream_guide_prints_client_doc_path() -> None:
     assert result.exit_code == 0
     out = _plain(result.output)
     assert "docs" in out
-    assert "clients" in out
+    assert "setup" in out
     assert "opencode.md" in out
 
 
@@ -639,6 +639,7 @@ def test_setup_help_exists() -> None:
     out = _plain(result.output)
     assert "preview" in out
     assert "apply" in out
+    assert "command" in out
 
 
 def test_root_help_includes_setup() -> None:
@@ -650,7 +651,7 @@ def test_root_help_includes_setup() -> None:
 def test_setup_preview_prints_original_and_generated(monkeypatch: pytest.MonkeyPatch) -> None:
     from rosetta.cli.commands import setup as setup_mod
 
-    captured: dict[str, object] = {"out": []}
+    captured: dict[str, object] = {"out": [], "raw": []}
 
     class _FakeClient:
         async def setup_preview(self, target: str, *, upstream_id: str) -> SimpleNamespace:
@@ -660,8 +661,8 @@ def test_setup_preview_prints_original_and_generated(monkeypatch: pytest.MonkeyP
                 target=target,
                 path="C:/config.toml",
                 exists=True,
-                original="old-config",
-                generated="new-config",
+                original='[model_providers.rosetta]\nbase_url = "http://old"\n',
+                generated='[model_providers.rosetta]\nbase_url = "http://new"\n',
                 language="toml",
                 backup_path=None,
             )
@@ -673,8 +674,12 @@ def test_setup_preview_prints_original_and_generated(monkeypatch: pytest.MonkeyP
     def _capture_out(value: object) -> None:
         captured["out"].append(str(value))
 
+    def _capture_raw(value: str) -> None:
+        captured["raw"].append(value)
+
     monkeypatch.setattr(setup_mod.ProxyClient, "discover_session", _discover_session)
     monkeypatch.setattr(setup_mod.Renderer, "out", _capture_out)
+    monkeypatch.setattr(setup_mod.Renderer, "raw", _capture_raw)
 
     result = runner.invoke(app, ["setup", "preview", "codex", "--upstream", "u1"])
 
@@ -682,9 +687,11 @@ def test_setup_preview_prints_original_and_generated(monkeypatch: pytest.MonkeyP
     assert captured["target"] == "codex"
     assert captured["upstream_id"] == "u1"
     output = "\n".join(captured["out"])
+    raw_output = "\n".join(captured["raw"])
     assert "C:/config.toml" in output
-    assert "old-config" in output
-    assert "new-config" in output
+    assert "[model_providers.rosetta]\nbase_url" in raw_output
+    assert "http://old" in raw_output
+    assert "http://new" in raw_output
 
 
 def test_setup_apply_prints_backup_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -724,6 +731,72 @@ def test_setup_apply_prints_backup_path(monkeypatch: pytest.MonkeyPatch) -> None
     output = "\n".join(captured["out"])
     assert "C:/settings.json" in output
     assert "C:/settings.json.bak-20260625-153000" in output
+
+
+def test_setup_command_prints_powershell_api_key_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    from rosetta.cli.commands import setup as setup_mod
+
+    captured: dict[str, object] = {"out": []}
+
+    class _FakeClient:
+        async def list_upstreams(self) -> list[SimpleNamespace]:
+            return [SimpleNamespace(id="u1", api_key="sk-real")]
+
+    @asynccontextmanager
+    async def _discover_session(**_: object):
+        yield _FakeClient()
+
+    def _capture_out(value: object) -> None:
+        captured["out"].append(str(value))
+
+    monkeypatch.setattr(setup_mod.ProxyClient, "discover_session", _discover_session)
+    monkeypatch.setattr(setup_mod.Renderer, "out", _capture_out)
+
+    result = runner.invoke(
+        app, ["setup", "command", "codex", "--upstream", "u1", "--kind", "powershell"]
+    )
+
+    assert result.exit_code == 0
+    assert captured["out"] == ['$env:OPENAI_API_KEY="sk-real"']
+
+
+def test_setup_command_copy_uses_clipboard(monkeypatch: pytest.MonkeyPatch) -> None:
+    from rosetta.cli.commands import setup as setup_mod
+
+    captured: dict[str, object] = {"out": [], "copied": None}
+
+    class _FakeClient:
+        async def list_upstreams(self) -> list[SimpleNamespace]:
+            return [SimpleNamespace(id="u1", api_key="sk-ant-real")]
+
+    @asynccontextmanager
+    async def _discover_session(**_: object):
+        yield _FakeClient()
+
+    def _capture_out(value: object) -> None:
+        captured["out"].append(str(value))
+
+    def _capture_copy(value: str) -> None:
+        captured["copied"] = value
+
+    monkeypatch.setattr(setup_mod.ProxyClient, "discover_session", _discover_session)
+    monkeypatch.setattr(setup_mod.Renderer, "out", _capture_out)
+    monkeypatch.setattr(setup_mod, "_copy_to_clipboard", _capture_copy)
+
+    result = runner.invoke(
+        app, ["setup", "command", "claude", "--upstream", "u1", "--kind", "export", "--copy"]
+    )
+
+    assert result.exit_code == 0
+    assert captured["copied"] == "export ANTHROPIC_API_KEY='sk-ant-real'"
+    assert captured["out"] == ["copied command"]
+
+
+def test_setup_command_cli_kind_does_not_require_upstream() -> None:
+    result = runner.invoke(app, ["setup", "command", "codex", "--kind", "cli"])
+
+    assert result.exit_code == 0
+    assert "codex --oss --local-provider rosetta" in _plain(result.output)
 
 
 def test_setup_clear_requires_yes() -> None:

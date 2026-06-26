@@ -470,7 +470,7 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 3. 无 r-upstream、无 model → 400 missing_routing_info
 ```
 
-**同 model 多 upstream 的默认管理**:写到 settings 表,key = `default_model:<model_name>`,value = `upstream_id`。管理入口:`PUT /admin/upstreams/{name}/model-default?model=<model>` / CLI `rosetta upstream default <name> --model <model>` / GUI 对应操作。
+**同 model 多 upstream 的默认管理**:写到 settings 表,key = `default_model:<model_name>`,value = `upstream_id`。管理入口:`PUT /admin/upstreams/{name}/model-default?model=<model>` / CLI `rosetta upstream default <upstream-id> --model <model>` / GUI 对应操作。
 
 **关于选中的 upstream 与入口 API 格式**:选中 upstream 的 `native_api` 与入口 `server_api` 不一致时,自动走 §8.3 翻译(对角线直通仅发生在两者一致的情况)。例如入口 `/v1/messages` + upstream `native_api=completions` → IR 翻译为 Chat Completions 请求。
 
@@ -791,7 +791,7 @@ $ rosetta chat \
 1. **server 没有自己的 key 概念**——step 4 里 CLI 没传 `--api-key`，server 用 upstreams 里存的；step 7 里 CLI 传了,server 就按入口协议透传为 `x-api-key` 或 `Authorization`。概念统一。
 2. **meta 行的翻译路径**（`直通` / `→IR→`）是活体自检的核心信号——启动后打一条 `rosetta chat "ping"` 看 meta 就知道链路是否贯通。
 3. **多轮靠客户端**：step 5 第二轮的"再乘以 5"能被理解，是因为 CLI 把前两轮一起塞进了 `body.messages`；server 无状态，纯转发。
-4. **upstream 路由两段式**:客户端显式带 `r-upstream` header 时精准命中 upstream;未带时 server 按 `body.model` 匹配 enabled upstream。一个 model 对应多个 upstream 时,必须配置 `rosetta upstream default <name> --model <model>`,否则返回 400。
+4. **upstream 路由两段式**:客户端显式带 `r-upstream` header 时精准命中 upstream;未带时 server 按 `body.model` 匹配 enabled upstream。一个 model 对应多个 upstream 时,必须配置 `rosetta upstream default <upstream-id> --model <model>`,否则返回 400。
 5. **direct 模式**（step 8）是个旁路：`--base-url` 触发,不经 server,不记日志,也不翻译——要跨格式就去掉 `--base-url` 走 server。
 
 ---
