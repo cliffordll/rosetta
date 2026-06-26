@@ -60,7 +60,7 @@ rosetta upstream restore-mock
 
 ```bash
 # 设置某个 model 的默认 upstream
-rosetta upstream default <upstream-id> --model gpt-4o
+rosetta upstream default <upstream-id>
 
 # 查看所有默认映射
 rosetta upstream defaults
@@ -78,17 +78,17 @@ rosetta upstream defaults
 也可以直接用 `rosetta setup` 管理本机客户端配置：
 
 ```bash
-rosetta setup preview codex --upstream <upstream-id>
-rosetta setup apply codex --upstream <upstream-id>
+rosetta setup preview codex --model <model>
+rosetta setup apply codex --model <model> --model-alias <alias>
 rosetta setup clear codex --yes
 
 # 输出或复制 Setup 页里的 PowerShell / export / CLI 命令
-rosetta setup command codex --upstream <upstream-id> --kind powershell
-rosetta setup command codex --upstream <upstream-id> --kind export --copy
+rosetta setup command codex --model <model> --kind powershell
+rosetta setup command codex --model <model> --kind export --copy
 rosetta setup command codex --kind cli
 ```
 
-`codex` 可替换为 `claude` 或 `opencode`。
+`codex` 可替换为 `claude` 或 `opencode`。`--model-alias` 会写入客户端配置里的模型名。Rosetta 同时保存 `setup:<target> = <alias>` 作为下次进入 Setup 页的默认值，并保存 `setup:<target>:<alias> = <upstream-id>` 作为该客户端入口的数据面路由映射。
 
 ## 5. CLI 常用命令
 
@@ -107,10 +107,11 @@ rosetta stats month        # 本月用量汇总
 
 # upstream 管理
 rosetta upstream list                               # 列出所有
+rosetta models                                      # 查看当前配置支持的模型
 rosetta upstream add --help                         # 查看添加参数
 rosetta upstream update <id> --name new-name        # 更新
 rosetta upstream remove <id>                        # 删除
-rosetta upstream default <upstream-id> --model <model>  # 设为 model 默认路由
+rosetta upstream default <upstream-id>  # 设为该 upstream.model 的默认路由
 rosetta upstream defaults                           # 查看默认模型映射
 rosetta upstream test <id>                          # 测试连通性
 rosetta upstream restore-mock                       # 恢复内置 mock
@@ -139,9 +140,10 @@ rosetta guide readme                        # 本说明
 ## 6. 注意事项
 
 - upstream 的 `base_url` 填真实 LLM 服务 API 前缀（如 `https://api.openai.com` 或 `https://api.openai.com/v1`），不要填 Rosetta 地址，不要填完整 endpoint。
+- upstream 的 `model` 必填，填真实上游模型名；不传 `r-upstream` 时 Rosetta 也会按这个 model 做自动匹配。
 - 客户端连接 Rosetta 时，base_url 设为 `http://localhost:1687`。
 - 客户端传入 api-key 时会覆盖 upstream 中保存的 key。
 - `rosetta start` 默认绑定 `127.0.0.1:1687`，暴露到局域网需显式 `--host 0.0.0.0`（无 auth 层，请在受信任网络下使用）。
-- server 模式下指定 `--upstream` 时，`--model` 和 `--api-key` 均可留空——留空 = 用该 upstream 的配置兜底；传 `none` 或 `""` 也等价于留空。
+- server 模式下指定 `--upstream` 时，`--model` 和 `--api-key` 均可留空——留空 = 用该 upstream 的配置兜底；传 `none` 或 `""` 也等价于留空。upstream 本身必须配置 model。
 - 不传 `--upstream` 时必须传 `--model`，server 会按 model 匹配 upstream；两者都不传会返回 `missing_routing_info`。
 - direct 模式（`--base-url`）下 `--model` 和 `--api-key` 必填，`--upstream` 自动失效。

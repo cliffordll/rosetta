@@ -162,10 +162,11 @@ REPL 支持 slash 命令自动补全，输入 `/` 或命令参数时可用上下
 - `responses`: `/v1/responses`
 
 ```bash
-uv run rosetta upstream add --name anthropic-main --native-api messages --api-key sk-ant-XXX --base-url https://api.anthropic.com --model claude-haiku-4-5
+uv run rosetta upstream add --name anthropic-main --native-api messages --api-key sk-ant-XXX --base-url https://api.anthropic.com --model claude-haiku-4-5  # --model 必填
 uv run rosetta upstream update <id> --model claude-sonnet-4-5
 uv run rosetta upstream test <id>
-uv run rosetta upstream default <upstream-id> --model claude-haiku-4-5
+uv run rosetta models
+uv run rosetta upstream default <upstream-id>
 uv run rosetta upstream defaults
 ```
 
@@ -174,20 +175,20 @@ uv run rosetta upstream defaults
 `rosetta setup` 用于预览、写入或清理 Codex / Claude / OpenCode 的本机配置文件。
 
 ```bash
-uv run rosetta setup preview codex --upstream <upstream-id>
-uv run rosetta setup apply codex --upstream <upstream-id>
+uv run rosetta setup preview codex --model <model>
+uv run rosetta setup apply codex --model <model> --model-alias <alias>
 uv run rosetta setup clear codex --yes
 ```
 
 输出或复制 Setup 页同款 PowerShell / export / CLI 命令:
 
 ```bash
-uv run rosetta setup command codex --upstream <upstream-id> --kind powershell
-uv run rosetta setup command codex --upstream <upstream-id> --kind export --copy
+uv run rosetta setup command codex --model <model> --kind powershell
+uv run rosetta setup command codex --model <model> --kind export --copy
 uv run rosetta setup command codex --kind cli
 ```
 
-`codex` 可替换为 `claude` 或 `opencode`。
+`codex` 可替换为 `claude` 或 `opencode`。`--model-alias` 会写入客户端配置里的模型名；Rosetta 保存 `setup:<target> = <alias>` 作为下次进入 Setup 页的默认值，并保存 `setup:<target>:<alias> = <upstream-id>` 作为该客户端入口的数据面路由映射。
 
 ### 4.4 Logs
 

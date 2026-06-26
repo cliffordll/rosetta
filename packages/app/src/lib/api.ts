@@ -73,7 +73,7 @@ export interface UpstreamOut {
   base_url: string;
   /** 管理面回显 api_key,便于本地测试;生产/共享环境注意不要截图或外传。 */
   api_key: string | null;
-  /** 该 upstream 的默认模型;client body 不传 model 时 server fallback 用这个。可空。 */
+  /** 该 upstream 的真实模型名;client body 不传 model 时 server fallback 用这个。 */
   model: string | null;
   enabled: boolean;
   created_at: string;
@@ -98,14 +98,15 @@ export interface UpstreamCreate {
   native_api: UpstreamNativeApi;
   provider: UpstreamProvider;
   api_key?: string;
-  model?: string;
+  model: string;
   base_url: string;
   enabled?: boolean;
 }
 
 /** PUT /admin/upstreams/{id} body;只发显式 set 的字段。
  *
- * - `api_key` / `model` 显式 `null` → 清空该字段;未传 → 不动
+ * - `api_key` 显式 `null` -> 清空该字段;未传 -> 不动
+ * - `model` 可更新但不能清空
  */
 export interface UpstreamUpdate {
   name?: string;
@@ -113,7 +114,7 @@ export interface UpstreamUpdate {
   provider?: UpstreamProvider;
   base_url?: string;
   api_key?: string | null;
-  model?: string | null;
+  model?: string;
   enabled?: boolean;
 }
 
@@ -129,6 +130,12 @@ export interface SetupConfigOut {
   generated: string;
   language: "toml" | "json";
   backup_path: string | null;
+  model: string | null;
+  model_alias: string | null;
+}
+export interface SetupAliasOut {
+  target: SetupTarget;
+  alias: string;
 }
 export interface RestoreMockResult {
   created: boolean;
@@ -256,7 +263,16 @@ export const api = {
   listModelDefaults(): Promise<ModelDefaultsOut> {
     return request("/admin/upstreams/model-defaults");
   },
-  testUpstream(id: string): Promise<UpstreamProbeOut> {
+  listSetupAliases(id: string): Promise<SetupAliasOut[]> {
+    return request(`/admin/upstreams/${encodeURIComponent(id)}/setup-aliases`);
+  },
+  deleteSetupAlias(id: string, target: SetupTarget, alias: string): Promise<void> {
+    const q = new URLSearchParams({ alias });
+    return request(
+      `/admin/upstreams/${encodeURIComponent(id)}/setup-aliases/${target}?${q.toString()}`,
+      { method: "DELETE" },
+    );
+  },  testUpstream(id: string): Promise<UpstreamProbeOut> {
     return request(`/admin/upstreams/${id}/test`, {
       method: "POST",
     });
@@ -318,16 +334,20 @@ export const api = {
   setupClear(target: SetupTarget): Promise<SetupConfigOut> {
     return request(`/admin/setup/${target}/clear`, { method: "POST" });
   },
-  setupPreview(target: SetupTarget, upstreamId: string): Promise<SetupConfigOut> {
-    const q = new URLSearchParams({ upstream_id: upstreamId });
+  setupPreview(target: SetupTarget, model: string, modelAlias?: string): Promise<SetupConfigOut> {
+    const q = new URLSearchParams({ model });
+    if (modelAlias?.trim()) q.set("model_alias", modelAlias.trim());
     return request(`/admin/setup/${target}/preview?${q.toString()}`);
   },
-  setupApply(target: SetupTarget, upstreamId: string): Promise<SetupConfigOut> {
+  setupApply(target: SetupTarget, model: string, modelAlias?: string): Promise<SetupConfigOut> {
+    const payload: { model: string; model_alias?: string } = { model };
+    if (modelAlias?.trim()) payload.model_alias = modelAlias.trim();
     return request(`/admin/setup/${target}/apply`, {
       method: "POST",
-      body: JSON.stringify({ upstream_id: upstreamId }),
+      body: JSON.stringify(payload),
     });
-  },  stats(period = "today"): Promise<StatsOut> {
+  },
+  stats(period = "today"): Promise<StatsOut> {
     return request(`/admin/stats?period=${period}`);
   },
   restoreMockUpstream(force = false): Promise<RestoreMockResult> {
@@ -337,3 +357,4 @@ export const api = {
     );
   },
 };
+

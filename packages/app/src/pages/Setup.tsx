@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -30,14 +31,11 @@ import {
 } from "@/lib/client-config-snippets";
 import { api, type SetupConfigOut, type UpstreamOut } from "@/lib/api";
 
-function formatUpstreamLabel(u: UpstreamOut): string {
-  return `${u.name}(${u.model ?? "auto"}+${u.native_api})`;
-}
-
 export default function Setup() {
   const [items, setItems] = useState<UpstreamOut[] | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [configTarget, setConfigTarget] = useState<ClientConfigTarget>("codex");
+  const [modelAlias, setModelAlias] = useState("");
   const [localConfig, setLocalConfig] = useState<SetupConfigOut | null>(null);
   const [preview, setPreview] = useState<SetupConfigOut | null>(null);
   const [loadingLocal, setLoadingLocal] = useState(false);
@@ -73,6 +71,9 @@ export default function Setup() {
       try {
         const result = await api.setupCurrent(target);
         setLocalConfig(result);
+        setSelectedModel(result.model ?? null);
+        setModelAlias(result.model_alias ?? "");
+        setPreview(result.generated ? result : null);
       } catch (e) {
         // 左侧面板只是辅助信息，读本地文件失败不阻断整个页面
         setLocalConfig(null);
@@ -84,15 +85,15 @@ export default function Setup() {
   );
 
   const loadPreviewConfig = useCallback(
-    async (target: ClientConfigTarget, upstreamId: string | null) => {
-      if (!upstreamId) {
+    async (target: ClientConfigTarget, modelValue: string | null, modelAliasValue: string) => {
+      if (!modelValue) {
         setPreview(null);
         return;
       }
       setInfo(null);
       setLoadErr(null);
       try {
-        const result = await api.setupPreview(target, upstreamId);
+        const result = await api.setupPreview(target, modelValue, modelAliasValue);
         setPreview(result);
       } catch (e) {
         setPreview(null);
@@ -108,8 +109,8 @@ export default function Setup() {
   }, [configTarget, loadLocalConfig]);
 
   useEffect(() => {
-    void loadPreviewConfig(configTarget, selectedId);
-  }, [configTarget, loadPreviewConfig, selectedId]);
+    void loadPreviewConfig(configTarget, selectedModel, modelAlias);
+  }, [modelAlias, configTarget, loadPreviewConfig, selectedModel]);
 
   function syncConfigScroll(
     source: HTMLPreElement,
@@ -128,7 +129,7 @@ export default function Setup() {
 
   async function handleRefreshCurrentTarget() {
     setRefreshing(true);
-    setSelectedId(null);
+    setSelectedModel(null);
     setPreview(null);
     try {
       await loadLocalConfig(configTarget, { quiet: true });
@@ -164,15 +165,22 @@ export default function Setup() {
     }
   }
   async function handleApply() {
-    if (!selectedId) return;
+    if (!selectedModel) return;
     setInfo(null);
     setLoadErr(null);
     setApplying(true);
     try {
-      const result = await api.setupApply(configTarget, selectedId);
+      const trimmedModelAlias = modelAlias.trim();
+      const result = await api.setupApply(configTarget, selectedModel, trimmedModelAlias || undefined);
       setPreview(result);
       setLocalConfig({ ...result, exists: true, original: result.generated });
-      setInfo(result.backup_path ? `Applied. Backup: ${result.backup_path}` : "Applied");
+      setInfo(
+        result.backup_path
+          ? `Applied. Backup: ${result.backup_path}`
+          : trimmedModelAlias
+            ? `Applied. Alias ${trimmedModelAlias} updated`
+            : "Applied",
+      );
     } catch (e) {
       setLoadErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -184,9 +192,19 @@ export default function Setup() {
     () => (preview ? alignConfigLines(localConfig?.original ?? "", preview.generated) : null),
     [localConfig?.original, preview],
   );
+  const modelOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const models: string[] = [];
+    for (const item of items ?? []) {
+      if (!item.model || seen.has(item.model)) continue;
+      seen.add(item.model);
+      models.push(item.model);
+    }
+    return models;
+  }, [items]);
   const selectedUpstream = useMemo(
-    () => items?.find((item) => item.id === selectedId) ?? null,
-    [items, selectedId],
+    () => items?.find((item) => item.model === selectedModel) ?? null,
+    [items, selectedModel],
   );
   const apiKeyEnv = clientConfigApiKeyEnv(configTarget);
   const cliCommand = clientConfigCliCommand(configTarget);
@@ -271,31 +289,42 @@ export default function Setup() {
 
           {/* 右侧：upstream 选择器 + Generated config */}
           <div className="flex flex-col gap-3 min-h-0">
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-muted-foreground whitespace-nowrap shrink-0">upstream</span>
-              <div className="flex-1">
-                <Select
-                  value={selectedId ?? ""}
-                  onValueChange={(value) => setSelectedId(value || null)}
-                >
-                  <SelectTrigger size="sm" className="h-8 text-xs w-full">
-                    <SelectValue placeholder="Select upstream" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {items?.map((u) => (
-                      <SelectItem key={u.id} value={u.id}>
-                        {formatUpstreamLabel(u)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            <div className="grid gap-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="shrink-0 whitespace-nowrap text-sm text-muted-foreground">model</span>
+                <div className="min-w-0 flex-1">
+                  <Select
+                    value={selectedModel ?? ""}
+                    onValueChange={(value) => setSelectedModel(value || null)}
+                  >
+                    <SelectTrigger size="sm" className="h-8 w-full text-xs">
+                      <SelectValue placeholder="Select model" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {modelOptions.map((model) => (
+                        <SelectItem key={model} value={model}>
+                          {model}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="shrink-0 whitespace-nowrap text-sm text-muted-foreground">model alias</span>
+                <Input
+                  value={modelAlias}
+                  onChange={(event) => setModelAlias(event.target.value)}
+                  placeholder={selectedUpstream?.model || "same as upstream"}
+                  className="h-8 min-w-0 text-xs"
+                />
               </div>
             </div>
             <div className="flex-1 flex flex-col min-h-0">
               <ConfigPanel
                 title="Generated config"
                 language={preview?.language ?? clientConfigTargetLanguage(configTarget)}
-                content={preview?.generated ?? "(select an upstream)"}
+                content={preview?.generated ?? "(select a model)"}
                 lines={alignedConfig?.generated}
                 scrollRef={generatedPreRef}
                 onScroll={(event) => syncConfigScroll(event.currentTarget, currentPreRef.current)}

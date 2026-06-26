@@ -1,4 +1,4 @@
-﻿import { isTauri } from "@/lib/updater";
+import { isTauri } from "@/lib/updater";
 import {
   BugIcon,
   CopyIcon,
@@ -584,7 +584,6 @@ export default function Upstreams() {
           await load();
         }}
       />
-
       <AlertDialog open={toDelete !== null} onOpenChange={(o) => !o && setToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -949,7 +948,7 @@ function UpstreamFormDialog({
           native_api: nativeApi,
           provider,
           api_key: apiKey.trim() || undefined,
-          model: model.trim() || undefined,
+          model: model.trim(),
           base_url: baseUrl.trim(),
         };
         await api.createUpstream(payload);
@@ -968,7 +967,7 @@ function UpstreamFormDialog({
         const trimmedModel = model.trim();
         const initialModel = initial.model ?? "";
         if (trimmedModel !== initialModel) {
-          payload.model = trimmedModel || null;
+          payload.model = trimmedModel;
         }
         if (Object.keys(payload).length === 0) {
           await onSubmitted();
@@ -1086,7 +1085,7 @@ function UpstreamFormDialog({
             <Label htmlFor="u-model" className={FORM_LABEL}>
               model{" "}
               <span className={FORM_LABEL_HINT}>
-                (可选 · 客户端不传 r-upstream 时，按 body.model 自动匹配到此上游)
+                (必填 · 客户端不传 r-upstream 时，按 body.model 自动匹配到此上游)
               </span>
             </Label>
             <Input

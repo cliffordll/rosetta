@@ -470,7 +470,7 @@ Responses API 相比 Chat Completions 多了会话状态能力，翻译时需要
 3. 无 r-upstream、无 model → 400 missing_routing_info
 ```
 
-**同 model 多 upstream 的默认管理**:写到 settings 表,key = `default_model:<model_name>`,value = `upstream_id`。管理入口:`PUT /admin/upstreams/{name}/model-default?model=<model>` / CLI `rosetta upstream default <upstream-id> --model <model>` / GUI 对应操作。
+**同 model 多 upstream 的默认管理**:写到 settings 表,key = `default_model:<model_name>`,value = `upstream_id`。管理入口:`PUT /admin/upstreams/{name}/model-default?model=<model>` / CLI `rosetta upstream default <upstream-id>` / GUI 对应操作。
 
 **关于选中的 upstream 与入口 API 格式**:选中 upstream 的 `native_api` 与入口 `server_api` 不一致时,自动走 §8.3 翻译(对角线直通仅发生在两者一致的情况)。例如入口 `/v1/messages` + upstream `native_api=completions` → IR 翻译为 Chat Completions 请求。
 
@@ -791,7 +791,7 @@ $ rosetta chat \
 1. **server 没有自己的 key 概念**——step 4 里 CLI 没传 `--api-key`，server 用 upstreams 里存的；step 7 里 CLI 传了,server 就按入口协议透传为 `x-api-key` 或 `Authorization`。概念统一。
 2. **meta 行的翻译路径**（`直通` / `→IR→`）是活体自检的核心信号——启动后打一条 `rosetta chat "ping"` 看 meta 就知道链路是否贯通。
 3. **多轮靠客户端**：step 5 第二轮的"再乘以 5"能被理解，是因为 CLI 把前两轮一起塞进了 `body.messages`；server 无状态，纯转发。
-4. **upstream 路由两段式**:客户端显式带 `r-upstream` header 时精准命中 upstream;未带时 server 按 `body.model` 匹配 enabled upstream。一个 model 对应多个 upstream 时,必须配置 `rosetta upstream default <upstream-id> --model <model>`,否则返回 400。
+4. **upstream 路由两段式**:客户端显式带 `r-upstream` header 时精准命中 upstream;未带时 server 按 `body.model` 匹配 enabled upstream。一个 model 对应多个 upstream 时,必须配置 `rosetta upstream default <upstream-id>`,否则返回 400。
 5. **direct 模式**（step 8）是个旁路：`--base-url` 触发,不经 server,不记日志,也不翻译——要跨格式就去掉 `--base-url` 走 server。
 
 ---
@@ -849,6 +849,7 @@ interface Platform {
 
 - **状态**：当前会话的 `messages[]` 用 `useState` 存在 Chat 页组件里，**不入 DB、不入全局 store**、切页或刷新即清。想要多会话 / 历史翻阅请用外部 chat 客户端连 rosetta（见 §1 定位）。
 - **Upstream 下拉**:可选,挂载时拉 `GET /admin/upstreams` 填充选项。选了具体 upstream → 发送时带 `r-upstream: <name>` header;留空 → 不带 header,此时 Model 必填,server 按 `body.model` 匹配 upstream。重复 model 需要在 Upstreams 页配置 model default。
+- **Setup alias**:Setup 页按客户端 target 管理模型别名。`setup:<target>` 是该 target 上次配置的 alias 默认值；`setup:<target>:<alias>` 是 target-scoped alias 到 upstream 的路由映射。进入 Setup 页时先读 `setup:<target>`，再通过 `setup:<target>:<alias>` 反查 upstream model 并生成预览。
 - **Server API 下拉**:三选一 `messages | completions | responses`(对应 `/v1/messages` / `/v1/chat/completions` / `/v1/responses`),默认 `messages`。切换后下次发送用新 API 格式的请求体构造;已渲染的历史消息不回放。已知局限和 CLI 相同——切 `server_api` 后前文的 tool_use / thinking / image 块丢弃并给 toast 提示。
 - **Model 下拉**:来源 `GET /v1/models?server_api=<当前>&upstream=<Upstream 下拉值>`,随 `server_api` / upstream 联动。
 - **流式**：浏览器 `fetch` + `ReadableStream` 读 SSE，按当前 `server_api` 解码后逐 token 追加到 assistant 气泡；`Stop` 按钮 `AbortController.abort()`。
