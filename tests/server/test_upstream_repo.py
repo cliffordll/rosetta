@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rosetta.server.database.models import Upstream
+from rosetta.server.database.models import Setting, Upstream
 from rosetta.server.repository.upstream import UpstreamRepo
 
 
@@ -76,6 +76,47 @@ class TestModelDefault:
         assert await session.get(Setting, "default_model:gpt-legacy") is None
 
 
+class TestSetupAliases:
+    async def test_list_and_delete_setup_aliases(self, session: AsyncSession) -> None:
+        upstream = await _insert(session, name="alias-owner")
+        session.add_all(
+            [
+                Setting(key="setup:codex:gpt-5.5", value=upstream.id),
+                Setting(key="setup:claude:sonnet", value=upstream.id),
+                Setting(key="setup:codex", value="gpt-5.5"),
+                Setting(key="setup:codex:other", value="other-upstream"),
+            ]
+        )
+        await session.commit()
+
+        repo = UpstreamRepo(session)
+        assert await repo.list_setup_model_aliases(upstream.id) == [
+            ("claude", "sonnet"),
+            ("codex", "gpt-5.5"),
+        ]
+
+        assert await repo.delete_setup_model_alias(upstream.id, "codex", "gpt-5.5") is True
+        assert await session.get(Setting, "setup:codex:gpt-5.5") is None
+        assert await session.get(Setting, "setup:codex") is None
+        assert await repo.delete_setup_model_alias(upstream.id, "codex", "missing") is False
+
+    async def test_delete_upstream_clears_last_setup_alias_pointer(
+        self, session: AsyncSession
+    ) -> None:
+        upstream = await _insert(session, name="alias-owner")
+        session.add_all(
+            [
+                Setting(key="setup:codex:gpt-5.5", value=upstream.id),
+                Setting(key="setup:codex", value="gpt-5.5"),
+            ]
+        )
+        await session.commit()
+
+        await UpstreamRepo(session).delete(upstream)
+
+        assert await session.get(Setting, "setup:codex:gpt-5.5") is None
+        assert await session.get(Setting, "setup:codex") is None
+
 class TestUpdate:
     async def test_update_single_field(self, session: AsyncSession) -> None:
         a = await _insert(session, name="a", native_api="messages")
@@ -123,3 +164,4 @@ class TestUpdate:
         repo = UpstreamRepo(session)
         result = await repo.update(a.id, model="claude-sonnet-4-5")
         assert result.model == "claude-sonnet-4-5"
+

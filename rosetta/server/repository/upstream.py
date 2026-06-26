@@ -25,7 +25,7 @@ MOCK_UPSTREAM_FIELDS: dict[str, Any] = {
     "provider": "mock",
     "base_url": "mock://",
     "api_key": None,
-    "model": None,  # mock 路径不走 forwarder model fallback;client 自带
+    "model": "mock-default",
     "enabled": True,
 }
 
@@ -63,6 +63,60 @@ class UpstreamRepo:
         setting = await self.session.get(Setting, f"default_model:{model}")
         return setting.value if setting is not None else None
 
+    async def setup_model_alias_upstream_id(self, target: str, model: str) -> str | None:
+        setting = await self.session.get(Setting, f"setup:{target}:{model}")
+        return setting.value if setting is not None else None
+
+    async def setup_last_model_alias(self, target: str) -> str | None:
+        setting = await self.session.get(Setting, f"setup:{target}")
+        return setting.value if setting is not None else None
+
+    async def set_setup_last_model_alias(self, target: str, model_alias: str) -> None:
+        await self.session.merge(Setting(key=f"setup:{target}", value=model_alias))
+        await self.session.commit()
+
+    async def set_setup_model_alias(
+        self, target: str, upstream_id: str, model_alias: str
+    ) -> Upstream:
+        target_upstream = await self.get_by_id(upstream_id)
+        if target_upstream is None:
+            raise LookupError(f"upstream id={upstream_id!r} 不存在")
+        await self.session.merge(
+            Setting(key=f"setup:{target}:{model_alias}", value=target_upstream.id)
+        )
+        await self.session.commit()
+        return target_upstream
+
+    async def list_setup_model_aliases(self, upstream_id: str) -> list[tuple[str, str]]:
+        result = await self.session.execute(
+            select(Setting).where(Setting.key.like("setup:%"), Setting.value == upstream_id)
+        )
+        aliases: list[tuple[str, str]] = []
+        for setting in result.scalars().all():
+            parts = setting.key.split(":", 2)
+            if len(parts) != 3 or parts[2] == "alias":
+                continue
+            _, target, alias = parts
+            if target not in {"codex", "claude", "opencode"}:
+                continue
+            aliases.append((target, alias))
+        return sorted(aliases)
+
+    async def delete_setup_model_alias(
+        self, upstream_id: str, target: str, model_alias: str
+    ) -> bool:
+        key = f"setup:{target}:{model_alias}"
+        setting = await self.session.get(Setting, key)
+        if setting is None or setting.value != upstream_id:
+            return False
+        await self.session.delete(setting)
+
+        last_alias = await self.session.get(Setting, f"setup:{target}")
+        if last_alias is not None and last_alias.value == model_alias:
+            await self.session.delete(last_alias)
+        await self.session.commit()
+        return True
+
     async def set_model_default(self, upstream_id: str, model: str) -> Upstream:
         target = await self.get_by_id(upstream_id)
         if target is None:
@@ -90,7 +144,7 @@ class UpstreamRepo:
         provider: str,
         base_url: str,
         api_key: str | None,
-        model: str | None,
+        model: str,
         enabled: bool,
     ) -> Upstream:
         """创建 upstream;name 冲突时 rollback 并抛 `IntegrityError`(调用方转 409)。"""
@@ -121,7 +175,7 @@ class UpstreamRepo:
         provider: str | None = None,
         base_url: str | None = None,
         api_key: str | None | EllipsisType = ...,
-        model: str | None | EllipsisType = ...,
+        model: str | EllipsisType = ...,
         enabled: bool | None = None,
     ) -> Upstream:
         """部分更新 upstream;只改传入的字段。
@@ -159,9 +213,14 @@ class UpstreamRepo:
         return target
 
     async def delete(self, upstream: Upstream) -> None:
+        setup_aliases = await self.list_setup_model_aliases(upstream.id)
+        for target, alias in setup_aliases:
+            last_alias = await self.session.get(Setting, f"setup:{target}")
+            if last_alias is not None and last_alias.value == alias:
+                await self.session.delete(last_alias)
         await self.session.execute(
             delete(Setting).where(
-                Setting.key.like("default_model:%"),
+                or_(Setting.key.like("default_model:%"), Setting.key.like("setup:%")),
                 or_(Setting.value == upstream.id, Setting.value == upstream.name),
             )
         )
