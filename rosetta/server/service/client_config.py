@@ -72,6 +72,7 @@ def build_client_config_preview(
     rosetta_base_url: str,
     *,
     home: Path | None = None,
+    model_alias: str | None = None,
 ) -> ClientConfigPreview:
     path = client_config_path(target, home=home)
     original = path.read_text(encoding="utf-8") if path.exists() else ""
@@ -80,7 +81,9 @@ def build_client_config_preview(
         path=path,
         exists=path.exists(),
         original=original,
-        generated=build_client_config(target, upstream, rosetta_base_url, original=original),
+        generated=build_client_config(
+            target, upstream, rosetta_base_url, original=original, model_alias=model_alias
+        ),
         language=_LANGUAGES[target],
     )
 
@@ -92,8 +95,11 @@ def apply_client_config(
     *,
     home: Path | None = None,
     backup_suffix: str | None = None,
+    model_alias: str | None = None,
 ) -> ClientConfigApplyResult:
-    preview = build_client_config_preview(target, upstream, rosetta_base_url, home=home)
+    preview = build_client_config_preview(
+        target, upstream, rosetta_base_url, home=home, model_alias=model_alias
+    )
     path = preview.path
     backup_path: Path | None = None
 
@@ -181,8 +187,9 @@ def build_client_config(
     rosetta_base_url: str,
     *,
     original: str = "",
+    model_alias: str | None = None,
 ) -> str:
-    model = (upstream.model or "").strip() or upstream.name
+    model = _model_alias(model_alias) or (upstream.model or "").strip() or upstream.name
     root_base_url = _trim_trailing_slash(rosetta_base_url)
     match target:
         case "codex":
@@ -191,6 +198,13 @@ def build_client_config(
             return _build_claude_config(model, root_base_url, original=original)
         case "opencode":
             return _build_opencode_config(model, _with_v1_path(root_base_url), original=original)
+
+
+def _model_alias(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
 
 
 def _clear_codex_config(original: str) -> str:
@@ -404,7 +418,9 @@ def _patch_toml_table(text: str, table: str, values: dict[str, object]) -> str:
         insert_at = next(
             (i for i, line in enumerate(lines) if _is_toml_table_header(line)), len(lines)
         )
-        block_lines = ["", *block.rstrip().splitlines()]
+        block_lines = block.rstrip().splitlines()
+        if insert_at > 0 and lines[insert_at - 1].strip():
+            block_lines = ["", *block_lines]
         if insert_at < len(lines):
             block_lines.append("")
         lines[insert_at:insert_at] = block_lines

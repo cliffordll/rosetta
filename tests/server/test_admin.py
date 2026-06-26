@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rosetta.server.controller import admin_router
-from rosetta.server.database.models import Upstream
+from rosetta.server.database.models import Setting, Upstream
 from rosetta.server.database.session import get_session
 from rosetta.server.service.forwarder import forwarder
 
@@ -107,6 +107,7 @@ async def test_create_upstream_success(client: AsyncClient) -> None:
             "native_api": "messages",
             "api_key": "sk-ant-xxx",
             "base_url": "https://api.example.com/ant-main",
+            "model": "test-model",
         },
     )
     assert r.status_code == 201
@@ -118,12 +119,46 @@ async def test_create_upstream_success(client: AsyncClient) -> None:
     assert "has_api_key" not in body
 
 
+async def test_create_upstream_requires_model(client: AsyncClient) -> None:
+    r = await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "missing-model",
+            "native_api": "messages",
+            "api_key": "sk",
+            "base_url": "https://api.example.com/missing-model",
+        },
+    )
+
+    assert r.status_code == 422
+
+
+async def test_update_upstream_rejects_empty_model(client: AsyncClient) -> None:
+    create = await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "model-required",
+            "native_api": "messages",
+            "api_key": "sk",
+            "base_url": "https://api.example.com/model-required",
+            "model": "gpt-4o",
+        },
+    )
+    pid = create.json()["id"]
+
+    null_model = await client.put(f"/admin/upstreams/{pid}", json={"model": None})
+    blank_model = await client.put(f"/admin/upstreams/{pid}", json={"model": "   "})
+
+    assert null_model.status_code == 400
+    assert blank_model.status_code == 422
+
 async def test_create_upstream_name_conflict(client: AsyncClient) -> None:
     payload = {
         "name": "dup",
         "native_api": "completions",
         "api_key": "sk-1",
         "base_url": "https://api.example.com/dup",
+        "model": "test-model",
     }
     r1 = await client.post("/admin/upstreams", json=payload)
     assert r1.status_code == 201
@@ -140,6 +175,7 @@ async def test_create_upstream_unknown_type(client: AsyncClient) -> None:
             "native_api": "unknown-server-api",
             "api_key": "sk",
             "base_url": "https://api.example.com/c",
+            "model": "test-model",
         },
     )
     # Pydantic Literal 校验失败 → 422
@@ -155,6 +191,7 @@ async def test_create_upstream_rejects_any_native_api(client: AsyncClient) -> No
             "native_api": "any",
             "api_key": "sk",
             "base_url": "https://api.example.com/c",
+            "model": "test-model",
         },
     )
     assert r.status_code == 422
@@ -168,6 +205,7 @@ async def test_list_upstreams_after_create(client: AsyncClient) -> None:
             "native_api": "messages",
             "api_key": "sk-1",
             "base_url": "https://api.example.com/p1",
+            "model": "test-model",
         },
     )
     await client.post(
@@ -177,6 +215,7 @@ async def test_list_upstreams_after_create(client: AsyncClient) -> None:
             "native_api": "completions",
             "api_key": "sk-2",
             "base_url": "https://api.example.com/p2",
+            "model": "test-model",
         },
     )
     r = await client.get("/admin/upstreams")
@@ -196,6 +235,7 @@ async def test_delete_upstream_success(client: AsyncClient, session: AsyncSessio
             "native_api": "messages",
             "api_key": "sk",
             "base_url": "https://api.example.com/doomed",
+            "model": "test-model",
         },
     )
     pid = create.json()["id"]
@@ -216,6 +256,7 @@ async def test_delete_upstream_removes_model_default(client: AsyncClient) -> Non
             "native_api": "messages",
             "api_key": "sk",
             "base_url": "https://api.example.com/defaulted",
+            "model": "test-model",
         },
     )
     pid = create.json()["id"]
@@ -328,6 +369,49 @@ async def test_set_model_default_not_found(client: AsyncClient) -> None:
     assert r.status_code == 404
 
 
+async def test_list_and_delete_setup_aliases(
+    client: AsyncClient,
+    session: AsyncSession,
+) -> None:
+    created = await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "alias-owner",
+            "native_api": "responses",
+            "provider": "openai",
+            "base_url": "https://api.example.com/v1",
+            "model": "deepseek-v4-flash",
+        },
+    )
+    upstream_id = created.json()["id"]
+    session.add_all(
+        [
+            Setting(key="setup:codex:gpt-5.5", value=upstream_id),
+            Setting(key="setup:codex:gpt-5-codex", value=upstream_id),
+            Setting(key="setup:codex", value="gpt-5.5"),
+        ]
+    )
+    await session.commit()
+
+    listed = await client.get(f"/admin/upstreams/{upstream_id}/setup-aliases")
+
+    assert listed.status_code == 200
+    assert listed.json() == [
+        {"target": "codex", "alias": "gpt-5-codex"},
+        {"target": "codex", "alias": "gpt-5.5"},
+    ]
+
+    deleted = await client.delete(
+        f"/admin/upstreams/{upstream_id}/setup-aliases/codex",
+        params={"alias": "gpt-5.5"},
+    )
+
+    assert deleted.status_code == 204
+    assert await session.get(Setting, "setup:codex:gpt-5.5") is None
+    assert await session.get(Setting, "setup:codex") is None
+    remaining = await client.get(f"/admin/upstreams/{upstream_id}/setup-aliases")
+    assert remaining.json() == [{"target": "codex", "alias": "gpt-5-codex"}]
+
 async def test_test_upstream_success(client: AsyncClient) -> None:
     captured: dict[str, httpx.Request | None] = {"request": None}
 
@@ -382,26 +466,6 @@ async def test_test_upstream_success(client: AsyncClient) -> None:
         forwarder._client = prev
 
 
-async def test_test_upstream_missing_model_reports_config(client: AsyncClient) -> None:
-    create = await client.post(
-        "/admin/upstreams",
-        json={
-            "name": "oai-no-model",
-            "native_api": "completions",
-            "api_key": "sk",
-            "base_url": "https://api.example.com/oai",
-        },
-    )
-    upstream_id = create.json()["id"]
-
-    r = await client.post(f"/admin/upstreams/{upstream_id}/test")
-
-    assert r.status_code == 200
-    assert r.json()["ok"] is False
-    assert r.json()["category"] == "config"
-    assert "缺少 model" in r.json()["summary"]
-
-
 async def test_test_upstream_auth_failure_reports_auth(client: AsyncClient) -> None:
     def _dispatch(_req: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"error": {"message": "invalid api key"}})
@@ -445,6 +509,7 @@ async def test_update_upstream_partial(client: AsyncClient) -> None:
             "native_api": "messages",
             "api_key": "sk-1",
             "base_url": "https://api.example.com/u1",
+            "model": "test-model",
         },
     )
     pid = create.json()["id"]
@@ -468,6 +533,7 @@ async def test_update_upstream_clear_api_key(client: AsyncClient) -> None:
             "native_api": "messages",
             "api_key": "sk-2",
             "base_url": "https://api.example.com/u2",
+            "model": "test-model",
         },
     )
     pid = create.json()["id"]
@@ -485,6 +551,7 @@ async def test_update_upstream_native_api(client: AsyncClient) -> None:
             "native_api": "messages",
             "api_key": "sk",
             "base_url": "https://api.example.com/u3",
+            "model": "test-model",
         },
     )
     pid = create.json()["id"]
@@ -508,6 +575,7 @@ async def test_update_upstream_name_conflict(client: AsyncClient) -> None:
             "native_api": "messages",
             "api_key": "sk",
             "base_url": "https://api.example.com/taken",
+            "model": "test-model",
         },
     )
     create = await client.post(
@@ -517,6 +585,7 @@ async def test_update_upstream_name_conflict(client: AsyncClient) -> None:
             "native_api": "messages",
             "api_key": "sk",
             "base_url": "https://api.example.com/free",
+            "model": "test-model",
         },
     )
     pid = create.json()["id"]
@@ -532,6 +601,7 @@ async def test_update_upstream_empty_payload(client: AsyncClient) -> None:
             "native_api": "messages",
             "api_key": "sk",
             "base_url": "https://api.example.com/u4",
+            "model": "test-model",
         },
     )
     pid = create.json()["id"]
@@ -685,7 +755,7 @@ async def test_setup_preview_returns_original_and_generated_config(
     existing = tmp_path / ".codex" / "config.toml"
     existing.parent.mkdir(parents=True)
     existing.write_text('model = "old"\n', encoding="utf-8")
-    created = await client.post(
+    await client.post(
         "/admin/upstreams",
         json={
             "name": "ds",
@@ -698,7 +768,7 @@ async def test_setup_preview_returns_original_and_generated_config(
 
     r = await client.get(
         "/admin/setup/codex/preview",
-        params={"upstream_id": created.json()["id"]},
+        params={"model": "deepseek-v4-flash"},
     )
 
     assert r.status_code == 200
@@ -720,7 +790,7 @@ async def test_setup_apply_backs_up_and_writes_config(
     existing = tmp_path / ".claude" / "settings.json"
     existing.parent.mkdir(parents=True)
     existing.write_text('{"old": true}\n', encoding="utf-8")
-    created = await client.post(
+    await client.post(
         "/admin/upstreams",
         json={
             "name": "ds",
@@ -733,7 +803,7 @@ async def test_setup_apply_backs_up_and_writes_config(
 
     r = await client.post(
         "/admin/setup/claude/apply",
-        json={"upstream_id": created.json()["id"]},
+        json={"model": "deepseek-v4-flash"},
     )
 
     assert r.status_code == 200
@@ -745,8 +815,97 @@ async def test_setup_apply_backs_up_and_writes_config(
     assert '"ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4-flash"' in body["generated"]
 
 
-async def test_setup_preview_unknown_upstream_returns_404(client: AsyncClient) -> None:
-    r = await client.get("/admin/setup/codex/preview", params={"upstream_id": "missing"})
+async def test_setup_apply_model_alias_updates_setup_mapping(
+    client: AsyncClient,
+    session: AsyncSession,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ROSETTA_SETUP_CONFIG_HOME", str(tmp_path))
+    created = await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "ds",
+            "native_api": "responses",
+            "provider": "openai",
+            "base_url": "https://api.example.com/v1",
+            "model": "deepseek-v4-flash",
+        },
+    )
+
+    r = await client.post(
+        "/admin/setup/codex/apply",
+        json={"model": "deepseek-v4-flash", "model_alias": "gpt-5-codex"},
+    )
+
+    assert r.status_code == 200
+    assert 'model = "gpt-5-codex"' in r.json()["generated"]
+
+    setting = await session.get(Setting, "setup:codex:gpt-5-codex")
+    assert setting is not None
+    assert setting.value == created.json()["id"]
+
+    last_alias = await session.get(Setting, "setup:codex")
+    assert last_alias is not None
+    assert last_alias.value == "gpt-5-codex"
+
+
+async def test_setup_current_returns_last_model_alias_by_target(
+    client: AsyncClient,
+    session: AsyncSession,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ROSETTA_SETUP_CONFIG_HOME", str(tmp_path))
+    codex_upstream = await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "codex-owner",
+            "native_api": "responses",
+            "provider": "openai",
+            "base_url": "https://api.example.com/v1",
+            "model": "deepseek-v4-flash",
+        },
+    )
+    claude_upstream = await client.post(
+        "/admin/upstreams",
+        json={
+            "name": "claude-owner",
+            "native_api": "messages",
+            "provider": "anthropic",
+            "base_url": "https://api.example.com",
+            "model": "claude-sonnet-4-5",
+        },
+    )
+    session.add_all(
+        [
+            Setting(key="setup:codex", value="gpt-5-codex"),
+            Setting(key="setup:codex:gpt-5-codex", value=codex_upstream.json()["id"]),
+            Setting(key="setup:claude", value="claude-sonnet-alias"),
+            Setting(key="setup:claude:claude-sonnet-alias", value=claude_upstream.json()["id"]),
+        ]
+    )
+    await session.commit()
+
+    codex = await client.get("/admin/setup/codex/current")
+    claude = await client.get("/admin/setup/claude/current")
+    opencode = await client.get("/admin/setup/opencode/current")
+
+    assert codex.status_code == 200
+    assert codex.json()["model"] == "deepseek-v4-flash"
+    assert codex.json()["model_alias"] == "gpt-5-codex"
+    assert 'model = "gpt-5-codex"' in codex.json()["generated"]
+    assert claude.status_code == 200
+    assert claude.json()["model"] == "claude-sonnet-4-5"
+    assert claude.json()["model_alias"] == "claude-sonnet-alias"
+    assert "claude-sonnet-alias" in claude.json()["generated"]
+    assert opencode.status_code == 200
+    assert opencode.json()["model"] is None
+    assert opencode.json()["model_alias"] is None
+
+
+async def test_setup_preview_unknown_model_returns_404(client: AsyncClient) -> None:
+    r = await client.get("/admin/setup/codex/preview", params={"model": "missing"})
 
     assert r.status_code == 404
 

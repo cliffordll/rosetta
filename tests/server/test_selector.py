@@ -13,14 +13,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from rosetta.server.database.models import Setting, Upstream
 from rosetta.server.service.exceptions import ServiceError
-from rosetta.server.service.selector import pick_upstream
+from rosetta.server.service.selector import pick_upstream, select_upstream
 
 
 async def _insert_upstream(
     session: AsyncSession,
     *,
     name: str,
-    model: str | None = None,
+    model: str = "test-model",
     native_api: str = "messages",
     enabled: bool = True,
 ) -> Upstream:
@@ -103,6 +103,48 @@ class TestModelUpstream:
 
         assert picked.id == picked_expected.id
 
+    async def test_default_model_alias_can_select_different_upstream_model(
+        self, session: AsyncSession
+    ) -> None:
+        picked_expected = await _insert_upstream(
+            session, name="deepseek", model="deepseek-v4-flash"
+        )
+        session.add(Setting(key="default_model:gpt-5-codex", value=picked_expected.id))
+        await session.commit()
+
+        selection = await select_upstream(session, header_upstream=None, model="gpt-5-codex")
+
+        assert selection.upstream.id == picked_expected.id
+        assert selection.rewrite_model_to_upstream is True
+
+    async def test_setup_model_alias_is_scoped(self, session: AsyncSession) -> None:
+        picked_expected = await _insert_upstream(
+            session, name="deepseek", model="deepseek-v4-flash"
+        )
+        session.add(Setting(key="setup:codex:gpt-5.5", value=picked_expected.id))
+        await session.commit()
+
+        selection = await select_upstream(
+            session,
+            header_upstream=None,
+            model="gpt-5.5",
+            setup_scope="codex",
+        )
+
+        assert selection.upstream.id == picked_expected.id
+        assert selection.rewrite_model_to_upstream is True
+
+        with pytest.raises(ServiceError) as exc:
+            await select_upstream(
+                session,
+                header_upstream=None,
+                model="gpt-5.5",
+                setup_scope="claude",
+            )
+
+        assert exc.value.code == "no_upstream_for_model"
+
+
     async def test_multiple_model_matches_without_default_400(self, session: AsyncSession) -> None:
         await _insert_upstream(session, name="a", model="gpt-4o")
         await _insert_upstream(session, name="b", model="gpt-4o")
@@ -130,3 +172,4 @@ class TestMissingRoutingInfo:
 
         assert exc.value.status == 400
         assert exc.value.code == "missing_routing_info"
+

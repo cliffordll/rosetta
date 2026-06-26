@@ -79,6 +79,19 @@ def test_opencode_preview_appends_v1_once(tmp_path: Path) -> None:
     assert '"model": "rosetta/deepseek-v4-flash"' in preview.generated
 
 
+def test_codex_preview_can_use_model_alias(tmp_path: Path) -> None:
+    preview = build_client_config_preview(
+        "codex",
+        _upstream(),
+        "http://localhost:1687",
+        home=tmp_path,
+        model_alias="gpt-5-codex",
+    )
+
+    assert 'model = "gpt-5-codex"' in preview.generated
+    assert 'model = "deepseek-v4-flash"' not in preview.generated
+
+
 def test_codex_preview_appends_v1_once(tmp_path: Path) -> None:
     preview = build_client_config_preview(
         "codex",
@@ -534,4 +547,5 @@ def test_codex_merge_inserts_rosetta_provider_before_first_user_table(tmp_path: 
     tui_index = preview.generated.index("[tui]")
     assert model_provider_index < rosetta_table_index < tui_index
     between = preview.generated[model_provider_index:rosetta_table_index]
+    assert between == 'model_provider = "rosetta"\n\n'
     assert 'custom_setting = "keep"' not in between

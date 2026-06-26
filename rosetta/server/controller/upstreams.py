@@ -6,10 +6,10 @@ import sys
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 
 from rosetta.server.database.models import UpstreamNativeApi, UpstreamProvider
@@ -23,6 +23,7 @@ _test_results: dict[str, str] = {}
 
 # 用户可创建的 native_api 值域:不含 `any`(any 专供 mock 占位,DB seed / restore-mock 才写)
 UpstreamNativeApiCreatable = Literal["messages", "completions", "responses"]
+SetupAliasTarget = Literal["codex", "claude", "opencode"]
 
 
 class UpstreamCreate(BaseModel):
@@ -35,15 +36,24 @@ class UpstreamCreate(BaseModel):
     provider: UpstreamProvider = "custom"
     base_url: str
     api_key: str | None = None
-    model: str | None = None
+    model: str = Field(min_length=1)
     enabled: bool = True
+
+    @field_validator("model")
+    @classmethod
+    def _strip_model(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("model 不能为空")
+        return value
 
 
 class UpstreamUpdate(BaseModel):
     """部分更新:所有字段 Optional;`exclude_unset=True` 区分"未传"和"传 null"。
 
-    - 任何字段未传 → 不动
-    - `api_key` / `model` 显式传 `null` → 清空该字段
+    - 任何字段未传 -> 不动
+    - `api_key` 显式传 `null` -> 清空该字段
+    - `model` 传值可更新,但不能传 `null` 或空字符串
     """
 
     model_config = ConfigDict(extra="forbid", protected_namespaces=())
@@ -55,6 +65,16 @@ class UpstreamUpdate(BaseModel):
     api_key: str | None = None
     model: str | None = None
     enabled: bool | None = None
+
+    @field_validator("model")
+    @classmethod
+    def _strip_model(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("model 不能为空")
+        return value
 
 
 class UpstreamOut(BaseModel):
@@ -72,6 +92,10 @@ class UpstreamOut(BaseModel):
     api_key: str | None = None
     test_result: str | None = None
 
+
+class SetupAliasOut(BaseModel):
+    target: SetupAliasTarget
+    alias: str
 
 class RestoreMockOut(BaseModel):
     """restore-mock 结果:`created` 表"本次是否真的插入";幂等场景可能为 False。"""
@@ -148,16 +172,21 @@ async def update_upstream(
     payload: UpstreamUpdate,
     repo: UpstreamRepoDep,
 ) -> UpstreamOut:
-    """部分更新 upstream;未传字段不动,`api_key`/`model` 传 null 显式清空。"""
+    """部分更新 upstream;未传字段不动,`api_key` 可传 null 清空,`model` 不能清空。"""
     fields = payload.model_dump(exclude_unset=True)
     if not fields:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="UpstreamUpdate 必须至少提供一个字段",
         )
-    # api_key / model 要区分"未传(保留)"和"传 null(清空)";其他字段用 None=未传
+    # api_key 要区分"未传(保留)"和"传 null(清空)";model 只允许更新为非空字符串。
     api_key_arg = fields.get("api_key", ...)
     model_arg = fields.get("model", ...)
+    if model_arg is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="model 不能为空",
+        )
     try:
         upstream = await repo.update(
             upstream_id,
@@ -215,6 +244,44 @@ async def set_model_default_upstream(
         ) from e
     return UpstreamOut.model_validate(upstream)
 
+
+@router.get("/upstreams/{upstream_id}/setup-aliases", response_model=list[SetupAliasOut])
+async def list_setup_aliases(upstream_id: str, repo: UpstreamRepoDep) -> list[SetupAliasOut]:
+    upstream = await repo.get_by_id(upstream_id)
+    if upstream is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"upstream id={upstream_id} 不存在",
+        )
+    return [
+        SetupAliasOut(target=cast(SetupAliasTarget, target), alias=alias)
+        for target, alias in await repo.list_setup_model_aliases(upstream_id)
+    ]
+
+
+@router.delete(
+    "/upstreams/{upstream_id}/setup-aliases/{target}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_setup_alias(
+    upstream_id: str,
+    target: SetupAliasTarget,
+    repo: UpstreamRepoDep,
+    alias: Annotated[str, Query(min_length=1)],
+) -> Response:
+    upstream = await repo.get_by_id(upstream_id)
+    if upstream is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"upstream id={upstream_id} 不存在",
+        )
+    deleted = await repo.delete_setup_model_alias(upstream_id, target, alias)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"setup alias {target}:{alias} 不存在",
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @router.post("/upstreams/{upstream_id}/test", response_model=UpstreamProbeOut)
 async def test_upstream(upstream_id: str, repo: UpstreamRepoDep) -> UpstreamProbeOut:
