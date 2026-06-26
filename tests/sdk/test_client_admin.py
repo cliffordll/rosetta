@@ -204,6 +204,7 @@ async def test_set_model_enabled(
     assert captured["request"].method == "PUT"
     assert captured["request"].url.path == "/admin/models/gpt-5/enabled"
 
+
 async def test_test_upstream(
     echo_client: tuple[ProxyClient, dict[str, Any]],
 ) -> None:

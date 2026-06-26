@@ -27,6 +27,8 @@ class ModelListRow(TypedDict):
     enabled: bool
     upstreams: str
     has_default: bool
+
+
 MOCK_UPSTREAM_FIELDS: dict[str, Any] = {
     "id": "0" * 32,
     "name": "mock",
@@ -90,9 +92,7 @@ class UpstreamRepo:
         row = result.one_or_none()
         if row is None:
             return (None, None, None)
-        rewrite_model_to = (
-            row.Upstream.model if row.alias == model and row.name != model else None
-        )
+        rewrite_model_to = row.Upstream.model if row.alias == model and row.name != model else None
         return (row.Upstream, row.alias, rewrite_model_to)
 
     async def list_models(self) -> list[ModelListRow]:

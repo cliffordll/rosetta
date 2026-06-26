@@ -1081,17 +1081,15 @@ function UpstreamFormDialog({
   const isCopy = mode === "copy";
 
   const title = isEdit ? "Edit upstream" : isCopy ? "Copy upstream" : "Add upstream";
-  const description = isEdit
-    ? "修改字段后保存;api_key 会回显,留空保存会清空。"
+  const headerDetail = isEdit && initial
+    ? `id: ${initial.id}`
     : isCopy
-      ? `以 '${initial?.name}' 为模板新建一行;name 已加 -copy 后缀避免冲突,api_key 会带过来,可按需修改。`
-      : "";
+      ? `以 '${initial?.name}' 为模板新建一行。`
+      : "新建一行 upstream。";
 
   const keyStatus =
-    isEdit && initial
-      ? initial.api_key
-        ? "当前已保存 api_key;此处已回显。清空后保存会删除该 key。"
-        : "当前未保存 api_key;填值后保存。"
+    isEdit && initial && !initial.api_key
+      ? "当前未保存 api_key;填值后保存。"
       : null;
 
   return (
@@ -1099,7 +1097,11 @@ function UpstreamFormDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+          {headerDetail && (
+            <div className="break-all font-mono text-xs text-muted-foreground">
+              {headerDetail}
+            </div>
+          )}
         </DialogHeader>
         <form onSubmit={(e) => void submit(e)} className="space-y-4">
           <div className="space-y-2">

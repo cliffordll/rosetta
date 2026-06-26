@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -585,7 +584,9 @@ export default function Chat() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Override settings</DialogTitle>
-            <DialogDescription />
+            <div className="break-all font-mono text-xs text-muted-foreground">
+              model api_key 仅本次会话生效。
+            </div>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">

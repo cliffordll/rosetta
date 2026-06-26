@@ -121,7 +121,7 @@ uv run rosetta chat --upstream mock "hello"
 
 ```bash
 # 显式指定 upstream(最稳妥)
-uv run rosetta chat --upstream mock "hello"
+uv run rosetta chat --upstream 00000000000000000000000000000000 "hello"
 
 # 不传 --upstream 时必须传 --model,server 会按 model 匹配 upstream
 uv run rosetta chat --model claude-haiku-4-5 "hello"

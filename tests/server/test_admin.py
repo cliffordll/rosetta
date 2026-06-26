@@ -454,6 +454,7 @@ async def test_model_alias_admin_endpoints(client: AsyncClient) -> None:
     assert cleared.status_code == 200
     assert cleared.json()["alias"] is None
 
+
 async def test_test_upstream_success(client: AsyncClient) -> None:
     captured: dict[str, httpx.Request | None] = {"request": None}
 

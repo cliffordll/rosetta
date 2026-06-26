@@ -91,6 +91,7 @@ class TestModelTables:
         assert models[0]["name"] == "gpt-4o"
         assert models[0]["upstreams"] == "b"
 
+
 class TestUpdate:
     async def test_update_single_field(self, session: AsyncSession) -> None:
         a = await _insert(session, name="a", native_api="messages")

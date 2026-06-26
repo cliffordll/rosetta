@@ -43,9 +43,7 @@ class TestHeaderUpstream:
         picked_expected = await _insert_upstream(session, name="ant-a", model="claude")
         await _insert_upstream(session, name="ant-b", model="gpt")
 
-        selection = await select_upstream(
-            session, header_upstream=picked_expected.id, model="gpt"
-        )
+        selection = await select_upstream(session, header_upstream=picked_expected.id, model="gpt")
 
         assert selection.upstream.id == picked_expected.id
         assert selection.rewrite_model_to is None
@@ -100,9 +98,7 @@ class TestModelUpstream:
         self, session: AsyncSession
     ) -> None:
         await _insert_upstream(session, name="a", model="gpt-4o", is_default=False)
-        picked_expected = await _insert_upstream(
-            session, name="b", model="gpt-4o", is_default=True
-        )
+        picked_expected = await _insert_upstream(session, name="b", model="gpt-4o", is_default=True)
 
         selection = await select_upstream(session, header_upstream=None, model="gpt-4o")
 
@@ -118,9 +114,7 @@ class TestModelUpstream:
             alias="gpt-5-codex",
         )
 
-        selection = await select_upstream(
-            session, header_upstream=None, model="gpt-5-codex"
-        )
+        selection = await select_upstream(session, header_upstream=None, model="gpt-5-codex")
 
         assert selection.upstream.id == picked_expected.id
         assert selection.alias == "gpt-5-codex"

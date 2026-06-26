@@ -39,6 +39,7 @@ class _ModelLike(Protocol):
     @property
     def has_default(self) -> bool: ...
 
+
 app = typer.Typer(
     name="model",
     help="\u7ba1\u7406\u6a21\u578b\u3001\u522b\u540d\u548c upstream \u8def\u7531",
